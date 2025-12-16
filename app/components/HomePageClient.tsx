@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Users, ChevronRight } from 'lucide-react';
+import { Users, ChevronRight, MessageSquare } from 'lucide-react';
 import { Conversation, HomeStats } from '../actions/home';
 
 interface HomePageClientProps {

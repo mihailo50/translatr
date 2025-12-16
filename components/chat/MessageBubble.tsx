@@ -152,11 +152,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
                          </div>
                     ) : (
                         /* Standard Image */
-                        <div className="rounded-lg overflow-hidden border border-white/10">
+                        <div className="rounded-lg overflow-hidden border border-white/10 bg-black/10">
                             <img 
                                 src={message.attachment.url} 
                                 alt="Attachment" 
-                                className="w-full h-auto max-h-[300px] object-cover" 
+                                className="w-full h-auto max-h-[400px] object-contain" 
                                 loading="lazy"
                             />
                         </div>

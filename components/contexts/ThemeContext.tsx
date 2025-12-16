@@ -24,7 +24,11 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   useEffect(() => {
-    // Apply theme class to body
+    // Apply theme class to html and body for proper dark mode
+    const html = document.documentElement;
+    html.classList.remove('theme-aurora', 'theme-midnight');
+    html.classList.add(`theme-${theme}`);
+    
     document.body.classList.remove('theme-aurora', 'theme-midnight');
     document.body.classList.add(`theme-${theme}`);
     localStorage.setItem('translatr-theme', theme);

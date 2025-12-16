@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useTransition } from 'react';
+import React, { useState, useEffect, useTransition, useRef, useCallback } from 'react';
 import { 
   Search, 
   UserPlus, 
@@ -17,11 +17,15 @@ import {
   sendContactRequest, 
   acceptContactRequest, 
   declineContactRequest,
+  getOrCreateDirectRoom,
   ContactUser 
 } from '../../actions/contacts';
+import { createClient } from '../../utils/supabase/client';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
 export default function ContactsPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'friends' | 'search' | 'requests'>('friends');
   
   // Data State
@@ -33,17 +37,103 @@ export default function ContactsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
+  
+  // Refs to access current values in subscription without recreating it
+  const activeTabRef = useRef(activeTab);
+  const searchQueryRef = useRef(searchQuery);
+  
+  // Keep refs in sync
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+  
+  useEffect(() => {
+    searchQueryRef.current = searchQuery;
+  }, [searchQuery]);
 
-  // Initial Load
-  const refreshData = async () => {
+  // Initial Load - wrapped in useCallback to ensure stable reference
+  const refreshData = useCallback(async () => {
     const data = await getContactsData();
     setFriends(data.friends);
     setRequests(data.requests);
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     refreshData();
+
+    // Set up real-time subscription for contact requests
+    const supabase = createClient();
+    let channel: any = null;
+    
+    // Get current user ID and set up subscription
+    const setupSubscription = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Subscribe to changes in the contacts table where current user is involved
+      channel = supabase
+        .channel(`contacts-changes-${user.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*', // Listen to all events (INSERT, UPDATE, DELETE)
+            schema: 'public',
+            table: 'contacts',
+            filter: `or(user_id.eq.${user.id},contact_id.eq.${user.id})`, // Listen to both directions
+          },
+          (payload) => {
+            // When a new request is inserted or status changes, refresh the data
+            if (payload.eventType === 'INSERT') {
+              const newRecord = payload.new as any;
+              // If it's a pending request where current user is the receiver, show notification
+              if (newRecord.status === 'pending' && newRecord.contact_id === user.id) {
+                toast.info('New contact request received!');
+              }
+              refreshData();
+              // Refresh search results if user is searching
+              if (activeTabRef.current === 'search' && searchQueryRef.current.trim().length >= 2) {
+                searchUsers(searchQueryRef.current).then(setSearchResults);
+              }
+            } else if (payload.eventType === 'UPDATE') {
+              const updatedRecord = payload.new as any;
+              const oldRecord = payload.old as any;
+              
+              // If status changed from pending to accepted, notify the sender
+              if (oldRecord.status === 'pending' && updatedRecord.status === 'accepted') {
+                // If current user is the sender (user_id), show notification
+                if (updatedRecord.user_id === user.id) {
+                  toast.success('Your contact request was accepted!');
+                }
+              }
+              
+              // Request status changed (accepted/declined)
+              refreshData();
+              // Refresh search results if user is searching
+              if (activeTabRef.current === 'search' && searchQueryRef.current.trim().length >= 2) {
+                searchUsers(searchQueryRef.current).then(setSearchResults);
+              }
+            } else if (payload.eventType === 'DELETE') {
+              // Request was declined/removed
+              refreshData();
+              // Refresh search results if user is searching
+              if (activeTabRef.current === 'search' && searchQueryRef.current.trim().length >= 2) {
+                searchUsers(searchQueryRef.current).then(setSearchResults);
+              }
+            }
+          }
+        )
+        .subscribe();
+    };
+
+    setupSubscription();
+
+    // Cleanup on unmount
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
   }, []);
 
   // Handle Search Debounce
@@ -64,18 +154,16 @@ export default function ContactsPage() {
     return () => clearTimeout(timer);
   }, [searchQuery, activeTab]);
 
-  // Navigation Handler
-  const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-    e.preventDefault();
-    try {
-        if (window.location.pathname !== href) {
-            window.history.pushState({}, '', href);
-        }
-    } catch (err) {
-        console.warn('Navigation suppressed', err);
-    }
-    const navEvent = new CustomEvent('app-navigate', { detail: href });
-    window.dispatchEvent(navEvent);
+  // Handle opening chat with a contact
+  const handleOpenChat = async (friendId: string) => {
+    startTransition(async () => {
+      const result = await getOrCreateDirectRoom(friendId);
+      if (result.success && result.roomId) {
+        router.push(`/chat/${result.roomId}`);
+      } else {
+        toast.error(result.error || 'Failed to open chat');
+      }
+    });
   };
 
   // Actions
@@ -260,14 +348,14 @@ export default function ContactsPage() {
                     <h3 className="text-xl font-bold text-white truncate mb-1">{friend.display_name}</h3>
                     <p className="text-sm text-white/40 truncate mb-6">{friend.email}</p>
 
-                    <a 
-                      href={`/chat/${friend.id}`} 
-                      onClick={(e) => handleNavigation(e, `/chat/${friend.id}`)}
-                      className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-medium transition-colors flex items-center justify-center gap-2 border border-white/5 group-hover:border-white/20 cursor-pointer"
+                    <button 
+                      onClick={() => handleOpenChat(friend.id)}
+                      disabled={isPending}
+                      className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-medium transition-colors flex items-center justify-center gap-2 border border-white/5 group-hover:border-white/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <MessageSquare size={18} className="text-aurora-indigo" />
                       Message
-                    </a>
+                    </button>
                  </div>
               ))}
             </div>

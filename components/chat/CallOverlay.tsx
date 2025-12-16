@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { LiveKitRoom, useTracks, VideoTrack, useLocalParticipant, useRemoteParticipants, useRoomContext } from '@livekit/components-react';
 import { Track, ExternalE2EEKeyProvider, RoomOptions, RoomEvent } from 'livekit-client';

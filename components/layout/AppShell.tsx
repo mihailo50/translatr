@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import AuroraBackground from '../ui/AuroraBackground';
 import NotificationBell from '../ui/NotificationBell';
@@ -14,38 +15,12 @@ interface AppShellProps {
 
 const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
-  // Track pathname locally for UI decisions
-  const [pathname, setPathname] = useState('/');
-
-  useEffect(() => {
-    // Initial sync
-    if (typeof window !== 'undefined') {
-        try { setPathname(window.location.pathname); } catch (e) {}
-    }
-
-    const handlePathChange = () => {
-        try { setPathname(window.location.pathname); } catch (e) {}
-    };
-
-    const handleAppNavigate = (e: Event) => {
-        const customEvent = e as CustomEvent;
-        if (customEvent.detail) {
-            setPathname(customEvent.detail);
-        }
-    };
-
-    window.addEventListener('popstate', handlePathChange);
-    window.addEventListener('app-navigate', handleAppNavigate);
-    
-    return () => {
-        window.removeEventListener('popstate', handlePathChange);
-        window.removeEventListener('app-navigate', handleAppNavigate);
-    };
-  }, []);
+  const pathname = usePathname();
 
   // Hide shell structure for auth pages
-  if (pathname?.startsWith('/auth')) {
+  const isAuthPage = pathname?.startsWith('/auth');
+  
+  if (isAuthPage) {
     return (
       <>
         {children}

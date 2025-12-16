@@ -290,3 +290,43 @@ export async function unblockUserInRoom(roomId: string) {
 
   return { error: "Block record not found or permission denied" };
 }
+
+// Get or create a direct message room between two users
+export async function getOrCreateDirectRoom(targetUserId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: 'Unauthorized' };
+
+  // Check if users are friends (contact status is accepted)
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('status')
+    .or(`and(user_id.eq.${user.id},contact_id.eq.${targetUserId}),and(user_id.eq.${targetUserId},contact_id.eq.${user.id})`)
+    .single();
+
+  if (!contact || contact.status !== 'accepted') {
+    return { error: 'You can only message accepted contacts' };
+  }
+
+  // Create deterministic room ID for direct messages (sorted user IDs)
+  const userIds = [user.id, targetUserId].sort();
+  const roomId = `direct_${userIds[0]}_${userIds[1]}`;
+
+  // Insert current user as a room member
+  // The INSERT policy allows users to insert themselves
+  const { error: userError } = await supabase
+    .from('room_members')
+    .insert({ room_id: roomId, profile_id: user.id });
+
+  // If error is not a unique constraint violation, log it
+  if (userError && !userError.message?.includes('duplicate') && !userError.code?.includes('23505')) {
+    console.error('Error creating room member (user):', userError);
+    return { error: userError.message };
+  }
+
+  // Note: We can only insert the current user due to RLS (users can only insert themselves)
+  // The target user will need to be added when they first access the room or send a message
+  // This is handled by ensuring they're added when they open the chat page
+  
+  return { success: true, roomId };
+}

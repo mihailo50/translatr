@@ -14,21 +14,8 @@ const AuroraBackground: React.FC<AuroraBackgroundProps> = ({
 }) => {
   const { theme } = useTheme();
 
-  // Configuration for twinkling stars in Midnight theme
-  const stars = [
-    { top: '15%', left: '20%', size: '2px', duration: '4s', delay: '0s' },
-    { top: '45%', left: '75%', size: '1.5px', duration: '5s', delay: '1s' },
-    { top: '70%', left: '15%', size: '2px', duration: '6s', delay: '2s' },
-    { top: '25%', left: '85%', size: '1px', duration: '3.5s', delay: '0.5s' },
-    { top: '85%', left: '60%', size: '1.5px', duration: '4.5s', delay: '1.5s' },
-    { top: '10%', left: '50%', size: '1px', duration: '7s', delay: '3s' },
-    { top: '60%', left: '90%', size: '2px', duration: '5.5s', delay: '2.5s' },
-    { top: '35%', left: '10%', size: '1.5px', duration: '4s', delay: '1.2s' },
-    { top: '5%', left: '90%', size: '2px', duration: '6.5s', delay: '0.2s' },
-  ];
-
   return (
-    <div className={`relative w-full h-full overflow-hidden transition-colors duration-500 ${theme === 'midnight' ? 'bg-midnight-bg' : 'bg-aurora-dark'} ${className}`}>
+    <div className={`relative w-full h-full overflow-hidden transition-colors duration-500 ${theme === 'midnight' ? 'bg-black' : 'bg-aurora-dark'} ${className}`}>
       {/* Background Gradient Base */}
       <div className={`absolute inset-0 z-0 transition-opacity duration-500 ${theme === 'midnight' ? 'opacity-0' : 'opacity-100 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950'}`} />
 
@@ -58,22 +45,6 @@ const AuroraBackground: React.FC<AuroraBackgroundProps> = ({
             {/* Subtle Deep Glows */}
             <div className="absolute -bottom-32 -right-32 w-[600px] h-[600px] bg-indigo-950/20 rounded-full blur-[120px] animate-pulse" style={{ animationDuration: '8s' }} />
             <div className="absolute -bottom-10 -left-10 w-[400px] h-[400px] bg-slate-800/20 rounded-full blur-[100px] animate-pulse" style={{ animationDuration: '10s', animationDelay: '1s' }} />
-
-            {/* Twinkling Stars */}
-            {stars.map((star, i) => (
-                <div
-                    key={i}
-                    className="absolute bg-white rounded-full opacity-20 animate-pulse"
-                    style={{
-                        top: star.top,
-                        left: star.left,
-                        width: star.size,
-                        height: star.size,
-                        animationDuration: star.duration,
-                        animationDelay: star.delay
-                    }}
-                />
-            ))}
         </div>
       )}
 

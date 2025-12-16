@@ -34,7 +34,11 @@ export async function initiateCall(roomId: string, userId: string, userName: str
       canSubscribe: true,
     });
 
-    const token = at.toJwt();
+    // Handle both sync and async toJwt() (some SDK versions return Promise)
+    const jwtResult = at.toJwt();
+    const token = (jwtResult && typeof jwtResult.then === 'function') 
+      ? await jwtResult 
+      : jwtResult;
 
     // 2. Broadcast 'call_started' system message via LiveKit Data Channel
     // This allows other users in the chat to see an "Incoming Call" modal

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { Room, RoomEvent, DataPacket_Kind, RemoteParticipant, LocalParticipant } from 'livekit-client';
+import { Room, RoomEvent, DataPacket_Kind, RemoteParticipant, LocalParticipant, DisconnectReason } from 'livekit-client';
 import { deriveKey, encryptData, decryptData } from '../utils/encryption';
 
 export interface ChatMessage {
@@ -31,12 +31,12 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
   
   const roomRef = useRef<Room | null>(null);
 
-  // Initialize Encryption Key
+  // Initialize Encryption Key (once per room)
   useEffect(() => {
     const initKey = async () => {
-        if (!roomId) return;
-        const key = await deriveKey(roomId);
-        setEncryptionKey(key);
+      if (!roomId) return;
+      const key = await deriveKey(roomId);
+      setEncryptionKey(key);
     };
     initKey();
   }, [roomId]);
@@ -45,15 +45,80 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
     let mounted = true;
 
     const connectToRoom = async () => {
+      // Avoid reconnecting if a room already exists
+      if (roomRef.current) {
+        return;
+      }
+
       try {
-        const response = await fetch('/app/api/livekit/token', {
+        const response = await fetch('/api/livekit/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ room_id: roomId, username: userName }),
+          body: JSON.stringify({ room_id: roomId, user_id: userId, username: userName }),
         });
 
-        if (!response.ok) throw new Error('Failed to fetch token');
-        const { token } = await response.json();
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const errorMessage = errorData.error || 'Failed to fetch token';
+          console.error('Token API error:', response.status, errorMessage);
+          throw new Error(errorMessage);
+        }
+        
+        const responseText = await response.text();
+        console.log('Token API raw response:', responseText.substring(0, 200));
+        
+        let responseData;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch (e) {
+          console.error('Failed to parse token API response as JSON:', e);
+          throw new Error('Invalid JSON response from token API');
+        }
+        
+        console.log('Token API parsed response:', {
+          hasToken: 'token' in responseData,
+          tokenType: typeof responseData.token,
+          responseKeys: Object.keys(responseData),
+          tokenIsString: typeof responseData.token === 'string',
+          tokenValue: typeof responseData.token === 'string' ? responseData.token.substring(0, 50) + '...' : responseData.token
+        });
+        
+        // Extract token and ensure it's a string
+        let token = responseData.token;
+        
+        // If token is an object, try to extract the string value
+        if (typeof token === 'object' && token !== null) {
+          console.warn('Token is an object, attempting to extract string value. Object keys:', Object.keys(token));
+          // Try common object properties that might contain the token
+          if ('token' in token && typeof token.token === 'string') {
+            token = token.token;
+          } else if ('value' in token && typeof token.value === 'string') {
+            token = token.value;
+          } else if ('access_token' in token && typeof token.access_token === 'string') {
+            token = token.access_token;
+          } else {
+            // Last resort: try to stringify and parse
+            const tokenStr = JSON.stringify(token);
+            console.error('Could not extract token string from object. Full object:', tokenStr.substring(0, 200));
+            throw new Error('Token is an object and could not be converted to string');
+          }
+        }
+        
+        // Final validation - ensure it's a string
+        if (typeof token !== 'string') {
+          console.error('Token is still not a string after extraction:', typeof token, token);
+          throw new Error('Token must be a string');
+        }
+        
+        // Validate token is a string
+        if (!token || typeof token !== 'string') {
+          console.error('Invalid token received:', {
+            type: typeof token,
+            value: token,
+            responseData: responseData
+          });
+          throw new Error('Invalid token format received from server');
+        }
 
         if (!mounted) return;
 
@@ -71,11 +136,25 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         setRoom(newRoom);
 
         newRoom.on(RoomEvent.Connected, () => {
+          console.log('LiveKit room connected successfully');
           if (mounted) setIsConnected(true);
         });
 
-        newRoom.on(RoomEvent.Disconnected, () => {
+        newRoom.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
+          console.log('LiveKit room disconnected:', reason ? String(reason) : 'unknown reason');
           if (mounted) setIsConnected(false);
+        });
+
+        newRoom.on(RoomEvent.ConnectionQualityChanged, (quality) => {
+          console.log('Connection quality changed:', quality);
+        });
+
+        newRoom.on(RoomEvent.Reconnecting, () => {
+          console.log('LiveKit reconnecting...');
+        });
+
+        newRoom.on(RoomEvent.Reconnected, () => {
+          console.log('LiveKit reconnected');
         });
 
         newRoom.on(RoomEvent.DataReceived, async (payload: Uint8Array, participant?: RemoteParticipant | LocalParticipant) => {
@@ -128,25 +207,65 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
         if (!wsUrl) throw new Error("NEXT_PUBLIC_LIVEKIT_URL is not defined");
         
-        await newRoom.connect(wsUrl, token);
+        // Ensure token is a string before connecting
+        if (typeof token !== 'string') {
+          console.error('Token is not a string before connect:', typeof token, token);
+          throw new Error('Token must be a string');
+        }
+        
+        // Validate token format (JWT tokens are base64 encoded strings with dots)
+        if (!token.includes('.')) {
+          console.error('Token does not appear to be a valid JWT (missing dots):', token.substring(0, 50));
+          throw new Error('Invalid JWT token format');
+        }
+        
+        console.log('Connecting to LiveKit:', {
+          url: wsUrl,
+          tokenLength: token.length,
+          tokenPreview: token.substring(0, 20) + '...',
+          roomId,
+          identity: userId
+        });
+        
+        try {
+          await newRoom.connect(wsUrl, token);
+          console.log('LiveKit connect() call completed successfully');
+        } catch (connectError) {
+          console.error('Error during room.connect():', connectError);
+          throw connectError;
+        }
 
       } catch (err) {
-        console.error(err);
-        if (mounted) setError(err instanceof Error ? err.message : 'Unknown error');
+        console.error('LiveKit connection error:', err);
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        if (mounted) {
+          setError(errorMessage);
+          // If it's a server misconfiguration error, show a helpful message
+          if (errorMessage.includes('Server misconfigured') || errorMessage.includes('Failed to fetch token')) {
+            console.warn('LiveKit is not configured. Chat will work but real-time features may be limited.');
+          }
+        }
       }
     };
 
-    if (roomId && userName) {
+    if (roomId && userName && !roomRef.current) {
       connectToRoom();
     }
 
     return () => {
+      console.log('Cleaning up LiveKit connection...', { roomId, userName, userId });
       mounted = false;
       if (roomRef.current) {
-        roomRef.current.disconnect();
+        try {
+          roomRef.current.disconnect();
+          console.log('LiveKit room disconnected in cleanup');
+        } catch (cleanupError) {
+          console.error('Error during cleanup disconnect:', cleanupError);
+        }
+        roomRef.current = null;
       }
     };
-  }, [roomId, userName, userId, encryptionKey]);
+  }, [roomId, userName, userId]); // omit encryptionKey to prevent reconnect/disconnect loop
 
   // Fast Client-Side Messaging
   const sendRealtimeMessage = useCallback(async (text: string, lang: string = 'en', attachment?: ChatMessage['attachment']) => {

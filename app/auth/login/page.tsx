@@ -1,28 +1,16 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import AuroraBackground from '../../../components/ui/AuroraBackground';
 import { login } from '../actions';
 import { Mail, Lock, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-
-
-  const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-    e.preventDefault();
-    try {
-        if (window.location.pathname !== href) {
-            window.history.pushState({}, '', href);
-        }
-    } catch (err) {
-        console.warn('Navigation suppressed', err);
-    }
-    const navEvent = new CustomEvent('app-navigate', { detail: href });
-    window.dispatchEvent(navEvent);
-  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -36,11 +24,9 @@ export default function LoginPage() {
         if (result?.error) {
             setError(result.error);
         } else if (result?.success) {
-             // Handle redirect manually for client-side routing if provided, otherwise default to home
+             // Use Next.js router for proper navigation
              const target = result.redirect || '/';
-             // Create a synthetic event or just call dispatch directly
-             window.history.pushState({}, '', target);
-             window.dispatchEvent(new CustomEvent('app-navigate', { detail: target }));
+             router.push(target);
         }
     } catch (e) {
         console.error(e);
@@ -131,7 +117,10 @@ export default function LoginPage() {
                 Don't have an account?{' '}
                 <a 
                     href="/auth/register" 
-                    onClick={(e) => handleNavigation(e, '/auth/register')}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      router.push('/auth/register');
+                    }}
                     className="text-aurora-indigo hover:text-aurora-pink transition-colors font-medium cursor-pointer"
                 >
                   Sign Up

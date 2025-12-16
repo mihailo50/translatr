@@ -59,16 +59,45 @@ export default function RootLayout({
          <style dangerouslySetInnerHTML={{__html: `
             @layer base {
                 body {
-                    @apply bg-aurora-dark text-slate-100 antialiased overflow-hidden selection:bg-aurora-purple/30 selection:text-white font-sans;
+                    @apply antialiased overflow-hidden font-sans;
+                    transition: background-color 0.3s ease, color 0.3s ease;
+                }
+                
+                /* Aurora theme (default) */
+                body.theme-aurora {
+                    @apply bg-aurora-dark text-slate-100;
+                }
+                body.theme-aurora ::selection {
+                    background-color: rgba(139, 92, 246, 0.3);
+                    color: white;
+                }
+                
+                /* Midnight theme (dark mode) */
+                body.theme-midnight {
+                    @apply bg-black text-white;
+                }
+                body.theme-midnight ::selection {
+                    background-color: rgba(255, 255, 255, 0.2);
+                    color: white;
                 }
             }
             @layer utilities {
-                .glass-strong {
+                /* Aurora theme glass effects */
+                body.theme-aurora .glass-strong {
                     @apply backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl;
                 }
-                .glass {
+                body.theme-aurora .glass {
                     @apply backdrop-blur-md bg-white/5 border border-white/5;
                 }
+                
+                /* Midnight theme glass effects (darker) */
+                body.theme-midnight .glass-strong {
+                    @apply backdrop-blur-xl bg-white/3 border border-white/5 shadow-2xl;
+                }
+                body.theme-midnight .glass {
+                    @apply backdrop-blur-md bg-white/3 border border-white/3;
+                }
+                
                 .scrollbar-thin::-webkit-scrollbar {
                     width: 5px;
                     height: 5px;
@@ -76,8 +105,11 @@ export default function RootLayout({
                 .scrollbar-thin::-webkit-scrollbar-track {
                     @apply bg-transparent;
                 }
-                .scrollbar-thin::-webkit-scrollbar-thumb {
+                body.theme-aurora .scrollbar-thin::-webkit-scrollbar-thumb {
                     @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
+                }
+                body.theme-midnight .scrollbar-thin::-webkit-scrollbar-thumb {
+                    @apply bg-white/5 rounded-full hover:bg-white/10 transition-colors;
                 }
             }
          `}} />

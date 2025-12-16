@@ -1,7 +1,10 @@
+'use client';
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Phone, Video, MoreVertical, Ban, Trash2, X, Unlock, Search, Users, Circle, Bell, Image as ImageIcon, Languages, ArrowLeft, ChevronDown } from 'lucide-react';
 import { useLiveKitChat } from '../../hooks/useLiveKitChat';
 import { useUserStatus, UserStatus } from '../../hooks/useUserStatus';
+import { createClient } from '../../utils/supabase/client';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import LiveKitCallModal from './LiveKitCallModal';
@@ -42,6 +45,18 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     userPreferredLanguage = 'en',
     roomDetails
 }) => {
+  const supabase = createClient();
+  // Debug logging
+  useEffect(() => {
+    console.log('ChatRoom - roomDetails:', {
+      name: roomDetails?.name,
+      room_type: roomDetails?.room_type,
+      participants: roomDetails?.participants,
+      participantsLength: roomDetails?.participants?.length,
+      firstParticipant: roomDetails?.participants?.[0]
+    });
+  }, [roomDetails]);
+
   if (!roomDetails) {
       return <div className="flex h-full items-center justify-center text-white/50">Loading room...</div>;
   }
@@ -50,6 +65,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   
   // Presence Hook
   const { onlineUsers, updateUserStatus } = useUserStatus({ id: userId });
+  const [partnerProfileStatus, setPartnerProfileStatus] = useState<UserStatus | null>(null);
 
   const [isCallModalOpen, setIsCallModalOpen] = useState(false);
   const [activeCallToken, setActiveCallToken] = useState<string | null>(null);
@@ -71,13 +87,29 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   const [debouncedQuery, setDebouncedQuery] = useState('');
 
   // --- Derived Status Logic ---
+  const directPartnerId = roomDetails.room_type === 'direct' ? roomDetails.participants?.[0]?.id : undefined;
+
+  // Fetch fallback status from profiles if presence hasn't loaded yet
+  useEffect(() => {
+      if (!directPartnerId) return;
+      const fetchStatus = async () => {
+          const { data, error } = await supabase
+              .from('profiles')
+              .select('status')
+              .eq('id', directPartnerId)
+              .single();
+          if (!error && data?.status) {
+              setPartnerProfileStatus(data.status as UserStatus);
+          }
+      };
+      fetchStatus();
+  }, [directPartnerId, supabase]);
+
   const directPartnerStatus: UserStatus = useMemo(() => {
-      if (roomDetails.room_type === 'direct' && roomDetails.participants?.[0]) {
-          const pid = roomDetails.participants[0].id;
-          return onlineUsers[pid] || 'offline';
-      }
-      return 'offline';
-  }, [roomDetails, onlineUsers]);
+      if (!directPartnerId) return 'online'; // default optimistic
+      const presenceStatus = onlineUsers[directPartnerId];
+      return presenceStatus || partnerProfileStatus || 'online';
+  }, [directPartnerId, onlineUsers, partnerProfileStatus]);
 
   const onlineGroupMembers = useMemo(() => {
       if (roomDetails.room_type !== 'group' || !roomDetails.participants) return [];
@@ -324,7 +356,16 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                   </div>
                   <div>
                     <h2 className="text-white font-semibold text-lg leading-tight flex items-center gap-2">
-                        {roomDetails.name}
+                        {(() => {
+                          // Prefer participant name, fallback to roomDetails.name, then "Loading..."
+                          if (roomDetails.room_type === 'direct' && roomDetails.participants?.[0]?.name) {
+                            return roomDetails.participants[0].name;
+                          }
+                          if (roomDetails.name && roomDetails.name !== 'Loading...' && roomDetails.name !== 'Unknown') {
+                            return roomDetails.name;
+                          }
+                          return 'Loading...';
+                        })()}
                         {isBlocked && <Ban size={14} className="text-red-400" />}
                     </h2>
                     <div className="text-white/40 text-xs flex items-center gap-1.5 mt-0.5">
@@ -373,13 +414,22 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                        ) : (
                            /* Direct Chat Status Text */
                            <>
-                             {directPartnerStatus === 'offline' ? (
-                                <span>Offline</span>
+                             {roomDetails.participants?.[0]?.id ? (
+                               // We have participant data, show real status
+                               directPartnerStatus === 'offline' ? (
+                                 <span>Offline</span>
+                               ) : (
+                                 <span className="flex items-center gap-1.5">
+                                   <span className={`w-1.5 h-1.5 rounded-full ${getStatusColor(directPartnerStatus)} animate-pulse`}></span>
+                                   {getStatusText(directPartnerStatus)}
+                                 </span>
+                               )
+                             ) : roomDetails.name && roomDetails.name !== 'Loading...' && roomDetails.name !== 'Unknown' ? (
+                               // No participant data but we have a name, show offline as default
+                               <span>Offline</span>
                              ) : (
-                                <span className="flex items-center gap-1.5">
-                                    <span className={`w-1.5 h-1.5 rounded-full ${getStatusColor(directPartnerStatus)} animate-pulse`}></span>
-                                    {getStatusText(directPartnerStatus)}
-                                </span>
+                               // No data at all, show loading
+                               <span>Loading...</span>
                              )}
                            </>
                        )}

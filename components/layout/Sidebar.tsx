@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { NavItem } from '../../types';
 import { 
   MessageSquare, 
@@ -27,66 +28,22 @@ const navItems: NavItem[] = [
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
+  const router = useRouter();
+  const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
-  
-  // Use local state tracked to window.location for robust hybrid routing
-  const [currentPath, setCurrentPath] = useState('/');
-
-  useEffect(() => {
-    // Initial sync
-    if (typeof window !== 'undefined') {
-        try { setCurrentPath(window.location.pathname); } catch (e) {}
-    }
-
-    const handlePathChange = () => {
-      try { setCurrentPath(window.location.pathname); } catch (e) {}
-    };
-
-    const handleAppNavigate = (e: Event) => {
-        const customEvent = e as CustomEvent;
-        if (customEvent.detail) {
-            setCurrentPath(customEvent.detail);
-        }
-    };
-
-    // Listen to popstate (browser back/forward)
-    window.addEventListener('popstate', handlePathChange);
-    window.addEventListener('app-navigate', handleAppNavigate);
-    
-    return () => {
-      window.removeEventListener('popstate', handlePathChange);
-      window.removeEventListener('app-navigate', handleAppNavigate);
-    };
-  }, []);
 
   const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     e.preventDefault();
-    
-    // Attempt to update browser URL, but ignore failures in restricted envs
-    try {
-        if (window.location.pathname !== href) {
-            window.history.pushState({}, '', href);
-        }
-    } catch (err) {
-        // SecurityError or similar: ignore and proceed with internal routing
-        console.warn('Navigation: URL update suppressed by environment.', err);
-    }
-
-    // Dispatch custom event to notify App and other components
-    const navEvent = new CustomEvent('app-navigate', { detail: href });
-    window.dispatchEvent(navEvent);
-
+    router.push(href);
     if (window.innerWidth < 768) onClose();
   };
 
   // Helper to determine if link is active
   const isLinkActive = (href: string) => {
-    const path = currentPath || '';
-    
     if (href === '/') {
-        return path === '/' || path.startsWith('/chat');
+        return pathname === '/' || pathname?.startsWith('/chat');
     }
-    return path.startsWith(href);
+    return pathname?.startsWith(href);
   };
 
   return (

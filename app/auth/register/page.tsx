@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import AuroraBackground from '../../../components/ui/AuroraBackground';
 import { signup } from '../actions';
 import { Mail, Lock, ShieldCheck, Loader2, ArrowRight, Globe, Eye, EyeOff } from 'lucide-react';
@@ -19,6 +20,7 @@ const LANGUAGES = [
 ];
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -35,10 +37,11 @@ export default function RegisterPage() {
         const htmlInput = input as HTMLInputElement;
         
         // Always apply styles to inputs that could be autofilled
-        // This ensures autofilled inputs get the dark theme
-        htmlInput.style.setProperty('background-color', '#0a0a0a', 'important');
-        htmlInput.style.setProperty('-webkit-box-shadow', '0 0 0 1000px #0a0a0a inset', 'important');
-        htmlInput.style.setProperty('box-shadow', '0 0 0 1000px #0a0a0a inset', 'important');
+        // This ensures autofilled inputs get the dark theme matching login page
+        // bg-white/5 = rgba(255, 255, 255, 0.05)
+        htmlInput.style.setProperty('background-color', 'rgba(255, 255, 255, 0.05)', 'important');
+        htmlInput.style.setProperty('-webkit-box-shadow', '0 0 0 1000px rgba(255, 255, 255, 0.05) inset', 'important');
+        htmlInput.style.setProperty('box-shadow', '0 0 0 1000px rgba(255, 255, 255, 0.05) inset', 'important');
         htmlInput.style.setProperty('-webkit-text-fill-color', 'white', 'important');
         htmlInput.style.setProperty('color', 'white', 'important');
         htmlInput.style.setProperty('caret-color', 'white', 'important');
@@ -92,18 +95,6 @@ export default function RegisterPage() {
     };
   }, []);
 
-  const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-    e.preventDefault();
-    try {
-        if (window.location.pathname !== href) {
-            window.history.pushState({}, '', href);
-        }
-    } catch (err) {
-        console.warn('Navigation suppressed', err);
-    }
-    const navEvent = new CustomEvent('app-navigate', { detail: href });
-    window.dispatchEvent(navEvent);
-  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -117,9 +108,9 @@ export default function RegisterPage() {
         if (result?.error) {
             setError(result.error);
         } else if (result?.success) {
+             // Use Next.js router for proper navigation
              const target = result.redirect || '/auth/verify-email';
-             window.history.pushState({}, '', target);
-             window.dispatchEvent(new CustomEvent('app-navigate', { detail: target }));
+             router.push(target);
         }
     } catch (e) {
         console.error(e);
@@ -132,7 +123,7 @@ export default function RegisterPage() {
   return (
     <AuroraBackground showOrbs={true}>
       <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="glass-strong w-full max-w-md p-8 rounded-3xl border-t border-white/20 relative overflow-hidden">
+        <div className="glass-strong w-full max-w-md p-8 rounded-3xl border-t-2 border-l border-r border-white/20 relative overflow-hidden">
           
           <div className="mb-8 text-center">
             <h1 className="text-3xl font-bold text-white mb-2">Join Translatr</h1>
@@ -149,13 +140,9 @@ export default function RegisterPage() {
                     name="email"
                     type="email"
                     placeholder="you@example.com"
-                    autoComplete="one-time-code"
+                    autoComplete="off"
                     data-lpignore="true"
                     data-form-type="other"
-                    style={{ 
-                      WebkitTextFillColor: 'white',
-                      WebkitBackgroundClip: 'text' 
-                    }}
                     className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-aurora-indigo/50 focus:border-transparent transition-all"
                     required
                   />
@@ -188,13 +175,9 @@ export default function RegisterPage() {
                     name="password"
                     type={showPassword ? "text" : "password"}
                     placeholder="Min 8 characters"
-                    autoComplete="new-password"
+                    autoComplete="off"
                     data-lpignore="true"
                     data-form-type="other"
-                    style={{ 
-                      WebkitTextFillColor: 'white',
-                      WebkitBackgroundClip: 'text' 
-                    }}
                     className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-10 text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-aurora-purple/50 focus:border-transparent transition-all"
                     required
                     minLength={8}
@@ -217,13 +200,9 @@ export default function RegisterPage() {
                     name="confirmPassword"
                     type={showConfirmPassword ? "text" : "password"}
                     placeholder="Confirm password"
-                    autoComplete="new-password"
+                    autoComplete="off"
                     data-lpignore="true"
                     data-form-type="other"
-                    style={{ 
-                      WebkitTextFillColor: 'white',
-                      WebkitBackgroundClip: 'text' 
-                    }}
                     className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-10 text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-aurora-pink/50 focus:border-transparent transition-all"
                     required
                     minLength={8}
@@ -264,7 +243,10 @@ export default function RegisterPage() {
                 Already have an account?{' '}
                 <a 
                     href="/auth/login" 
-                    onClick={(e) => handleNavigation(e, '/auth/login')}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      router.push('/auth/login');
+                    }}
                     className="text-aurora-indigo hover:text-aurora-pink transition-colors font-medium cursor-pointer"
                 >
                   Sign In
