@@ -1,22 +1,24 @@
 @import "tailwindcss";
 
+/* 1. MOVE THIS TO THE VERY TOP */
+/* This kills the background and forces text color using the transition + shadow hack */
+input:-webkit-autofill,
+input:-webkit-autofill:hover, 
+input:-webkit-autofill:focus, 
+input:-webkit-autofill:active,
+input:-internal-autofill-selected {
+    -webkit-text-fill-color: white !important;
+    color: white !important;
+    /* This shadow "paints" over the browser's blue/yellow */
+    -webkit-box-shadow: 0 0 0px 1000px #0a0a0a inset !important;
+    box-shadow: 0 0 0px 1000px #0a0a0a inset !important;
+    /* This delay prevents the browser from changing the color back */
+    transition: background-color 5000000s ease-in-out 0s !important;
+}
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #0a0a0a;
+  --foreground: #ededed;
 }
 
 body {

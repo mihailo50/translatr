@@ -9,9 +9,19 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@livekit/components-react": "^2.9.17",
+    "@livekit/components-styles": "^1.2.0",
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.87.3",
+    "livekit-client": "^2.16.1",
+    "livekit-server-sdk": "^2.15.0",
+    "lucide-react": "^0.561.0",
     "next": "16.0.10",
+    "openai": "^6.13.0",
     "react": "19.2.1",
-    "react-dom": "19.2.1"
+    "react-dom": "19.2.1",
+    "sonner": "^2.0.7",
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
