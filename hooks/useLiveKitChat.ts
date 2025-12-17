@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Room, RoomEvent, DataPacket_Kind, RemoteParticipant, LocalParticipant, DisconnectReason } from 'livekit-client';
+import { createClient } from '../utils/supabase/client';
 import { deriveKey, encryptData, decryptData } from '../utils/encryption';
 
 export interface ChatMessage {
@@ -30,6 +31,8 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
   const [encryptionKey, setEncryptionKey] = useState<CryptoKey | null>(null);
   
   const roomRef = useRef<Room | null>(null);
+  const messagesLoadedRef = useRef(false);
+  const supabase = createClient();
 
   // Initialize Encryption Key (once per room)
   useEffect(() => {
@@ -266,6 +269,130 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
       }
     };
   }, [roomId, userName, userId]); // omit encryptionKey to prevent reconnect/disconnect loop
+
+  // Load persisted messages from Supabase once the encryption key is available
+  useEffect(() => {
+    const loadHistory = async () => {
+      if (!roomId || !userId || !encryptionKey) {
+        console.log('Skipping message load:', { roomId: !!roomId, userId: !!userId, encryptionKey: !!encryptionKey });
+        return;
+      }
+      
+      console.log('Loading message history for room:', roomId);
+      
+      // Prevent multiple loads for the same room
+      if (messagesLoadedRef.current) {
+        console.log('Messages already loaded for this room, skipping');
+        return;
+      }
+      
+      // First, ensure user is a member of the room to avoid RLS recursion issues
+      const { error: memberError } = await supabase
+        .from('room_members')
+        .insert({ room_id: roomId, profile_id: userId })
+        .select()
+        .single();
+      
+      // Ignore duplicate errors (user is already a member)
+      const isDuplicateError = memberError && (
+        memberError.code === '23505' || 
+        memberError.message?.includes('duplicate') ||
+        memberError.message?.includes('unique')
+      );
+      
+      if (memberError && !isDuplicateError) {
+        console.warn('Could not ensure room membership:', memberError);
+      }
+
+      // Always use server action fallback for reliability (bypasses RLS issues)
+      // This is more reliable than direct client queries which can hit RLS recursion
+      try {
+        const { getMessages } = await import('../actions/chat');
+        const result = await getMessages(roomId);
+        
+        if (result.success && result.messages) {
+          console.log(`Processing ${result.messages.length} messages for room ${roomId}`);
+          // Process the messages
+          const history: ChatMessage[] = [];
+          for (const row of result.messages) {
+            const isEncrypted = row.metadata?.encrypted;
+            const iv = row.metadata?.iv;
+            const attachment = row.metadata?.attachment_meta;
+
+            let text = row.original_text as string;
+            if (isEncrypted && iv) {
+              try {
+                text = await decryptData(row.original_text as string, iv, encryptionKey);
+              } catch (e) {
+                console.error('Failed to decrypt history message', row.id, e);
+                text = '[Encrypted message - decryption failed]';
+              }
+            }
+
+            history.push({
+              id: row.id,
+              type: 'CHAT_MESSAGE',
+              text,
+              lang: row.original_language || 'en',
+              translations: row.translations || {},
+              senderId: row.sender_id,
+              senderName: row.sender_id,
+              timestamp: new Date(row.created_at).getTime(),
+              isMe: row.sender_id === userId,
+              isEncrypted: !!isEncrypted,
+              iv,
+              attachment
+            });
+          }
+          console.log(`Setting ${history.length} messages in state`, {
+            roomId,
+            userId,
+            firstMessage: history[0] ? { id: history[0].id, text: history[0].text.substring(0, 50) } : null,
+            lastMessage: history[history.length - 1] ? { id: history[history.length - 1].id } : null
+          });
+          
+          // Use functional update to ensure we don't overwrite with empty array
+          setMessages((prev) => {
+            // Merge with existing messages to avoid duplicates
+            const existingIds = new Set(prev.map(m => m.id));
+            const newMessages = history.filter(m => !existingIds.has(m.id));
+            const merged = [...prev, ...newMessages].sort((a, b) => a.timestamp - b.timestamp);
+            console.log(`Merged messages: ${prev.length} existing + ${newMessages.length} new = ${merged.length} total`);
+            messagesLoadedRef.current = true;
+            return merged;
+          });
+          return;
+        } else {
+          // No messages or error - log but don't clear existing messages
+          console.warn('No messages loaded from server action:', {
+            success: result.success,
+            error: result.error,
+            messageCount: result.messages?.length || 0,
+            roomId,
+            currentMessagesCount: messages.length
+          });
+          // Don't clear messages - keep existing ones if any
+          // Only set empty if we truly have no messages
+          if (messages.length === 0) {
+            setMessages([]);
+          }
+          return;
+        }
+      } catch (fallbackError) {
+        console.error('Failed to load messages via server action:', fallbackError);
+        // Set empty messages on error to avoid blocking UI
+        setMessages([]);
+        return;
+      }
+    };
+
+    loadHistory();
+    
+    // Reset loaded flag when room changes
+    return () => {
+      messagesLoadedRef.current = false;
+    };
+  }, [roomId, userId, encryptionKey, supabase]);
 
   // Fast Client-Side Messaging
   const sendRealtimeMessage = useCallback(async (text: string, lang: string = 'en', attachment?: ChatMessage['attachment']) => {

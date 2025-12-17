@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Users, ChevronRight, MessageSquare } from 'lucide-react';
 import { Conversation, HomeStats } from '../actions/home';
+import { createClient } from '../../utils/supabase/client';
+import { deriveKey, decryptData } from '../../utils/encryption';
 
 interface HomePageClientProps {
   homeData: {
@@ -17,6 +19,27 @@ interface HomePageClientProps {
 
 export default function HomePageClient({ homeData }: HomePageClientProps) {
   const [showAll, setShowAll] = useState(false);
+  const [conversations, setConversations] = useState<Conversation[]>(homeData.conversations);
+  const supabase = createClient();
+
+  // Sync conversations when homeData changes (e.g., on page refresh)
+  useEffect(() => {
+    console.log('Syncing conversations from homeData:', homeData.conversations);
+    // Ensure all conversations have _lastMessageTimestamp for proper sorting
+    const syncedConversations = homeData.conversations.map(conv => {
+      // If timestamp is missing, try to infer from time string or set to 0
+      if (!(conv as any)._lastMessageTimestamp) {
+        // Try to parse time string to get approximate timestamp
+        // This is a fallback - ideally the server should always provide the timestamp
+        return {
+          ...conv,
+          _lastMessageTimestamp: 0, // Will be updated by real-time subscription
+        };
+      }
+      return conv;
+    });
+    setConversations(syncedConversations);
+  }, [homeData.conversations]);
 
   const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     e.preventDefault();
@@ -31,7 +54,232 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
     window.dispatchEvent(navEvent);
   };
 
-  const displayedConversations = showAll ? homeData.conversations : homeData.conversations.slice(0, 3);
+  // Server-side decryption helper (simplified for client)
+  const decryptMessageClient = useCallback(async (cipher: string, iv: string, roomId: string): Promise<string> => {
+    try {
+      const key = await deriveKey(roomId);
+      return await decryptData(cipher, iv, key);
+    } catch (e) {
+      console.error('Client decryption error:', e);
+      return '🔒 Encrypted message';
+    }
+  }, []);
+
+  // Track room IDs to avoid unnecessary re-subscriptions
+  const roomIdsRef = useRef<string>('');
+  
+  // Set up real-time subscription for new messages
+  useEffect(() => {
+    const setupRealtime = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get all room IDs the user is involved in
+      const roomIds = conversations.map(c => c.id);
+      const roomIdsStr = roomIds.join(',');
+      
+      // Only set up subscriptions if room IDs have changed
+      if (roomIdsRef.current === roomIdsStr) {
+        return;
+      }
+      roomIdsRef.current = roomIdsStr;
+      
+      if (roomIds.length === 0) {
+        console.log('No conversations to subscribe to');
+        return;
+      }
+
+      console.log('Setting up real-time subscriptions for rooms:', roomIds);
+
+      // Subscribe to new messages in all user's rooms
+      // Create separate subscriptions for each room (Supabase doesn't support IN filter for real-time)
+      const channels: any[] = [];
+      
+      roomIds.forEach((roomId) => {
+        const channel = supabase
+          .channel(`home-messages-${roomId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'messages',
+              filter: `room_id=eq.${roomId}`,
+            },
+            async (payload) => {
+              console.log('New message received in real-time:', payload);
+              const newMessage = payload.new as any;
+              const messageRoomId = newMessage.room_id;
+
+              // Get sender profile
+              const { data: senderProfile } = await supabase
+                .from('profiles')
+                .select('id, display_name, email, avatar_url')
+                .eq('id', newMessage.sender_id)
+                .single();
+
+              // Decrypt message if needed
+              let messageText = newMessage.original_text || '';
+              const metadata = newMessage.metadata as any;
+              
+              if (metadata?.encrypted && metadata?.iv && messageText) {
+                try {
+                  messageText = await decryptMessageClient(messageText, metadata.iv, messageRoomId);
+                } catch (e) {
+                  messageText = '🔒 Encrypted message';
+                }
+              } else if (!messageText || messageText.trim() === '') {
+                if (metadata?.attachment_meta) {
+                  const attachment = metadata.attachment_meta;
+                  if (attachment.type === 'image') {
+                    messageText = attachment.viewOnce ? '📸 View once photo' : '📷 Photo';
+                  } else {
+                    messageText = `📎 ${attachment.name || 'File'}`;
+                  }
+                } else {
+                  messageText = 'Message';
+                }
+              }
+
+              // Truncate long messages
+              if (messageText.length > 50) {
+                messageText = messageText.substring(0, 50) + '...';
+              }
+
+              // Format sender name
+              let senderName = 'You';
+              if (newMessage.sender_id !== user.id) {
+                senderName = senderProfile?.display_name || senderProfile?.email?.split('@')[0] || 'Someone';
+              }
+
+              // Format time
+              const messageDate = new Date(newMessage.created_at);
+              const now = new Date();
+              const diffMs = now.getTime() - messageDate.getTime();
+              const diffMins = Math.floor(diffMs / 60000);
+              const diffHours = Math.floor(diffMs / 3600000);
+              const diffDays = Math.floor(diffMs / 86400000);
+
+              let lastMessageTime = 'Just now';
+              if (diffMins >= 1 && diffMins < 60) {
+                lastMessageTime = `${diffMins}m ago`;
+              } else if (diffHours < 24) {
+                lastMessageTime = `${diffHours}h ago`;
+              } else if (diffDays < 7) {
+                lastMessageTime = `${diffDays}d ago`;
+              } else {
+                lastMessageTime = messageDate.toLocaleDateString();
+              }
+
+              // Update the conversation in the list
+              setConversations((prev) => {
+                const updated = prev.map((conv) => {
+                  if (conv.id === messageRoomId) {
+                    const newTimestamp = messageDate.getTime();
+                    const existingTimestamp = (conv as any)._lastMessageTimestamp || 0;
+                    
+                    // Only update if this message is newer
+                    if (newTimestamp >= existingTimestamp) {
+                      console.log(`Updating conversation ${messageRoomId} with new message:`, {
+                        old: conv.lastMessage,
+                        new: `${senderName}: ${messageText}`,
+                        timestamp: newTimestamp
+                      });
+                      
+                      return {
+                        ...conv,
+                        lastMessage: `${senderName}: ${messageText}`,
+                        time: lastMessageTime,
+                        _lastMessageTimestamp: newTimestamp,
+                      };
+                    }
+                  }
+                  return conv;
+                });
+
+                // Sort by timestamp (most recent first)
+                return updated.sort((a, b) => {
+                  const aTime = (a as any)._lastMessageTimestamp || 0;
+                  const bTime = (b as any)._lastMessageTimestamp || 0;
+                  return bTime - aTime; // Descending order (newest first)
+                });
+              });
+            }
+            )
+            .subscribe();
+        
+        channels.push(channel);
+      });
+
+      return () => {
+        // Clean up all channels
+        channels.forEach((channel) => {
+          supabase.removeChannel(channel);
+        });
+      };
+    };
+
+    setupRealtime();
+
+    // Also set up a periodic refresh to catch any missed updates (every 30 seconds)
+    const refreshInterval = setInterval(async () => {
+      try {
+        // Re-fetch the latest messages for all conversations
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        if (!currentUser) return;
+
+        const currentRoomIds = conversations.map(c => c.id);
+        if (currentRoomIds.length === 0) return;
+
+        // Fetch latest message for each room
+        const { data: latestMessages } = await supabase
+          .from('messages')
+          .select('room_id, original_text, created_at, sender_id, metadata')
+          .in('room_id', currentRoomIds)
+          .order('created_at', { ascending: false });
+
+        if (latestMessages) {
+          // Group by room_id and get the latest for each
+          const latestByRoom = new Map<string, typeof latestMessages[0]>();
+          for (const msg of latestMessages) {
+            if (!latestByRoom.has(msg.room_id)) {
+              latestByRoom.set(msg.room_id, msg);
+            }
+          }
+
+          // Update conversations with latest messages
+          setConversations((prev) => {
+            const updated = prev.map((conv) => {
+              const latestMsg = latestByRoom.get(conv.id);
+              if (latestMsg) {
+                const msgDate = new Date(latestMsg.created_at);
+                const currentTimestamp = msgDate.getTime();
+                const existingTimestamp = (conv as any)._lastMessageTimestamp || 0;
+
+                // Only update if this message is newer than what we have
+                if (currentTimestamp > existingTimestamp) {
+                  // This will be handled by the real-time subscription, but we can update here too
+                  // For now, just return the existing conversation to avoid duplicate work
+                  return conv;
+                }
+              }
+              return conv;
+            });
+            return updated;
+          });
+        }
+      } catch (error) {
+        console.error('Error refreshing conversations:', error);
+      }
+    }, 30000); // Refresh every 30 seconds
+
+    return () => {
+      clearInterval(refreshInterval);
+      roomIdsRef.current = ''; // Reset on cleanup
+    };
+  }, [conversations.map(c => c.id).join(','), supabase, decryptMessageClient]);
+
+  const displayedConversations = showAll ? conversations : conversations.slice(0, 3);
 
   // Format numbers for display
   const formatNumber = (num: number): string => {
@@ -93,16 +341,16 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
       </div>
 
       {/* Recent Activity */}
-      {homeData.conversations.length > 0 ? (
+      {conversations.length > 0 ? (
         <div className={`glass p-1 rounded-3xl border border-white/10 transition-all duration-500 ease-in-out ${showAll ? 'bg-white/10' : ''}`}>
             <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <h2 className="text-lg font-bold text-white">{showAll ? 'All Conversations' : 'Recent Conversations'}</h2>
                     <span className="px-2 py-0.5 rounded-full bg-white/10 text-white/50 text-xs font-medium">
-                        {homeData.conversations.length}
+                        {conversations.length}
                     </span>
                 </div>
-                {homeData.conversations.length > 3 && (
+                {conversations.length > 3 && (
                   <button 
                     onClick={() => setShowAll(!showAll)}
                     className="text-sm font-semibold text-aurora-indigo hover:text-aurora-purple transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5 flex items-center gap-1"

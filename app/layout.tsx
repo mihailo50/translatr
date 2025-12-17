@@ -1,6 +1,7 @@
 import React from 'react';
 import AppShell from '../components/layout/AppShell';
 import { ThemeProvider } from '../components/contexts/ThemeContext';
+import { NotificationProvider } from '../components/contexts/NotificationContext';
 
 export const metadata = {
   title: 'Translatr',
@@ -131,7 +132,9 @@ export default function RootLayout({
       </head>
       <body>
         <ThemeProvider>
-          <AppShell>{children}</AppShell>
+          <NotificationProvider>
+            <AppShell>{children}</AppShell>
+          </NotificationProvider>
         </ThemeProvider>
       </body>
     </html>

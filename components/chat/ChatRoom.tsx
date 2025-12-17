@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { Phone, Video, MoreVertical, Ban, Trash2, X, Unlock, Search, Users, Circle, Bell, Image as ImageIcon, Languages, ArrowLeft, ChevronDown } from 'lucide-react';
 import { useLiveKitChat } from '../../hooks/useLiveKitChat';
 import { useUserStatus, UserStatus } from '../../hooks/useUserStatus';
 import { createClient } from '../../utils/supabase/client';
+import { useNotification } from '../contexts/NotificationContext';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import LiveKitCallModal from './LiveKitCallModal';
@@ -45,7 +47,9 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     userPreferredLanguage = 'en',
     roomDetails
 }) => {
+  const router = useRouter();
   const supabase = createClient();
+  const { isNotificationsOpen, setIsNotificationsOpen } = useNotification();
   // Debug logging
   useEffect(() => {
     console.log('ChatRoom - roomDetails:', {
@@ -186,9 +190,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   }, [liveKitChatRoom, userId, activeCallToken, isCallModalOpen, roomDetails.room_type, updateUserStatus]);
 
   const handleBack = () => {
-      const navEvent = new CustomEvent('app-navigate', { detail: '/' });
-      window.dispatchEvent(navEvent);
-      try { window.history.pushState({}, '', '/'); } catch (e) {}
+      router.push('/');
   };
 
   const handleStartCall = async (type: 'audio' | 'video') => {
@@ -310,6 +312,14 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 
   return (
     <div className="relative w-full h-full flex flex-col bg-transparent overflow-hidden rounded-3xl border border-white/5">
+      
+      {/* Invisible Click Shield - Prevents clicks on header icons when notifications are open */}
+      {isNotificationsOpen && (
+        <div 
+          className="fixed inset-0 w-full h-full z-[80] bg-black/5 backdrop-blur-sm pointer-events-auto"
+          onClick={() => setIsNotificationsOpen(false)}
+        />
+      )}
       
       {/* Header */}
       <div className="absolute top-4 left-4 right-4 h-auto min-h-[4.5rem] py-3 glass-strong rounded-2xl flex items-center justify-between px-6 z-30">

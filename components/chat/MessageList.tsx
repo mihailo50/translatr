@@ -23,8 +23,10 @@ const MessageList: React.FC<MessageListProps> = ({ messages, userPreferredLangua
     <div className="flex-1 overflow-y-auto px-4 pt-28 pb-28 scrollbar-thin">
         <div className="space-y-6 max-w-4xl mx-auto">
             {messages.length === 0 && (
-                <div className="text-center py-10 opacity-40">
-                    <p>No messages yet. Start the conversation!</p>
+                <div className="flex flex-col items-center justify-center text-center py-16 min-h-[50vh]">
+                    <p className="text-white/60 text-lg md:text-xl font-normal tracking-tight">
+                        No messages here yet.
+                    </p>
                 </div>
             )}
 

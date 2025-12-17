@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Check, MessageSquare, UserPlus, Info } from 'lucide-react';
+import { Bell, Check, MessageSquare, UserPlus, Info, Lock } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { toast } from 'sonner';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface NotificationContent {
   sender_name?: string;
@@ -21,7 +22,7 @@ interface Notification {
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isOpen, setIsOpen] = useState(false);
+  const { isNotificationsOpen, setIsNotificationsOpen } = useNotification();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
@@ -29,12 +30,14 @@ export default function NotificationBell() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+        setIsNotificationsOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
+    if (isNotificationsOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isNotificationsOpen, setIsNotificationsOpen]);
 
   // Fetch Initial Notifications & Subscribe to Realtime
   useEffect(() => {
@@ -113,7 +116,7 @@ export default function NotificationBell() {
     }
 
     // 2. Redirect based on type
-    setIsOpen(false);
+    setIsNotificationsOpen(false);
     if (notification.type === 'message' && notification.related_id) {
         window.location.href = `/chat/${notification.related_id}`;
     } else if (notification.type === 'contact_request') {
@@ -144,79 +147,105 @@ export default function NotificationBell() {
   };
 
   return (
-    <div className="relative" ref={dropdownRef}>
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className={`relative p-2 rounded-full transition-colors ${isOpen ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
-      >
-        <Bell size={20} />
-        {unreadCount > 0 && (
-          <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-aurora-pink rounded-full border-2 border-aurora-slate animate-pulse"></span>
-        )}
-      </button>
+    <>
+      <div className="relative" ref={dropdownRef}>
+        <button 
+          onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+          className={`relative p-2 rounded-full transition-colors z-[101] ${isNotificationsOpen ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+        >
+          <Bell size={20} />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-aurora-slate shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
+          )}
+        </button>
 
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-4 w-80 glass-strong rounded-2xl border border-white/10 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-200 shadow-2xl shadow-black/50">
-            <div className="p-4 border-b border-white/5 flex items-center justify-between bg-white/5">
-                <h3 className="font-semibold text-white">Notifications</h3>
-                {unreadCount > 0 && (
-                    <button 
-                        onClick={markAllRead}
-                        className="text-xs text-aurora-indigo hover:text-aurora-purple transition-colors flex items-center gap-1"
-                    >
-                        <Check size={12} /> Mark all read
-                    </button>
-                )}
-            </div>
+        {isNotificationsOpen && (
+          <div 
+            className="absolute right-0 top-full mt-4 w-80 rounded-2xl border-t border-white/20 border-x border-b border-white/10 overflow-hidden z-[100] animate-in fade-in zoom-in-95 duration-200 shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] backdrop-blur-[60px] bg-slate-950/90"
+            style={{
+              boxShadow: '0 50px 100px -20px rgba(0, 0, 0, 1)',
+              backdropFilter: 'blur(60px) saturate(200%)',
+              WebkitBackdropFilter: 'blur(60px) saturate(200%)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+              {/* Specular border gradient effect */}
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/5 via-transparent to-transparent pointer-events-none"></div>
+              
+              {/* Header with proper padding and softened separator */}
+              <div className="relative px-6 py-5 border-b border-white/5 flex items-center justify-between bg-slate-950/90">
+                  <h3 className="font-bold text-white text-base">Notifications</h3>
+                  {unreadCount > 0 && (
+                      <button 
+                          onClick={markAllRead}
+                          className="text-xs font-medium text-aurora-indigo hover:text-aurora-purple transition-colors flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-white/5"
+                      >
+                          <Check size={12} /> Mark all read
+                      </button>
+                  )}
+              </div>
 
-            <div className="max-h-[400px] overflow-y-auto scrollbar-thin">
+              <div className="relative max-h-[400px] overflow-y-auto scrollbar-thin bg-slate-950/90">
                 {notifications.length === 0 ? (
                     <div className="p-8 text-center opacity-40">
                         <Bell size={32} className="mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">No notifications yet</p>
+                        <p className="text-sm text-white/60">No notifications yet</p>
                     </div>
                 ) : (
-                    notifications.map((n) => (
-                        <div 
-                            key={n.id}
-                            onClick={() => handleNotificationClick(n)}
-                            className={`
-                                p-4 flex gap-3 cursor-pointer transition-colors border-b border-white/5 last:border-0
-                                ${n.is_read ? 'hover:bg-white/5 opacity-60 hover:opacity-100' : 'bg-aurora-indigo/5 hover:bg-aurora-indigo/10'}
-                            `}
-                        >
-                            <div className="flex-shrink-0 mt-1">
-                                {n.content.avatar_url ? (
-                                    <img src={n.content.avatar_url} alt="" className="w-8 h-8 rounded-full bg-slate-800 object-cover" />
-                                ) : (
-                                    <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center border border-white/10">
-                                        {getIcon(n.type)}
+                    notifications.map((n) => {
+                        const isEncrypted = n.content.preview?.includes('🔒') || n.content.preview?.toLowerCase().includes('encrypted');
+                        return (
+                            <div 
+                                key={n.id}
+                                onClick={() => handleNotificationClick(n)}
+                                className={`
+                                    relative px-6 py-4 flex gap-3 cursor-pointer transition-all duration-200 border-b border-white/5 last:border-0 bg-slate-950/70
+                                    ${n.is_read ? 'hover:bg-slate-900/80 opacity-75 hover:opacity-100' : 'bg-aurora-indigo/20 hover:bg-aurora-indigo/30'}
+                                `}
+                            >
+                                <div className="flex-shrink-0 mt-0.5">
+                                    {n.content.avatar_url ? (
+                                        <img src={n.content.avatar_url} alt="" className="w-9 h-9 rounded-full bg-slate-800/50 object-cover border border-white/10" />
+                                    ) : (
+                                        <div className="w-9 h-9 rounded-full bg-slate-800/50 flex items-center justify-center border border-white/10 backdrop-blur-sm">
+                                            {getIcon(n.type)}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between items-start mb-1">
+                                        <p className="text-sm font-bold text-white truncate pr-2">
+                                            {n.content.sender_name || 'System'}
+                                        </p>
+                                        <span className="text-[10px] text-white/60 whitespace-nowrap ml-2">
+                                            {getTimeAgo(n.created_at)}
+                                        </span>
                                     </div>
+                                    <div className="flex items-start gap-1.5">
+                                        {isEncrypted && (
+                                            <Lock size={12} className="text-aurora-indigo/90 mt-0.5 flex-shrink-0" />
+                                        )}
+                                        <p className={`text-xs line-clamp-2 leading-relaxed break-words ${
+                                            isEncrypted 
+                                                ? 'text-aurora-indigo/90 font-medium' 
+                                                : 'text-white/70'
+                                        }`}>
+                                            {n.content.preview || 'New message'}
+                                        </p>
+                                    </div>
+                                </div>
+                                {!n.is_read && (
+                                    <div className="self-center w-2 h-2 rounded-full bg-aurora-indigo shadow-[0_0_8px_rgba(99,102,241,0.6)] flex-shrink-0"></div>
                                 )}
                             </div>
-                            <div className="flex-1 min-w-0">
-                                <div className="flex justify-between items-start mb-0.5">
-                                    <p className="text-sm font-semibold text-white truncate pr-2">
-                                        {n.content.sender_name || 'System'}
-                                    </p>
-                                    <span className="text-[10px] text-white/30 whitespace-nowrap">
-                                        {getTimeAgo(n.created_at)}
-                                    </span>
-                                </div>
-                                <p className="text-xs text-white/60 line-clamp-2 leading-relaxed">
-                                    {n.content.preview}
-                                </p>
-                            </div>
-                            {!n.is_read && (
-                                <div className="self-center w-2 h-2 rounded-full bg-aurora-indigo shadow-[0_0_8px_rgba(99,102,241,0.5)]"></div>
-                            )}
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 

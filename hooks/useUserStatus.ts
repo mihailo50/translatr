@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '../utils/supabase/client';
 import { User } from '@supabase/supabase-js';
 
-export type UserStatus = 'online' | 'busy' | 'dnd' | 'invisible' | 'in-call' | 'offline';
+export type UserStatus = 'online' | 'busy' | 'dnd' | 'invisible' | 'in-call' | 'offline' | 'away';
 
 export interface PresenceState {
   user_id: string;
@@ -15,6 +15,16 @@ export const useUserStatus = (user: any) => {
   const [onlineUsers, setOnlineUsers] = useState<Record<string, UserStatus>>({});
   const supabase = createClient();
 
+  // Supabase profile.status only allows: online, offline, away, invisible.
+  // Map richer presence values to the allowed set when persisting.
+  const mapToPersistedStatus = useCallback((s: UserStatus) => {
+    if (s === 'invisible') return 'invisible' as const;
+    if (s === 'offline') return 'offline' as const;
+    if (s === 'online') return 'online' as const;
+    // busy, dnd, in-call → fall back to "away" which fits the DB constraint
+    return 'away' as const;
+  }, []);
+
   // 1. Load persisted status from DB on mount
   useEffect(() => {
     if (!user?.id) return;
@@ -26,12 +36,24 @@ export const useUserStatus = (user: any) => {
             .eq('id', user.id)
             .single();
         
-        if (data?.status) {
-            setStatus(data.status as UserStatus);
+        const currentStatus = data?.status as UserStatus | undefined;
+
+        // If status is missing or offline, treat the active session as online
+        // to avoid stale "offline" indicators after server restarts or cold starts.
+        if (!currentStatus || currentStatus === 'offline') {
+            setStatus('online');
+            await supabase
+              .from('profiles')
+              .update({ status: 'online' })
+              .eq('id', user.id);
+        } else {
+            // Map DB-only "away" to an online-ish state for UI/presence
+            const effective = currentStatus === 'away' ? 'online' : currentStatus;
+            setStatus(effective);
         }
     };
     fetchStatus();
-  }, [user?.id]);
+  }, [mapToPersistedStatus, supabase, user?.id]);
 
   // 2. Handle Realtime Presence (Broadcasting & Listening)
   useEffect(() => {
@@ -96,13 +118,14 @@ export const useUserStatus = (user: any) => {
       
       setStatus(newStatus);
 
-      // Persist to DB
+      // Persist to DB with schema-safe value
+      const persisted = mapToPersistedStatus(newStatus);
       await supabase
         .from('profiles')
-        .update({ status: newStatus })
+        .update({ status: persisted })
         .eq('id', user.id);
         
-  }, [user?.id]);
+  }, [mapToPersistedStatus, supabase, user?.id]);
 
   return {
     status,

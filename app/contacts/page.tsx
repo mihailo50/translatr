@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useTransition, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useTransition, useRef, useCallback, useMemo } from 'react';
 import { 
   Search, 
   UserPlus, 
@@ -21,22 +21,63 @@ import {
   ContactUser 
 } from '../../actions/contacts';
 import { createClient } from '../../utils/supabase/client';
+import { useUserStatus, UserStatus } from '../../hooks/useUserStatus';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
 export default function ContactsPage() {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const [activeTab, setActiveTab] = useState<'friends' | 'search' | 'requests'>('friends');
   
   // Data State
   const [friends, setFriends] = useState<ContactUser[]>([]);
   const [requests, setRequests] = useState<ContactUser[]>([]);
   const [searchResults, setSearchResults] = useState<ContactUser[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   
   // UI State
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
+  const { onlineUsers } = useUserStatus(currentUserId ? { id: currentUserId } : null);
+
+  const resolvePresenceStatus = useCallback((userId: string, fallback?: UserStatus): UserStatus => {
+    const presence = onlineUsers[userId];
+    if (presence === 'invisible') return 'offline';
+    if (presence) return presence;
+    if (fallback) return fallback;
+    return 'offline';
+  }, [onlineUsers]);
+
+  const getPresenceColor = useCallback((status: UserStatus) => {
+    switch (status) {
+      case 'online':
+        return 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]';
+      case 'busy':
+      case 'dnd':
+        return 'bg-red-500';
+      case 'in-call':
+        return 'bg-aurora-purple shadow-[0_0_8px_rgba(144,97,249,0.5)]';
+      default:
+        return 'bg-slate-500';
+    }
+  }, []);
+
+  const getPresenceLabel = useCallback((status: UserStatus) => {
+    switch (status) {
+      case 'online':
+        return 'Online';
+      case 'busy':
+        return 'Busy';
+      case 'dnd':
+        return 'Do Not Disturb';
+      case 'in-call':
+        return 'In a Call';
+      default:
+        return 'Offline';
+    }
+  }, []);
   
   // Refs to access current values in subscription without recreating it
   const activeTabRef = useRef(activeTab);
@@ -60,15 +101,18 @@ export default function ContactsPage() {
   }, []);
 
   useEffect(() => {
-    refreshData();
-
-    // Set up real-time subscription for contact requests
-    const supabase = createClient();
     let channel: any = null;
-    
+
     // Get current user ID and set up subscription
     const setupSubscription = async () => {
       const { data: { user } } = await supabase.auth.getUser();
+
+      if (user?.id) {
+        setCurrentUserId(user.id);
+      }
+
+      await refreshData();
+
       if (!user) return;
 
       // Subscribe to changes in the contacts table where current user is involved
@@ -134,7 +178,7 @@ export default function ContactsPage() {
         supabase.removeChannel(channel);
       }
     };
-  }, []);
+  }, [refreshData, supabase]);
 
   // Handle Search Debounce
   useEffect(() => {
@@ -332,32 +376,40 @@ export default function ContactsPage() {
             <div className="flex justify-center py-20"><Loader2 className="animate-spin text-aurora-indigo w-8 h-8"/></div>
           ) : friends.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-500">
-              {friends.map((friend) => (
-                 <div key={friend.id} className="glass group p-6 rounded-3xl border border-white/5 hover:border-aurora-indigo/30 transition-all duration-300 relative">
-                    <div className="flex items-start justify-between mb-4">
-                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-2xl font-bold text-white border-2 border-white/5 group-hover:border-aurora-indigo/50 transition-all overflow-hidden shadow-lg">
-                            {friend.avatar_url ? (
-                                <img src={friend.avatar_url} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                                (friend.display_name?.[0] || '?').toUpperCase()
-                            )}
-                        </div>
-                        <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
-                    </div>
-                    
-                    <h3 className="text-xl font-bold text-white truncate mb-1">{friend.display_name}</h3>
-                    <p className="text-sm text-white/40 truncate mb-6">{friend.email}</p>
+              {friends.map((friend) => {
+                 const presenceStatus = resolvePresenceStatus(friend.id, friend.profile_status as UserStatus | undefined);
 
-                    <button 
-                      onClick={() => handleOpenChat(friend.id)}
-                      disabled={isPending}
-                      className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-medium transition-colors flex items-center justify-center gap-2 border border-white/5 group-hover:border-white/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <MessageSquare size={18} className="text-aurora-indigo" />
-                      Message
-                    </button>
-                 </div>
-              ))}
+                 return (
+                   <div key={friend.id} className="glass group p-6 rounded-3xl border border-white/5 hover:border-aurora-indigo/30 transition-all duration-300 relative">
+                      <div className="flex items-start justify-between mb-4">
+                          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-2xl font-bold text-white border-2 border-white/5 group-hover:border-aurora-indigo/50 transition-all overflow-hidden shadow-lg">
+                              {friend.avatar_url ? (
+                                  <img src={friend.avatar_url} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                  (friend.display_name?.[0] || '?').toUpperCase()
+                              )}
+                          </div>
+                          <div 
+                            className={`w-2.5 h-2.5 rounded-full border border-white/10 ${getPresenceColor(presenceStatus)}`} 
+                            title={getPresenceLabel(presenceStatus)}
+                            aria-label={`Status: ${getPresenceLabel(presenceStatus)}`}
+                          />
+                      </div>
+                      
+                      <h3 className="text-xl font-bold text-white truncate mb-1">{friend.display_name}</h3>
+                      <p className="text-sm text-white/40 truncate mb-6">{friend.email}</p>
+
+                      <button 
+                        onClick={() => handleOpenChat(friend.id)}
+                        disabled={isPending}
+                        className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-medium transition-colors flex items-center justify-center gap-2 border border-white/5 group-hover:border-white/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <MessageSquare size={18} className="text-aurora-indigo" />
+                        Message
+                      </button>
+                   </div>
+                 );
+              })}
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-20 text-center opacity-60">

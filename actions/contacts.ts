@@ -3,12 +3,16 @@
 import { createClient } from '../utils/supabase/server';
 import { revalidatePath } from 'next/cache';
 
+export type ContactPresenceStatus = 'online' | 'busy' | 'dnd' | 'invisible' | 'in-call' | 'offline';
+
 export interface ContactUser {
   id: string;
   display_name: string | null;
   email: string | null;
   avatar_url: string | null;
   status?: 'friends' | 'pending_sent' | 'pending_received' | 'none';
+  // Stored presence from profile as a fallback when realtime presence isn't available
+  profile_status?: ContactPresenceStatus;
   relationship_id?: string;
 }
 
@@ -25,8 +29,8 @@ export async function getContactsData() {
       created_at,
       user_id,
       contact_id,
-      sender:profiles!contacts_user_id_fkey(id, display_name, email, avatar_url),
-      receiver:profiles!contacts_contact_id_fkey(id, display_name, email, avatar_url)
+      sender:profiles!contacts_user_id_fkey(id, display_name, email, avatar_url, status),
+      receiver:profiles!contacts_contact_id_fkey(id, display_name, email, avatar_url, status)
     `)
     .or(`user_id.eq.${user.id},contact_id.eq.${user.id}`)
     .order('created_at', { ascending: false });
@@ -49,6 +53,7 @@ export async function getContactsData() {
         display_name: otherUser.display_name,
         email: otherUser.email,
         avatar_url: otherUser.avatar_url,
+        profile_status: otherUser.status,
         relationship_id: row.id
     };
 

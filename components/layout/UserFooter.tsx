@@ -19,6 +19,7 @@ export default function UserFooter() {
             const data = await getProfile();
             if (data?.user) {
                 setUser({
+                    id: data.user.id,
                     name: data.profile?.display_name || 'User',
                     email: data.user.email,
                     avatar: data.profile?.avatar_url || null,
