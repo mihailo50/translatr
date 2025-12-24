@@ -20,12 +20,14 @@ const MessageList: React.FC<MessageListProps> = ({ messages, userPreferredLangua
   }, [messages]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 pt-28 pb-28 scrollbar-thin">
+    <div className="flex-1 overflow-y-auto px-4 pt-6 pb-24 scrollbar-none relative">
+        {/* NO MORE SPACERS NEEDED: Sticky header handles the offset */}
+        
         <div className="space-y-6 max-w-4xl mx-auto">
             {messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center text-center py-16 min-h-[50vh]">
-                    <p className="text-white/60 text-lg md:text-xl font-normal tracking-tight">
-                        No messages here yet.
+                    <p className="text-white/40 text-lg font-medium tracking-tight">
+                        No messages yet.
                     </p>
                 </div>
             )}
@@ -35,7 +37,6 @@ const MessageList: React.FC<MessageListProps> = ({ messages, userPreferredLangua
                   key={msg.id}
                   message={{
                       ...msg,
-                      translations: msg.translations,
                       original_language: msg.lang
                   }}
                   userPreferredLanguage={userPreferredLanguage}

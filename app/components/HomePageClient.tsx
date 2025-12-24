@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Users, ChevronRight, MessageSquare } from 'lucide-react';
 import { Conversation, HomeStats } from '../actions/home';
 import { createClient } from '../../utils/supabase/client';
@@ -41,17 +42,12 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
     setConversations(syncedConversations);
   }, [homeData.conversations]);
 
+  const router = useRouter();
+  
   const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     e.preventDefault();
-    try {
-        if (window.location.pathname !== href) {
-            window.history.pushState({}, '', href);
-        }
-    } catch (err) {
-        console.warn('Navigation suppressed', err);
-    }
-    const navEvent = new CustomEvent('app-navigate', { detail: href });
-    window.dispatchEvent(navEvent);
+    // Use Next.js router for faster navigation
+    router.push(href);
   };
 
   // Server-side decryption helper (simplified for client)
@@ -67,6 +63,7 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
 
   // Track room IDs to avoid unnecessary re-subscriptions
   const roomIdsRef = useRef<string>('');
+  const cleanupRealtimeRef = useRef<(() => void) | undefined>(undefined);
   
   // Set up real-time subscription for new messages
   useEffect(() => {
@@ -219,63 +216,23 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
       };
     };
 
-    setupRealtime();
+    const cleanupRealtime =     setupRealtime().then((cleanup) => {
+      cleanupRealtimeRef.current = cleanup;
+    });
 
-    // Also set up a periodic refresh to catch any missed updates (every 30 seconds)
-    const refreshInterval = setInterval(async () => {
-      try {
-        // Re-fetch the latest messages for all conversations
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
-        if (!currentUser) return;
-
-        const currentRoomIds = conversations.map(c => c.id);
-        if (currentRoomIds.length === 0) return;
-
-        // Fetch latest message for each room
-        const { data: latestMessages } = await supabase
-          .from('messages')
-          .select('room_id, original_text, created_at, sender_id, metadata')
-          .in('room_id', currentRoomIds)
-          .order('created_at', { ascending: false });
-
-        if (latestMessages) {
-          // Group by room_id and get the latest for each
-          const latestByRoom = new Map<string, typeof latestMessages[0]>();
-          for (const msg of latestMessages) {
-            if (!latestByRoom.has(msg.room_id)) {
-              latestByRoom.set(msg.room_id, msg);
-            }
-          }
-
-          // Update conversations with latest messages
-          setConversations((prev) => {
-            const updated = prev.map((conv) => {
-              const latestMsg = latestByRoom.get(conv.id);
-              if (latestMsg) {
-                const msgDate = new Date(latestMsg.created_at);
-                const currentTimestamp = msgDate.getTime();
-                const existingTimestamp = (conv as any)._lastMessageTimestamp || 0;
-
-                // Only update if this message is newer than what we have
-                if (currentTimestamp > existingTimestamp) {
-                  // This will be handled by the real-time subscription, but we can update here too
-                  // For now, just return the existing conversation to avoid duplicate work
-                  return conv;
-                }
-              }
-              return conv;
-            });
-            return updated;
-          });
-        }
-      } catch (error) {
-        console.error('Error refreshing conversations:', error);
-      }
-    }, 30000); // Refresh every 30 seconds
+    // Periodic refresh removed - real-time subscriptions handle updates
+    // Client-side queries can hit RLS recursion issues, so we rely on:
+    // 1. Real-time subscriptions (already set up above)
+    // 2. Server-side data fetching (getHomeData) on page load
+    // If you need periodic refresh, use a server action instead
 
     return () => {
-      clearInterval(refreshInterval);
+      // Clean up real-time subscriptions
+      if (cleanupRealtimeRef.current) {
+        cleanupRealtimeRef.current();
+      }
       roomIdsRef.current = ''; // Reset on cleanup
+      cleanupRealtimeRef.current = undefined;
     };
   }, [conversations.map(c => c.id).join(','), supabase, decryptMessageClient]);
 

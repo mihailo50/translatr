@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Phone, Video, MoreVertical, Ban, Trash2, X, Unlock, Search, Users, Circle, Bell, Image as ImageIcon, Languages, ArrowLeft, ChevronDown } from 'lucide-react';
 import { useLiveKitChat } from '../../hooks/useLiveKitChat';
@@ -80,6 +81,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMediaDrawerOpen, setIsMediaDrawerOpen] = useState(false);
   const [isGroupMembersOpen, setIsGroupMembersOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const groupListRef = useRef<HTMLDivElement>(null);
 
@@ -143,7 +145,12 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsMenuOpen(false);
+        const target = event.target as HTMLElement;
+        // Check if click is outside the portal menu as well
+        if (!target.closest('.menu-dropdown-portal')) {
+          setIsMenuOpen(false);
+          setMenuPosition(null);
+        }
       }
       if (groupListRef.current && !groupListRef.current.contains(event.target as Node)) {
         setIsGroupMembersOpen(false);
@@ -152,6 +159,19 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     if (isMenuOpen || isGroupMembersOpen) document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isMenuOpen, isGroupMembersOpen]);
+
+  // Calculate menu position when it opens
+  useEffect(() => {
+    if (isMenuOpen && menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      setMenuPosition({
+        top: rect.bottom + 8, // mt-2 = 8px
+        right: window.innerWidth - rect.right
+      });
+    } else {
+      setMenuPosition(null);
+    }
+  }, [isMenuOpen]);
 
   useEffect(() => {
     const timer = setTimeout(() => { setDebouncedQuery(searchQuery); }, 300);
@@ -274,6 +294,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const handleClearChat = () => {
       setIsMenuOpen(false);
+      setMenuPosition(null);
       toast.success("Chat history cleared (Local only)");
   };
 
@@ -311,63 +332,86 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   if (error) return <div className="p-8 text-center text-red-400">{error}</div>;
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-transparent overflow-hidden rounded-3xl border border-white/5">
+    <div className="relative w-full h-full flex flex-col bg-[#03030b] overflow-hidden rounded-3xl border border-white/5">
+      
+      {/* Aurora Layer - Soft background gradients */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-0 left-0 w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[100px]" />
+        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px]" />
+      </div>
       
       {/* Invisible Click Shield - Prevents clicks on header icons when notifications are open */}
       {isNotificationsOpen && (
         <div 
-          className="fixed inset-0 w-full h-full z-[80] bg-black/5 backdrop-blur-sm pointer-events-auto"
+          className="fixed inset-0 z-40 pointer-events-auto"
           onClick={() => setIsNotificationsOpen(false)}
         />
       )}
       
-      {/* Header */}
-      <div className="absolute top-4 left-4 right-4 h-auto min-h-[4.5rem] py-3 glass-strong rounded-2xl flex items-center justify-between px-6 z-30">
-        {isSearchOpen ? (
-            <div className="flex items-center w-full gap-3 animate-in fade-in duration-200">
-                <Search className="text-aurora-indigo w-5 h-5 shrink-0" />
+      {/* --- PREMIUM STICKY HEADER --- */}
+      <div className="sticky top-0 left-0 right-0 z-50 w-full shrink-0">
+        {/* Hard Cap: Physical ceiling so messages never leak through the top rounding */}
+        <div className="h-2 w-full bg-[#03030b]" />
+
+        <div 
+          className="relative h-20 flex items-center border-b border-white/5"
+          style={{
+            background: 'rgba(3, 3, 11, 0.85)',
+            backdropFilter: 'blur(20px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+          }}
+        >
+          {/* AURORA ANIMATION LAYER: Pulls from your globals.css */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            <div className="absolute top-[-40%] left-[-10%] w-[250px] h-[250px] bg-indigo-500/15 blur-[60px] rounded-full animate-aurora-1" />
+            <div className="absolute bottom-[-40%] right-[-10%] w-[250px] h-[250px] bg-purple-500/15 blur-[60px] rounded-full animate-aurora-2" />
+          </div>
+
+          {/* CONTENT: max-w-4xl matches MessageList for perfect alignment */}
+          <div className="max-w-4xl mx-auto w-full px-6 flex items-center justify-between relative z-10">
+            {isSearchOpen ? (
+              <div className="flex items-center w-full gap-3 animate-in fade-in slide-in-from-top-1">
+                <Search className="text-indigo-400 w-5 h-5" />
                 <input 
-                    type="text" 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search in conversation..." 
-                    className="flex-1 bg-transparent border-none focus:ring-0 text-white placeholder-white/40 text-sm"
-                    autoFocus
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search conversation..." 
+                  className="aurora-search-input bg-transparent border-b border-white/5 focus:border-indigo-500/50 focus:ring-0 text-white w-full text-sm transition-all duration-500"
+                  autoFocus
                 />
-                <button onClick={() => { setIsSearchOpen(false); setSearchQuery(''); }} className="p-1 rounded-full hover:bg-white/10 text-white/50">
-                    <X size={18} />
-                </button>
-            </div>
-        ) : (
-            <>
-                <div className="flex items-center gap-4 animate-in fade-in duration-200">
-                  <button onClick={handleBack} className="p-2 -ml-2 rounded-full hover:bg-white/10 text-white/70 hover:text-white transition-colors">
-                    <ArrowLeft size={20} />
+                <button onClick={() => { setIsSearchOpen(false); setSearchQuery(''); }}><X size={20} className="text-white/40" /></button>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-4">
+                  <button onClick={handleBack} className="text-white/70 hover:text-white transition-colors">
+                    <ArrowLeft size={22} />
                   </button>
-                  <div className="relative">
+                  <div className="flex items-center gap-3">
                     {roomDetails.room_type === 'group' ? (
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-aurora-purple to-aurora-pink flex items-center justify-center text-white shadow-lg">
-                            <Users size={20} />
-                        </div>
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-aurora-purple/80 to-aurora-pink/80 flex items-center justify-center text-white shadow-lg border border-white/10">
+                        <Users size={22} />
+                      </div>
                     ) : (
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-aurora-indigo to-aurora-purple flex items-center justify-center text-white font-bold shadow-lg overflow-hidden">
+                      <div className="relative">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500/40 to-purple-500/40 p-[1px]">
+                          <div className="w-full h-full rounded-full bg-[#03030b] flex items-center justify-center overflow-hidden">
                             {roomDetails.participants?.[0]?.avatar ? (
-                                <img src={roomDetails.participants[0].avatar} className="w-full h-full object-cover" alt="" />
+                              <img src={roomDetails.participants[0].avatar} className="w-full h-full object-cover" alt="" />
                             ) : (
-                                roomDetails.name.substring(0,2).toUpperCase()
+                              <span className="text-white text-xs font-bold">{roomDetails.name[0]}</span>
                             )}
+                          </div>
                         </div>
+                        {!isBlocked && (
+                          <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#03030b] ${getStatusColor(directPartnerStatus)}`}></div>
+                        )}
+                      </div>
                     )}
-                    
-                    {/* Status Indicator (Direct) */}
-                    {!isBlocked && roomDetails.room_type === 'direct' && (
-                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-aurora-slate ${getStatusColor(directPartnerStatus)} shadow-lg`}></div>
-                    )}
-                  </div>
-                  <div>
-                    <h2 className="text-white font-semibold text-lg leading-tight flex items-center gap-2">
+                    <div>
+                      <h2 className="text-white font-bold text-base tracking-tight leading-none mb-1 flex items-center gap-2">
                         {(() => {
-                          // Prefer participant name, fallback to roomDetails.name, then "Loading..."
                           if (roomDetails.room_type === 'direct' && roomDetails.participants?.[0]?.name) {
                             return roomDetails.participants[0].name;
                           }
@@ -377,122 +421,141 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                           return 'Loading...';
                         })()}
                         {isBlocked && <Ban size={14} className="text-red-400" />}
-                    </h2>
-                    <div className="text-white/40 text-xs flex items-center gap-1.5 mt-0.5">
-                       {roomDetails.room_type === 'group' ? (
-                           <div className="relative" ref={groupListRef}>
-                             <button 
-                                onClick={() => setIsGroupMembersOpen(!isGroupMembersOpen)}
-                                className="flex items-center gap-1 hover:text-white transition-colors"
-                             >
-                                 <span className="bg-aurora-purple/20 border border-aurora-purple/30 text-aurora-purple px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">Group</span>
-                                 <span>• {roomDetails.members_count} members ({onlineGroupMembers.length} online)</span>
-                                 <ChevronDown size={10} />
-                             </button>
-
-                             {/* Group Members Online Dropdown */}
-                             {isGroupMembersOpen && (
-                                 <div className="absolute top-full left-0 mt-2 w-56 glass-strong rounded-xl border border-white/10 shadow-2xl overflow-hidden z-[60] animate-in fade-in zoom-in-95 duration-200">
-                                     <div className="px-3 py-2 border-b border-white/5 bg-white/5">
-                                         <span className="text-[10px] font-bold uppercase text-white/50 tracking-wider">Online Members</span>
-                                     </div>
-                                     <div className="max-h-48 overflow-y-auto">
-                                        {onlineGroupMembers.length > 0 ? (
-                                            onlineGroupMembers.map(m => (
-                                                <div key={m.id} className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors">
-                                                    <div className="relative">
-                                                        <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-[10px]">
-                                                            {m.avatar ? <img src={m.avatar} className="w-full h-full rounded-full" /> : m.name[0]}
-                                                        </div>
-                                                        <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-slate-900 ${getStatusColor(onlineUsers[m.id] as UserStatus)}`}></div>
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="text-sm text-white truncate">{m.name}</p>
-                                                        <p className="text-[10px] text-white/40 capitalize">{getStatusText(onlineUsers[m.id] as UserStatus)}</p>
-                                                    </div>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="px-3 py-4 text-center text-xs text-white/30">
-                                                No one else is online
-                                            </div>
-                                        )}
-                                     </div>
-                                 </div>
-                             )}
-                           </div>
-                       ) : (
-                           /* Direct Chat Status Text */
-                           <>
-                             {roomDetails.participants?.[0]?.id ? (
-                               // We have participant data, show real status
-                               directPartnerStatus === 'offline' ? (
-                                 <span>Offline</span>
-                               ) : (
-                                 <span className="flex items-center gap-1.5">
-                                   <span className={`w-1.5 h-1.5 rounded-full ${getStatusColor(directPartnerStatus)} animate-pulse`}></span>
-                                   {getStatusText(directPartnerStatus)}
-                                 </span>
-                               )
-                             ) : roomDetails.name && roomDetails.name !== 'Loading...' && roomDetails.name !== 'Unknown' ? (
-                               // No participant data but we have a name, show offline as default
-                               <span>Offline</span>
-                             ) : (
-                               // No data at all, show loading
-                               <span>Loading...</span>
-                             )}
-                           </>
-                       )}
+                      </h2>
+                      <div className="flex items-center gap-1.5">
+                        {roomDetails.room_type === 'group' ? (
+                          <div className="relative" ref={groupListRef}>
+                            <button 
+                              onClick={() => setIsGroupMembersOpen(!isGroupMembersOpen)}
+                              className="flex items-center gap-1 hover:text-white transition-colors"
+                            >
+                              <span className="bg-aurora-purple/20 border border-aurora-purple/30 text-aurora-purple px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">Group</span>
+                              <span>• {roomDetails.members_count} members ({onlineGroupMembers.length} online)</span>
+                              <ChevronDown size={10} />
+                            </button>
+                            {isGroupMembersOpen && (
+                              <div className="absolute top-full left-0 mt-2 w-56 glass-strong rounded-xl border border-white/10 shadow-2xl overflow-hidden z-[60] animate-in fade-in zoom-in-95 duration-200">
+                                <div className="px-3 py-2 border-b border-white/5 bg-white/5">
+                                  <span className="text-[10px] font-bold uppercase text-white/50 tracking-wider">Online Members</span>
+                                </div>
+                                <div className="max-h-48 overflow-y-auto">
+                                  {onlineGroupMembers.length > 0 ? (
+                                    onlineGroupMembers.map(m => (
+                                      <div key={m.id} className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors">
+                                        <div className="relative">
+                                          <div className="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-[10px]">
+                                            {m.avatar ? <img src={m.avatar} className="w-full h-full rounded-full" /> : m.name[0]}
+                                          </div>
+                                          <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-slate-900 ${getStatusColor(onlineUsers[m.id] as UserStatus)}`}></div>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm text-white truncate">{m.name}</p>
+                                          <p className="text-[10px] text-white/40 capitalize">{getStatusText(onlineUsers[m.id] as UserStatus)}</p>
+                                        </div>
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <div className="px-3 py-4 text-center text-xs text-white/30">No one else is online</div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            {roomDetails.participants?.[0]?.id ? (
+                              directPartnerStatus === 'offline' ? (
+                                <span className="text-white/40 text-[10px]">Offline</span>
+                              ) : (
+                                <>
+                                  <div className={`w-1.5 h-1.5 rounded-full bg-emerald-500 ${directPartnerStatus === 'online' ? 'animate-pulse' : ''}`} />
+                                  <span className="text-[10px] text-emerald-500/80 font-bold uppercase tracking-wider">{getStatusText(directPartnerStatus)}</span>
+                                </>
+                              )
+                            ) : (
+                              <span className="text-white/40 text-[10px]">Offline</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-2">
-                    <button onClick={() => setIsSearchOpen(true)} className="p-2.5 rounded-xl hover:bg-white/10 text-white/70 hover:text-white transition-colors">
-                        <Search size={20} />
+                  <button onClick={() => setIsSearchOpen(true)} className="p-2 hover:bg-white/5 rounded-lg text-white/60 transition-colors"><Search size={20} /></button>
+                  {!isBlocked && (
+                    <>
+                      <button onClick={() => handleStartCall('audio')} className="p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-green-400 transition-colors hidden sm:block">
+                        <Phone size={20} />
+                      </button>
+                      <button onClick={() => handleStartCall('video')} className="p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-indigo-400 transition-colors hidden sm:block">
+                        <Video size={20} />
+                      </button>
+                    </>
+                  )}
+                  <div className="relative" ref={menuRef}>
+                    <button onClick={() => setIsMenuOpen(!isMenuOpen)} className={`p-2 hover:bg-white/5 rounded-lg text-white/60 transition-colors ${isMenuOpen ? 'bg-white/5 text-white' : ''}`}>
+                      <MoreVertical size={20} />
                     </button>
-                    {!isBlocked && (
-                        <>
-                            <button onClick={() => handleStartCall('audio')} className="p-2.5 rounded-xl hover:bg-white/10 text-white/70 hover:text-green-400 transition-colors hidden sm:block">
-                                <Phone size={20} />
-                            </button>
-                            <button onClick={() => handleStartCall('video')} className="p-2.5 rounded-xl hover:bg-white/10 text-white/70 hover:text-aurora-indigo transition-colors hidden sm:block">
-                                <Video size={20} />
-                            </button>
-                            <div className="w-px h-6 bg-white/10 mx-1 hidden sm:block" />
-                        </>
-                    )}
-                    <div className="relative" ref={menuRef}>
-                        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className={`p-2.5 rounded-xl transition-colors ${isMenuOpen ? 'bg-white/10 text-white' : 'hover:bg-white/10 text-white/70'}`}>
-                            <MoreVertical size={20} />
+                  </div>
+                  {isMenuOpen && menuPosition && typeof document !== 'undefined' && createPortal(
+                    <div 
+                      className="menu-dropdown-portal fixed w-56 glass-strong rounded-xl border border-white/10 shadow-2xl py-1 overflow-hidden z-[60] animate-in fade-in zoom-in-95 duration-200"
+                      style={{
+                        top: `${menuPosition.top}px`,
+                        right: `${menuPosition.right}px`
+                      }}
+                    >
+                      <button className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white/80 flex items-center gap-3 transition-colors">
+                        <Bell size={16} /> Mute Notifications
+                      </button>
+                      <button onClick={() => { setIsTranslationEnabled(!isTranslationEnabled); setIsMenuOpen(false); setMenuPosition(null); }} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white/80 flex items-center gap-3 transition-colors">
+                        <Languages size={16} className={isTranslationEnabled ? "text-aurora-indigo" : "text-white/50"} />
+                        <span className={isTranslationEnabled ? "text-white" : "text-white/70"}>{isTranslationEnabled ? 'Translation On' : 'Translate Messages'}</span>
+                      </button>
+                      <button onClick={() => { setIsMediaDrawerOpen(true); setIsMenuOpen(false); setMenuPosition(null); }} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white/80 flex items-center gap-3 transition-colors">
+                        <ImageIcon size={16} /> Media & Files
+                      </button>
+                      {roomDetails.room_type === 'direct' && (
+                        <button onClick={handleBlockToggle} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm flex items-center gap-3 transition-colors text-white/80" disabled={isBlocked && !blockedByMe}>
+                          {isBlocked && blockedByMe ? <><Unlock size={16} className="text-green-400" /><span className="text-green-400">Unblock User</span></> : <><Ban size={16} className={isBlocked && !blockedByMe ? "text-white/30" : "text-red-400"} /><span className={isBlocked && !blockedByMe ? "text-white/30" : "text-red-400"}>{isBlocked && !blockedByMe ? 'Blocked by User' : 'Block User'}</span></>}
                         </button>
-                        {isMenuOpen && (
-                            <div className="absolute top-full right-0 mt-2 w-56 glass-strong rounded-xl border border-white/10 shadow-2xl py-1 overflow-hidden z-[60] animate-in fade-in zoom-in-95 duration-200">
-                                <button className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white/80 flex items-center gap-3 transition-colors">
-                                    <Bell size={16} /> Mute Notifications
-                                </button>
-                                <button onClick={() => { setIsTranslationEnabled(!isTranslationEnabled); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white/80 flex items-center gap-3 transition-colors">
-                                    <Languages size={16} className={isTranslationEnabled ? "text-aurora-indigo" : "text-white/50"} />
-                                    <span className={isTranslationEnabled ? "text-white" : "text-white/70"}>{isTranslationEnabled ? 'Translation On' : 'Translate Messages'}</span>
-                                </button>
-                                <button onClick={() => { setIsMediaDrawerOpen(true); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white/80 flex items-center gap-3 transition-colors">
-                                    <ImageIcon size={16} /> Media & Files
-                                </button>
-                                {roomDetails.room_type === 'direct' && (
-                                    <button onClick={handleBlockToggle} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm flex items-center gap-3 transition-colors text-white/80" disabled={isBlocked && !blockedByMe}>
-                                        {isBlocked && blockedByMe ? <><Unlock size={16} className="text-green-400" /><span className="text-green-400">Unblock User</span></> : <><Ban size={16} className={isBlocked && !blockedByMe ? "text-white/30" : "text-red-400"} /><span className={isBlocked && !blockedByMe ? "text-white/30" : "text-red-400"}>{isBlocked && !blockedByMe ? 'Blocked by User' : 'Block User'}</span></>}
-                                    </button>
-                                )}
-                                <div className="h-px bg-white/10 my-1 mx-2" />
-                                <button onClick={handleClearChat} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-red-400/80 hover:text-red-400 flex items-center gap-3 transition-colors">
-                                    <Trash2 size={16} /> Clear Chat
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                      )}
+                      <div className="h-px bg-white/10 my-1 mx-2" />
+                      <button onClick={handleClearChat} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-red-400/80 hover:text-red-400 flex items-center gap-3 transition-colors">
+                        <Trash2 size={16} /> Clear Chat
+                      </button>
+                    </div>,
+                    document.body
+                  )}
                 </div>
-            </>
-        )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* CSS INJECTION: Aurora Animation */}
+        <style dangerouslySetInnerHTML={{ __html: `
+          @keyframes aurora-1 {
+            0% { transform: translate(0, 0) scale(1); opacity: 0.15; }
+            100% { transform: translate(40px, 20px) scale(1.1); opacity: 0.25; }
+          }
+          @keyframes aurora-2 {
+            0% { transform: translate(0, 0) scale(1); opacity: 0.15; }
+            100% { transform: translate(-40px, -20px) scale(1.1); opacity: 0.25; }
+          }
+          .animate-aurora-1 {
+            animation: aurora-1 12s infinite alternate ease-in-out;
+          }
+          .animate-aurora-2 {
+            animation: aurora-2 12s infinite alternate ease-in-out;
+            animation-delay: -6s;
+          }
+          .aurora-search-input:focus {
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+          }
+        `}} />
       </div>
 
       <MessageList messages={filteredMessages} userPreferredLanguage={userPreferredLanguage} isTranslationEnabled={isTranslationEnabled} />

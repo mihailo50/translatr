@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, Check, MessageSquare, UserPlus, Info, Lock } from 'lucide-react';
 import { createClient } from '../../utils/supabase/client';
 import { toast } from 'sonner';
@@ -24,12 +25,29 @@ export default function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const { isNotificationsOpen, setIsNotificationsOpen } = useNotification();
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; right: number } | null>(null);
   const supabase = createClient();
+
+  // Calculate dropdown position when it opens
+  useEffect(() => {
+    if (isNotificationsOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 16, // 16px spacing (mt-4 equivalent)
+        right: window.innerWidth - rect.right
+      });
+    } else {
+      setDropdownPosition(null);
+    }
+  }, [isNotificationsOpen]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      const target = event.target as HTMLElement;
+      if (dropdownRef.current && !dropdownRef.current.contains(target) && 
+          buttonRef.current && !buttonRef.current.contains(target)) {
         setIsNotificationsOpen(false);
       }
     };
@@ -148,8 +166,9 @@ export default function NotificationBell() {
 
   return (
     <>
-      <div className="relative" ref={dropdownRef}>
+      <div className="relative">
         <button 
+          ref={buttonRef}
           onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
           className={`relative p-2 rounded-full transition-colors z-[101] ${isNotificationsOpen ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
         >
@@ -158,22 +177,23 @@ export default function NotificationBell() {
             <span className="absolute top-1 right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-aurora-slate shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
           )}
         </button>
+      </div>
 
-        {isNotificationsOpen && (
-          <div 
-            className="absolute right-0 top-full mt-4 w-80 rounded-2xl border-t border-white/20 border-x border-b border-white/10 overflow-hidden z-[100] animate-in fade-in zoom-in-95 duration-200 shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] backdrop-blur-[60px] bg-slate-950/90"
-            style={{
-              boxShadow: '0 50px 100px -20px rgba(0, 0, 0, 1)',
-              backdropFilter: 'blur(60px) saturate(200%)',
-              WebkitBackdropFilter: 'blur(60px) saturate(200%)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-              {/* Specular border gradient effect */}
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/5 via-transparent to-transparent pointer-events-none"></div>
-              
+      {isNotificationsOpen && dropdownPosition && typeof document !== 'undefined' && createPortal(
+        <div 
+          ref={dropdownRef}
+          className="fixed w-80 rounded-2xl border border-white/10 overflow-hidden z-[9999] animate-in fade-in zoom-in-95 duration-200"
+          style={{
+            top: `${dropdownPosition.top}px`,
+            right: `${dropdownPosition.right}px`,
+            background: 'rgba(10, 10, 20, 0.95)',
+            backdropFilter: 'blur(25px)',
+            WebkitBackdropFilter: 'blur(25px)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
               {/* Header with proper padding and softened separator */}
-              <div className="relative px-6 py-5 border-b border-white/5 flex items-center justify-between bg-slate-950/90">
+              <div className="relative px-6 py-5 border-b border-white/5 flex items-center justify-between">
                   <h3 className="font-bold text-white text-base">Notifications</h3>
                   {unreadCount > 0 && (
                       <button 
@@ -185,7 +205,7 @@ export default function NotificationBell() {
                   )}
               </div>
 
-              <div className="relative max-h-[400px] overflow-y-auto scrollbar-thin bg-slate-950/90">
+              <div className="relative max-h-[400px] overflow-y-auto scrollbar-thin">
                 {notifications.length === 0 ? (
                     <div className="p-8 text-center opacity-40">
                         <Bell size={32} className="mx-auto mb-2 opacity-50" />
@@ -199,8 +219,8 @@ export default function NotificationBell() {
                                 key={n.id}
                                 onClick={() => handleNotificationClick(n)}
                                 className={`
-                                    relative px-6 py-4 flex gap-3 cursor-pointer transition-all duration-200 border-b border-white/5 last:border-0 bg-slate-950/70
-                                    ${n.is_read ? 'hover:bg-slate-900/80 opacity-75 hover:opacity-100' : 'bg-aurora-indigo/20 hover:bg-aurora-indigo/30'}
+                                    relative px-6 py-4 flex gap-3 cursor-pointer transition-all duration-200 border-b border-white/5 last:border-0 hover:bg-white/5
+                                    ${n.is_read ? 'opacity-75 hover:opacity-100' : ''}
                                 `}
                             >
                                 <div className="flex-shrink-0 mt-0.5">
@@ -235,16 +255,16 @@ export default function NotificationBell() {
                                     </div>
                                 </div>
                                 {!n.is_read && (
-                                    <div className="self-center w-2 h-2 rounded-full bg-aurora-indigo shadow-[0_0_8px_rgba(99,102,241,0.6)] flex-shrink-0"></div>
+                                    <div className="self-center w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.5)] flex-shrink-0"></div>
                                 )}
                             </div>
                         );
                     })
                 )}
             </div>
-        </div>
+        </div>,
+        document.body
       )}
-      </div>
     </>
   );
 }

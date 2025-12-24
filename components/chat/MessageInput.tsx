@@ -171,7 +171,15 @@ const MessageInput: React.FC<MessageInputProps> = ({
             </div>
         )}
 
-        <form onSubmit={handleSend} className="w-full pointer-events-auto glass-strong p-2 rounded-full flex items-center gap-2 max-w-4xl mx-auto border border-white/10 shadow-2xl relative z-[50]">
+        <form 
+          onSubmit={handleSend} 
+          className="w-full pointer-events-auto p-2 rounded-full flex items-center gap-2 max-w-4xl mx-auto border-t border-white/5 border-x border-b border-white/10 shadow-2xl relative z-[50]"
+          style={{
+            background: 'rgba(10, 10, 20, 0.8)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+          }}
+        >
             <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
             
             <div className="flex items-center gap-1 shrink-0">
@@ -187,7 +195,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
                     onChange={(e) => setInputText(e.target.value)}
                     placeholder={isSending ? "Encrypting & Sending..." : "Type a secure message..."}
                     disabled={isSending}
-                    className="w-full bg-transparent border-none focus:ring-0 text-white placeholder-white/30 px-3 py-2 text-base h-10 pr-8"
+                    className="w-full bg-white/[0.03] border border-white/5 focus:bg-white/[0.08] focus:border-indigo-500/40 focus:shadow-[0_0_20px_rgba(99,102,241,0.2)] focus:ring-0 text-white placeholder-white/30 px-3 py-2 text-base h-10 pr-8 rounded-lg transition-all duration-300 ease-out"
                     autoComplete="off"
                 />
                 <div className="absolute right-2 top-1/2 -translate-y-1/2" title="End-to-End Encrypted">

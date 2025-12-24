@@ -99,7 +99,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
            relative px-5 py-3 rounded-2xl shadow-lg transition-all duration-300 overflow-hidden
            ${message.isMe 
              ? 'bg-gradient-to-br from-aurora-indigo to-aurora-purple text-white rounded-tr-sm' 
-             : 'bg-white/10 border border-white/10 text-slate-100 rounded-tl-sm backdrop-blur-md hover:bg-white/15'}
+             : 'bg-white/5 border border-white/10 text-white/90 rounded-tl-sm backdrop-blur-md hover:bg-white/10'}
         `}>
           
           {/* Attachment Rendering */}

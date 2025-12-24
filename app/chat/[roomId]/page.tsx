@@ -256,13 +256,24 @@ export default async function ChatRoomPage({ params }: { params: { roomId: strin
     redirect('/auth/login');
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
+  // Fetch profile and room details in parallel for faster loading
+  const [profileResult, roomDetailsResult] = await Promise.allSettled([
+    supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single(),
+    getRoomDetails(roomId, user.id)
+  ]);
 
-  const roomDetails = await getRoomDetails(roomId, user.id);
+  const profile = profileResult.status === 'fulfilled' ? profileResult.value.data : null;
+  const roomDetails = roomDetailsResult.status === 'fulfilled' ? roomDetailsResult.value : {
+    id: roomId,
+    room_type: 'direct' as const,
+    name: 'Loading...',
+    members_count: 0,
+    participants: []
+  };
 
   return (
     <div className="h-full w-full">

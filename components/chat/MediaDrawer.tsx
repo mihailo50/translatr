@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { X, Image, FileText, Download } from 'lucide-react';
 import { ChatMessage } from '../../hooks/useLiveKitChat';
 
@@ -10,11 +10,17 @@ interface MediaDrawerProps {
 }
 
 const MediaDrawer: React.FC<MediaDrawerProps> = ({ isOpen, onClose, messages, roomName }) => {
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+
   const mediaItems = useMemo(() => {
     return messages
       .filter((m) => m.attachment && !m.attachment.viewOnce) // Exclude view once images
       .sort((a, b) => b.timestamp - a.timestamp); // Newest first
   }, [messages]);
+
+  const handleImageError = (itemId: string) => {
+    setFailedImages(prev => new Set(prev).add(itemId));
+  };
 
   return (
     <>
@@ -60,22 +66,38 @@ const MediaDrawer: React.FC<MediaDrawerProps> = ({ isOpen, onClose, messages, ro
                         <div>
                             <h3 className="text-xs font-bold text-white/40 uppercase tracking-wider mb-3">Images</h3>
                             <div className="grid grid-cols-2 gap-2">
-                                {mediaItems.filter(m => m.attachment?.type === 'image').map(item => (
-                                    <a 
-                                        key={item.id} 
-                                        href={item.attachment?.url} 
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="relative aspect-square rounded-lg overflow-hidden border border-white/10 group cursor-zoom-in bg-black/20"
-                                    >
-                                        <img 
-                                            src={item.attachment?.url} 
-                                            alt="Shared image" 
-                                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                                        />
-                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                                    </a>
-                                ))}
+                                {mediaItems.filter(m => m.attachment?.type === 'image').map(item => {
+                                    const hasFailed = failedImages.has(item.id);
+                                    const isBlobUrl = item.attachment?.url?.startsWith('blob:');
+                                    
+                                    return (
+                                        <a 
+                                            key={item.id} 
+                                            href={!hasFailed ? item.attachment?.url : undefined}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className={`relative aspect-square rounded-lg overflow-hidden border border-white/10 group cursor-zoom-in bg-black/20 ${hasFailed ? 'pointer-events-none' : ''}`}
+                                        >
+                                            {hasFailed || (isBlobUrl && !item.attachment?.url) ? (
+                                                <div className="w-full h-full flex flex-col items-center justify-center bg-black/40 text-white/40">
+                                                    <Image size={24} className="mb-2 opacity-50" />
+                                                    <p className="text-[10px] text-center px-2">Image unavailable</p>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <img 
+                                                        src={item.attachment?.url} 
+                                                        alt="Shared image" 
+                                                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                                        onError={() => handleImageError(item.id)}
+                                                        loading="lazy"
+                                                    />
+                                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                                                </>
+                                            )}
+                                        </a>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

@@ -9,20 +9,75 @@ input:-webkit-autofill:active,
 input:-internal-autofill-selected {
     -webkit-text-fill-color: white !important;
     color: white !important;
-    /* This shadow "paints" over the browser's blue/yellow */
-    -webkit-box-shadow: 0 0 0px 1000px #0a0a0a inset !important;
-    box-shadow: 0 0 0px 1000px #0a0a0a inset !important;
+    /* This shadow "paints" over the browser's blue/yellow - Updated to match ChatRoom theme */
+    -webkit-box-shadow: 0 0 0px 1000px #03030b inset !important;
+    box-shadow: 0 0 0px 1000px #03030b inset !important;
     /* This delay prevents the browser from changing the color back */
     transition: background-color 5000000s ease-in-out 0s !important;
 }
 
-:root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+/* Global input focus ring suppression - Base reset only */
+input:focus {
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+@keyframes aurora-1 {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(15%, 10%) scale(1.1); }
+}
+
+@keyframes aurora-2 {
+  0% { transform: translate(0, 0) scale(1.2); }
+  100% { transform: translate(-10%, -15%) scale(1); }
+}
+
+.animate-aurora-1 {
+  animation: aurora-1 8s infinite alternate ease-in-out;
+}
+
+.animate-aurora-2 {
+  animation: aurora-2 10s infinite alternate ease-in-out;
+}
+
+/* Aurora Glass Input Utility Class */
+.aurora-input {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    transition: all 300ms;
+}
+
+.aurora-input::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+}
+
+.aurora-input:focus {
+    outline: none !important;
+    border-color: rgba(99, 102, 241, 0.5);
+    background-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
+}
+
+/* Aurora Focus Utility Class */
+.aurora-focus {
+    transition: all 0.3s ease-out;
+}
+
+.aurora-focus:focus {
+    outline: none !important;
+    border-color: rgba(99, 102, 241, 0.4) !important;
+    background-color: rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 0 15px rgba(99, 102, 241, 0.15), inset 0 0 10px rgba(255, 255, 255, 0.02) !important;
 }
