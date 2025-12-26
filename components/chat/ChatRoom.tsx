@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
-import { Phone, Video, MoreVertical, Ban, Trash2, X, Unlock, Search, Users, Circle, Bell, Image as ImageIcon, Languages, ArrowLeft, ChevronDown } from 'lucide-react';
+import { Phone, Video, MoreVertical, Ban, Trash2, X, Unlock, Search, Users, Circle, Bell, Image as ImageIcon, Languages, ArrowLeft, ChevronDown, ShieldCheck } from 'lucide-react';
 import { useLiveKitChat } from '../../hooks/useLiveKitChat';
 import { useUserStatus, UserStatus } from '../../hooks/useUserStatus';
 import { createClient } from '../../utils/supabase/client';
@@ -15,7 +15,7 @@ import CallOverlay from './CallOverlay';
 import MediaDrawer from './MediaDrawer';
 import { initiateCall } from '../../actions/calls';
 import { blockUserInRoom, unblockUserInRoom, getBlockStatus } from '../../actions/contacts';
-import { RoomEvent } from 'livekit-client';
+import { RoomEvent, ConnectionState } from 'livekit-client';
 import { toast } from 'sonner';
 
 export interface Participant {
@@ -81,7 +81,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMediaDrawerOpen, setIsMediaDrawerOpen] = useState(false);
   const [isGroupMembersOpen, setIsGroupMembersOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const groupListRef = useRef<HTMLDivElement>(null);
 
@@ -149,7 +148,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         // Check if click is outside the portal menu as well
         if (!target.closest('.menu-dropdown-portal')) {
           setIsMenuOpen(false);
-          setMenuPosition(null);
         }
       }
       if (groupListRef.current && !groupListRef.current.contains(event.target as Node)) {
@@ -160,18 +158,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isMenuOpen, isGroupMembersOpen]);
 
-  // Calculate menu position when it opens
-  useEffect(() => {
-    if (isMenuOpen && menuRef.current) {
-      const rect = menuRef.current.getBoundingClientRect();
-      setMenuPosition({
-        top: rect.bottom + 8, // mt-2 = 8px
-        right: window.innerWidth - rect.right
-      });
-    } else {
-      setMenuPosition(null);
-    }
-  }, [isMenuOpen]);
+  // Menu position no longer needed - using fixed positioning
 
   useEffect(() => {
     const timer = setTimeout(() => { setDebouncedQuery(searchQuery); }, 300);
@@ -255,14 +242,32 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       setActiveCallUrl(null);
       
       if (shouldSignalTerminate && liveKitChatRoom) {
-          // Broadcast end signal to the chat room
-          const payload = JSON.stringify({
-              type: 'call_ended',
-              senderId: userId,
-              timestamp: Date.now()
-          });
-          const encoder = new TextEncoder();
-          await liveKitChatRoom.localParticipant.publishData(encoder.encode(payload), { reliable: true });
+          try {
+              // Check if room is still connected before attempting to publish
+              if (liveKitChatRoom.state !== ConnectionState.Connected) {
+                  console.log('Room is not connected, skipping call end signal');
+                  return;
+              }
+
+              // Check if local participant exists and is available
+              if (!liveKitChatRoom.localParticipant) {
+                  console.log('Local participant not available, skipping call end signal');
+                  return;
+              }
+
+              // Broadcast end signal to the chat room
+              const payload = JSON.stringify({
+                  type: 'call_ended',
+                  senderId: userId,
+                  timestamp: Date.now()
+              });
+              const encoder = new TextEncoder();
+              await liveKitChatRoom.localParticipant.publishData(encoder.encode(payload), { reliable: true });
+          } catch (error) {
+              // Gracefully handle errors (connection closed, PC manager closed, etc.)
+              console.warn('Failed to send call end signal:', error);
+              // Don't throw - this is a non-critical operation
+          }
       }
   };
 
@@ -294,7 +299,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const handleClearChat = () => {
       setIsMenuOpen(false);
-      setMenuPosition(null);
       toast.success("Chat history cleared (Local only)");
   };
 
@@ -331,13 +335,77 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 
   if (error) return <div className="p-8 text-center text-red-400">{error}</div>;
 
+  // Mouse-follow effect for Spatial Nebula
+  const chatRoomRef = useRef<HTMLDivElement>(null);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!chatRoomRef.current) return;
+    const rect = chatRoomRef.current.getBoundingClientRect();
+    // Calculate mouse position as percentage (0-100)
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    
+    // Update CSS variables for mouse-follow effect (subtle parallax)
+    // Store as numeric value for calc() operations
+    chatRoomRef.current.style.setProperty('--mouse-x', `${x}`);
+    chatRoomRef.current.style.setProperty('--mouse-y', `${y}`);
+  };
+
   return (
-    <div className="relative w-full h-full flex flex-col bg-[#03030b] overflow-hidden rounded-3xl border border-white/5">
+    <div 
+      ref={chatRoomRef}
+      className="relative w-full h-full flex flex-col overflow-hidden rounded-3xl border border-white/5 bg-transparent"
+      onMouseMove={handleMouseMove}
+      style={{
+        '--mouse-x': '50',
+        '--mouse-y': '50',
+      } as React.CSSProperties}
+    >
+      {/* Spatial Nebula Background System - Removed fixed background to allow global gradient to show through */}
       
-      {/* Aurora Layer - Soft background gradients */}
+      {/* Nebula Blobs with Mouse-Follow Effect */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-0 left-0 w-[400px] h-[400px] bg-indigo-500/10 rounded-full blur-[100px]" />
-        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px]" />
+        {/* Blob 1: Indigo - scale(1.5), 20s duration */}
+        <div 
+          className="absolute nebula-blob-1"
+          style={{
+            background: 'radial-gradient(circle, rgba(79, 70, 229, 0.1) 0%, transparent 70%)',
+            width: '600px',
+            height: '600px',
+            borderRadius: '50%',
+            filter: 'blur(80px)',
+            left: 'calc(20% + (var(--mouse-x, 50) - 50) * 0.1px)',
+            top: 'calc(30% + (var(--mouse-y, 50) - 50) * 0.1px)',
+          }}
+        />
+        
+        {/* Blob 2: Purple - scale(2), 25s duration, opposite direction */}
+        <div 
+          className="absolute nebula-blob-2"
+          style={{
+            background: 'radial-gradient(circle, rgba(147, 51, 234, 0.1) 0%, transparent 70%)',
+            width: '800px',
+            height: '800px',
+            borderRadius: '50%',
+            filter: 'blur(100px)',
+            right: 'calc(15% - (var(--mouse-x, 50) - 50) * 0.15px)',
+            bottom: 'calc(20% - (var(--mouse-y, 50) - 50) * 0.15px)',
+          }}
+        />
+        
+        {/* Blob 3: Blue - scale(1.2), 15s duration */}
+        <div 
+          className="absolute nebula-blob-3"
+          style={{
+            background: 'radial-gradient(circle, rgba(59, 130, 246, 0.05) 0%, transparent 70%)',
+            width: '500px',
+            height: '500px',
+            borderRadius: '50%',
+            filter: 'blur(60px)',
+            left: 'calc(50% + (var(--mouse-x, 50) - 50) * 0.08px)',
+            top: 'calc(50% + (var(--mouse-y, 50) - 50) * 0.08px)',
+          }}
+        />
       </div>
       
       {/* Invisible Click Shield - Prevents clicks on header icons when notifications are open */}
@@ -348,17 +416,14 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         />
       )}
       
-      {/* --- PREMIUM STICKY HEADER --- */}
-      <div className="sticky top-0 left-0 right-0 z-50 w-full shrink-0">
-        {/* Hard Cap: Physical ceiling so messages never leak through the top rounding */}
-        <div className="h-2 w-full bg-[#03030b]" />
-
+      {/* --- FLOATING PANE HEADER --- */}
+      <div className="sticky top-0 left-0 right-0 z-50 w-full shrink-0 px-4 pt-2">
         <div 
-          className="relative h-20 flex items-center border-b border-white/5"
+          className="relative h-20 flex items-center mx-4 my-2 rounded-2xl border border-white/10 floating-header-pane"
           style={{
             background: 'rgba(3, 3, 11, 0.85)',
-            backdropFilter: 'blur(20px) saturate(180%)',
-            WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
           }}
         >
           {/* AURORA ANIMATION LAYER: Pulls from your globals.css */}
@@ -421,6 +486,16 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                           return 'Loading...';
                         })()}
                         {isBlocked && <Ban size={14} className="text-red-400" />}
+                        {/* Ambient Security Shield */}
+                        <div className="relative group/shield">
+                          <ShieldCheck size={12} className="text-emerald-500 animate-pulse" />
+                          {/* Glass Tooltip */}
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg bg-white/10 backdrop-blur-md border border-white/20 shadow-lg opacity-0 group-hover/shield:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
+                            <p className="text-xs text-white/90 font-medium">E2EE Secured by Translatr Protocol</p>
+                            {/* Tooltip Arrow */}
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 w-2 h-2 bg-white/10 border-r border-b border-white/20 rotate-45"></div>
+                          </div>
+                        </div>
                       </h2>
                       <div className="flex items-center gap-1.5">
                         {roomDetails.room_type === 'group' ? (
@@ -463,18 +538,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5">
-                            {roomDetails.participants?.[0]?.id ? (
-                              directPartnerStatus === 'offline' ? (
-                                <span className="text-white/40 text-[10px]">Offline</span>
-                              ) : (
-                                <>
-                                  <div className={`w-1.5 h-1.5 rounded-full bg-emerald-500 ${directPartnerStatus === 'online' ? 'animate-pulse' : ''}`} />
-                                  <span className="text-[10px] text-emerald-500/80 font-bold uppercase tracking-wider">{getStatusText(directPartnerStatus)}</span>
-                                </>
-                              )
-                            ) : (
-                              <span className="text-white/40 text-[10px]">Offline</span>
-                            )}
+                            {/* Status removed - security shown in header shield icon */}
                           </div>
                         )}
                       </div>
@@ -499,31 +563,34 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                       <MoreVertical size={20} />
                     </button>
                   </div>
-                  {isMenuOpen && menuPosition && typeof document !== 'undefined' && createPortal(
+                  {isMenuOpen && typeof document !== 'undefined' && createPortal(
                     <div 
-                      className="menu-dropdown-portal fixed w-56 glass-strong rounded-xl border border-white/10 shadow-2xl py-1 overflow-hidden z-[60] animate-in fade-in zoom-in-95 duration-200"
+                      className="menu-dropdown-portal fixed top-16 right-6 w-56 z-[100] rounded-xl py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right"
                       style={{
-                        top: `${menuPosition.top}px`,
-                        right: `${menuPosition.right}px`
+                        background: 'rgba(5, 5, 16, 0.9)',
+                        backdropFilter: 'blur(24px) saturate(180%)',
+                        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
                       }}
                     >
-                      <button className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white/80 flex items-center gap-3 transition-colors">
+                      <button className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-white/80 hover:text-white text-sm flex items-center gap-3">
                         <Bell size={16} /> Mute Notifications
                       </button>
-                      <button onClick={() => { setIsTranslationEnabled(!isTranslationEnabled); setIsMenuOpen(false); setMenuPosition(null); }} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white/80 flex items-center gap-3 transition-colors">
+                      <button onClick={() => { setIsTranslationEnabled(!isTranslationEnabled); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-white/80 hover:text-white text-sm flex items-center gap-3">
                         <Languages size={16} className={isTranslationEnabled ? "text-aurora-indigo" : "text-white/50"} />
                         <span className={isTranslationEnabled ? "text-white" : "text-white/70"}>{isTranslationEnabled ? 'Translation On' : 'Translate Messages'}</span>
                       </button>
-                      <button onClick={() => { setIsMediaDrawerOpen(true); setIsMenuOpen(false); setMenuPosition(null); }} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-white/80 flex items-center gap-3 transition-colors">
+                      <button onClick={() => { setIsMediaDrawerOpen(true); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-white/80 hover:text-white text-sm flex items-center gap-3">
                         <ImageIcon size={16} /> Media & Files
                       </button>
                       {roomDetails.room_type === 'direct' && (
-                        <button onClick={handleBlockToggle} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm flex items-center gap-3 transition-colors text-white/80" disabled={isBlocked && !blockedByMe}>
+                        <button onClick={handleBlockToggle} className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-white/80 hover:text-white text-sm flex items-center gap-3" disabled={isBlocked && !blockedByMe}>
                           {isBlocked && blockedByMe ? <><Unlock size={16} className="text-green-400" /><span className="text-green-400">Unblock User</span></> : <><Ban size={16} className={isBlocked && !blockedByMe ? "text-white/30" : "text-red-400"} /><span className={isBlocked && !blockedByMe ? "text-white/30" : "text-red-400"}>{isBlocked && !blockedByMe ? 'Blocked by User' : 'Block User'}</span></>}
                         </button>
                       )}
                       <div className="h-px bg-white/10 my-1 mx-2" />
-                      <button onClick={handleClearChat} className="w-full text-left px-4 py-3 hover:bg-white/5 text-sm text-red-400/80 hover:text-red-400 flex items-center gap-3 transition-colors">
+                      <button onClick={handleClearChat} className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-red-400/80 hover:text-red-400 text-sm flex items-center gap-3">
                         <Trash2 size={16} /> Clear Chat
                       </button>
                     </div>,
@@ -535,30 +602,92 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           </div>
         </div>
 
-        {/* CSS INJECTION: Aurora Animation */}
+        {/* CSS INJECTION: Spatial Nebula Animations */}
         <style dangerouslySetInnerHTML={{ __html: `
-          @keyframes aurora-1 {
-            0% { transform: translate(0, 0) scale(1); opacity: 0.15; }
-            100% { transform: translate(40px, 20px) scale(1.1); opacity: 0.25; }
+          @keyframes nebula-blob-1 {
+            0% { 
+              transform: translate(0, 0) scale(1.5);
+              opacity: 0.6;
+            }
+            50% {
+              transform: translate(30px, 40px) scale(1.6);
+              opacity: 0.8;
+            }
+            100% { 
+              transform: translate(-20px, -30px) scale(1.5);
+              opacity: 0.6;
+            }
           }
-          @keyframes aurora-2 {
-            0% { transform: translate(0, 0) scale(1); opacity: 0.15; }
-            100% { transform: translate(-40px, -20px) scale(1.1); opacity: 0.25; }
+          
+          @keyframes nebula-blob-2 {
+            0% { 
+              transform: translate(0, 0) scale(2);
+              opacity: 0.5;
+            }
+            50% {
+              transform: translate(-40px, 50px) scale(2.1);
+              opacity: 0.7;
+            }
+            100% { 
+              transform: translate(30px, -40px) scale(2);
+              opacity: 0.5;
+            }
           }
-          .animate-aurora-1 {
-            animation: aurora-1 12s infinite alternate ease-in-out;
+          
+          @keyframes nebula-blob-3 {
+            0% { 
+              transform: translate(0, 0) scale(1.2);
+              opacity: 0.4;
+            }
+            50% {
+              transform: translate(25px, -35px) scale(1.3);
+              opacity: 0.6;
+            }
+            100% { 
+              transform: translate(-15px, 25px) scale(1.2);
+              opacity: 0.4;
+            }
           }
-          .animate-aurora-2 {
-            animation: aurora-2 12s infinite alternate ease-in-out;
-            animation-delay: -6s;
+          
+          .nebula-blob-1 {
+            animation: nebula-blob-1 20s infinite ease-in-out;
           }
+          
+          .nebula-blob-2 {
+            animation: nebula-blob-2 25s infinite ease-in-out;
+            animation-delay: -5s;
+          }
+          
+          .nebula-blob-3 {
+            animation: nebula-blob-3 15s infinite ease-in-out;
+            animation-delay: -10s;
+          }
+          
           .aurora-search-input:focus {
             text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+          }
+          
+          /* Top-Down Light Source Effect */
+          .floating-header-pane::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 40%;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, transparent 100%);
+            pointer-events: none;
+            border-radius: 1rem 1rem 0 0;
           }
         `}} />
       </div>
 
-      <MessageList messages={filteredMessages} userPreferredLanguage={userPreferredLanguage} isTranslationEnabled={isTranslationEnabled} />
+      <MessageList 
+        messages={filteredMessages} 
+        userPreferredLanguage={userPreferredLanguage} 
+        isTranslationEnabled={isTranslationEnabled}
+        isNotificationsOpen={isNotificationsOpen}
+      />
       
       {/* Input with Fast P2P Send */}
       <MessageInput 

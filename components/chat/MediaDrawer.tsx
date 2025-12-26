@@ -73,15 +73,18 @@ const MediaDrawer: React.FC<MediaDrawerProps> = ({ isOpen, onClose, messages, ro
                                     return (
                                         <a 
                                             key={item.id} 
-                                            href={!hasFailed ? item.attachment?.url : undefined}
+                                            href={!hasFailed && !isBlobUrl ? item.attachment?.url : undefined}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className={`relative aspect-square rounded-lg overflow-hidden border border-white/10 group cursor-zoom-in bg-black/20 ${hasFailed ? 'pointer-events-none' : ''}`}
+                                            className={`relative aspect-square rounded-lg overflow-hidden border border-white/10 group cursor-zoom-in bg-black/20 ${hasFailed || isBlobUrl ? 'pointer-events-none' : ''}`}
                                         >
-                                            {hasFailed || (isBlobUrl && !item.attachment?.url) ? (
+                                            {hasFailed || isBlobUrl ? (
                                                 <div className="w-full h-full flex flex-col items-center justify-center bg-black/40 text-white/40">
                                                     <Image size={24} className="mb-2 opacity-50" />
                                                     <p className="text-[10px] text-center px-2">Image unavailable</p>
+                                                    {isBlobUrl && (
+                                                        <p className="text-[9px] text-center px-2 mt-1 text-white/30">Link expired</p>
+                                                    )}
                                                 </div>
                                             ) : (
                                                 <>

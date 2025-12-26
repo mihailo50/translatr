@@ -182,7 +182,7 @@ export default function NotificationBell() {
       {isNotificationsOpen && dropdownPosition && typeof document !== 'undefined' && createPortal(
         <div 
           ref={dropdownRef}
-          className="fixed w-80 rounded-2xl border border-white/10 overflow-hidden z-[9999] animate-in fade-in zoom-in-95 duration-200"
+          className="fixed w-80 rounded-2xl border border-white/20 overflow-hidden z-[9999] animate-in fade-in zoom-in-95 duration-200 shadow-[0_20px_50px_rgba(0,0,0,0.7)]"
           style={{
             top: `${dropdownPosition.top}px`,
             right: `${dropdownPosition.right}px`,

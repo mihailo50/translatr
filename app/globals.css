@@ -23,12 +23,12 @@ input:focus {
 }
 
   :root {
-    --background: #0a0a0a;
+    --background: #020205;
     --foreground: #ededed;
 }
 
 body {
-  background: var(--background);
+  background: radial-gradient(circle at 50% 0%, #0a0a15 0%, #020205 100%);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }

@@ -24,6 +24,9 @@ interface MessageBubbleProps {
 }
 
 const ViewOnceModal = ({ src, onClose }: { src: string, onClose: () => void }) => {
+    const [imageError, setImageError] = useState(false);
+    const isBlobUrl = src?.startsWith('blob:');
+    
     // Render using Portal to ensure it sits on top of everything including parent overflow containers
     if (typeof document === 'undefined') return null;
     
@@ -42,11 +45,26 @@ const ViewOnceModal = ({ src, onClose }: { src: string, onClose: () => void }) =
             </div>
 
             <div className="relative max-w-4xl max-h-screen p-4 flex flex-col items-center gap-4">
-                 <img src={src} className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" onClick={e => e.stopPropagation()} />
-                 <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/10 backdrop-blur-md">
-                     <Timer size={16} className="text-aurora-pink" />
-                     <span className="text-white/70 text-sm font-medium">This photo will disappear after closing</span>
-                 </div>
+                {imageError || isBlobUrl ? (
+                    <div className="w-full min-h-[400px] flex flex-col items-center justify-center bg-black/20 text-white/40 p-8 rounded-lg">
+                        <X size={48} className="mb-4 opacity-50" />
+                        <p className="text-lg text-center">Image unavailable</p>
+                        <p className="text-sm text-center mt-2 text-white/30">The image link has expired</p>
+                    </div>
+                ) : (
+                    <>
+                        <img 
+                            src={src} 
+                            className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" 
+                            onClick={e => e.stopPropagation()}
+                            onError={() => setImageError(true)}
+                        />
+                        <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/10 backdrop-blur-md">
+                            <Timer size={16} className="text-aurora-pink" />
+                            <span className="text-white/70 text-sm font-medium">This photo will disappear after closing</span>
+                        </div>
+                    </>
+                )}
             </div>
         </div>,
         document.body
@@ -55,8 +73,10 @@ const ViewOnceModal = ({ src, onClose }: { src: string, onClose: () => void }) =
 
 const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLanguage, isTranslationEnabled = true }) => {
   const [showOriginal, setShowOriginal] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const [isViewed, setIsViewed] = useState(false);
   const [showViewOnceModal, setShowViewOnceModal] = useState(false);
+  const [showFooter, setShowFooter] = useState(false);
 
   // Logic to determine what to display
   const isOriginalLang = message.original_language === userPreferredLanguage;
@@ -83,7 +103,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
   };
 
   return (
-    <div className={`flex items-end gap-3 ${message.isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+    <div className={`flex items-end gap-3 ${message.isMe ? 'flex-row-reverse' : 'flex-row'} animate-in zoom-in-95 slide-in-from-bottom-2 duration-300`}>
       
       {/* Avatar (for others) */}
       {!message.isMe && (
@@ -95,12 +115,32 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
       <div className={`group relative max-w-[75%] sm:max-w-[65%] flex flex-col ${message.isMe ? 'items-end' : 'items-start'}`}>
         
         {/* Bubble Container */}
-        <div className={`
-           relative px-5 py-3 rounded-2xl shadow-lg transition-all duration-300 overflow-hidden
+        <div 
+          className={`
+           relative px-5 py-3 rounded-2xl shadow-lg transition-all duration-300 overflow-hidden cursor-pointer
            ${message.isMe 
-             ? 'bg-gradient-to-br from-aurora-indigo to-aurora-purple text-white rounded-tr-sm' 
-             : 'bg-white/5 border border-white/10 text-white/90 rounded-tl-sm backdrop-blur-md hover:bg-white/10'}
-        `}>
+             ? 'text-white rounded-tr-sm' 
+             : 'text-white/90 rounded-tl-sm hover:bg-[#1a1a20]/90'}
+          `}
+          style={message.isMe ? {
+            background: 'linear-gradient(to bottom right, rgba(79, 70, 229, 0.9), rgba(147, 51, 234, 0.9), rgba(79, 70, 229, 0.9))',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+          } : {
+            background: 'rgba(26, 26, 32, 0.8)',
+            backdropFilter: 'blur(10px)',
+            WebkitBackdropFilter: 'blur(10px)',
+            border: '1px solid rgba(255, 255, 255, 0.05)',
+          }}
+          onClick={(e) => {
+            // Don't toggle if clicking on interactive elements
+            const target = e.target as HTMLElement;
+            if (target.closest('button') || target.closest('a') || target.closest('img')) {
+              return;
+            }
+            setShowFooter(!showFooter);
+          }}
+        >
           
           {/* Attachment Rendering */}
           {message.attachment && (
@@ -153,12 +193,21 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
                     ) : (
                         /* Standard Image */
                         <div className="rounded-lg overflow-hidden border border-white/10 bg-black/10">
-                            <img 
-                                src={message.attachment.url} 
-                                alt="Attachment" 
-                                className="w-full h-auto max-h-[400px] object-contain" 
-                                loading="lazy"
-                            />
+                            {imageError || message.attachment.url?.startsWith('blob:') ? (
+                                <div className="w-full min-h-[200px] flex flex-col items-center justify-center bg-black/20 text-white/40 p-4">
+                                    <X size={24} className="mb-2 opacity-50" />
+                                    <p className="text-xs text-center">Image unavailable</p>
+                                    <p className="text-[10px] text-center mt-1 text-white/30">The image link has expired</p>
+                                </div>
+                            ) : (
+                                <img 
+                                    src={message.attachment.url} 
+                                    alt="Attachment" 
+                                    className="w-full h-auto max-h-[400px] object-contain" 
+                                    loading="lazy"
+                                    onError={() => setImageError(true)}
+                                />
+                            )}
                         </div>
                     )
                 ) : (
@@ -186,8 +235,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
              <p className="text-sm leading-relaxed whitespace-pre-wrap">{displayText}</p>
           )}
           
-          {/* Metadata Footer */}
-          <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between gap-4">
+          {/* Metadata Footer - Only shown when message is clicked */}
+          {showFooter && (
+            <div className="mt-2 pt-2 border-t border-white/10 flex items-center justify-between gap-4">
              
              {/* Language Indicator */}
              <div className="flex items-center gap-1.5">
@@ -215,14 +265,18 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
              {/* Toggle Button (Only if translation exists, it's not my own message, AND global translation is enabled) */}
              {!message.isMe && hasTranslation && !isOriginalLang && message.text && isTranslationEnabled && (
                <button
-                 onClick={() => setShowOriginal(!showOriginal)}
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   setShowOriginal(!showOriginal);
+                 }}
                  className="flex items-center gap-1 text-[10px] text-white/60 hover:text-white transition-colors opacity-60 hover:opacity-100"
                >
                  <RefreshCw size={10} className={showOriginal ? "rotate-180" : ""} />
                  {showOriginal ? 'Show Translation' : 'Show Original'}
                </button>
              )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Timestamp */}

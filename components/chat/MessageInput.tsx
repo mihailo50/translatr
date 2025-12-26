@@ -115,17 +115,29 @@ const MessageInput: React.FC<MessageInputProps> = ({
         try {
             const supabase = createClient();
             const fileExt = file.name.split('.').pop();
-            const fileName = `${roomId}/${Date.now()}.${fileExt}`;
-            const { error: uploadError } = await supabase.storage.from('attachments').upload(fileName, file);
-            if (uploadError) throw uploadError;
+            const fileName = `${roomId}/${Date.now()}-${file.name}`;
+            
+            // Upload to Supabase storage
+            const { error: uploadError } = await supabase.storage.from('attachments').upload(fileName, file, {
+                cacheControl: '3600',
+                upsert: false
+            });
+            
+            if (uploadError) {
+                console.error('Upload error:', uploadError);
+                throw new Error(uploadError.message || 'Failed to upload file');
+            }
+            
+            // Get public URL
             const { data: { publicUrl } } = supabase.storage.from('attachments').getPublicUrl(fileName);
             const type = file.type.startsWith('image/') ? 'image' : 'file';
             setAttachment({ url: publicUrl, type, name: file.name });
+            toast.success("File uploaded successfully");
         } catch (error) {
-            // Fallback for demo
-            const localUrl = URL.createObjectURL(file);
-            const type = file.type.startsWith('image/') ? 'image' : 'file';
-            setAttachment({ url: localUrl, type, name: file.name });
+            console.error('File upload failed:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to upload file';
+            toast.error(`Upload failed: ${errorMessage}`);
+            setAttachment(null);
         } finally {
             setIsUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';
@@ -193,9 +205,9 @@ const MessageInput: React.FC<MessageInputProps> = ({
                     type="text" 
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    placeholder={isSending ? "Encrypting & Sending..." : "Type a secure message..."}
+                    placeholder={isSending ? "Encrypting & Sending..." : "Message..."}
                     disabled={isSending}
-                    className="w-full bg-white/[0.03] border border-white/5 focus:bg-white/[0.08] focus:border-indigo-500/40 focus:shadow-[0_0_20px_rgba(99,102,241,0.2)] focus:ring-0 text-white placeholder-white/30 px-3 py-2 text-base h-10 pr-8 rounded-lg transition-all duration-300 ease-out"
+                    className="w-full bg-white/[0.03] border border-white/5 rounded-2xl focus:ring-1 focus:ring-indigo-500/30 focus:shadow-[0_0_30px_rgba(99,102,241,0.15)] focus:bg-white/[0.06] focus:border-indigo-500/40 text-white placeholder-white/30 px-3 py-2 text-base h-10 pr-8 transition-all duration-500 ease-out"
                     autoComplete="off"
                 />
                 <div className="absolute right-2 top-1/2 -translate-y-1/2" title="End-to-End Encrypted">
@@ -203,9 +215,33 @@ const MessageInput: React.FC<MessageInputProps> = ({
                 </div>
             </div>
             
-            <button type="submit" onClick={handleSend} disabled={!isActive} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 shrink-0 relative ${isActive ? 'bg-white text-aurora-indigo hover:scale-105 shadow-[0_0_20px_rgba(255,255,255,0.4)] cursor-pointer' : 'bg-white/5 text-white/20 cursor-not-allowed'}`}>
+            <button 
+              type="submit" 
+              onClick={handleSend} 
+              disabled={!isActive} 
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 shrink-0 relative ${
+                isActive 
+                  ? 'bg-white text-aurora-indigo hover:scale-105 shadow-[0_0_20px_rgba(99,102,241,0.4)] cursor-pointer send-button-glow' 
+                  : 'bg-white/5 text-white/20 cursor-not-allowed'
+              }`}
+            >
                 {isSending ? <Loader2 size={18} className="animate-spin text-aurora-indigo" /> : <Send size={18} fill="currentColor" className={isActive ? "ml-0.5" : ""} />}
             </button>
+            
+            {/* Glow Pulse Animation CSS */}
+            <style dangerouslySetInnerHTML={{ __html: `
+              @keyframes send-button-pulse {
+                0%, 100% {
+                  box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+                }
+                50% {
+                  box-shadow: 0 0 30px rgba(99, 102, 241, 0.6);
+                }
+              }
+              .send-button-glow {
+                animation: send-button-pulse 2s ease-in-out infinite;
+              }
+            `}} />
         </form>
     </div>
   );
