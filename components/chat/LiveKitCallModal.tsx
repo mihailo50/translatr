@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Phone, Video, Mic, MicOff, VideoOff, PhoneOff } from 'lucide-react';
+import { Phone, Video, Mic, MicOff, VideoOff, PhoneOff, MessageSquare } from 'lucide-react';
 import { Room, LocalTrack, Track } from 'livekit-client';
 
 interface LiveKitCallModalProps {
@@ -8,8 +8,10 @@ interface LiveKitCallModalProps {
   callType: 'audio' | 'video';
   onAnswer: () => void;
   onDecline: () => void;
+  onDeclineWithMessage?: () => void;
   activeRoom?: Room | null; // Pass the LiveKit room if we are using the same room
   isCallActive: boolean;
+  isSender?: boolean; // True when user is the one calling (sender view)
 }
 
 const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
@@ -18,8 +20,10 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
   callType,
   onAnswer,
   onDecline,
+  onDeclineWithMessage,
   activeRoom,
-  isCallActive
+  isCallActive,
+  isSender = false
 }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(callType === 'video');
@@ -51,79 +55,165 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="glass-strong w-full max-w-md p-8 rounded-3xl border border-white/10 shadow-2xl relative overflow-hidden flex flex-col items-center gap-8">
-        
-        {/* Ambient Background Glow */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-aurora-indigo/20 rounded-full blur-[80px] pointer-events-none" />
+    <>
+      {/* Custom Animations */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes radar-ripple {
+          0% {
+            transform: scale(1);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(2.5);
+            opacity: 0;
+          }
+        }
+        @keyframes radar {
+          0% {
+            transform: scale(1);
+            opacity: 0.5;
+          }
+          100% {
+            transform: scale(1.8);
+            opacity: 0;
+          }
+        }
+        .radar-ripple-1 {
+          animation: radar-ripple 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+        .radar-ripple-2 {
+          animation: radar-ripple 2s cubic-bezier(0.4, 0, 0.2, 1) infinite 0.5s;
+        }
+        .radar-ring-1 {
+          animation: radar 2s ease-out infinite;
+        }
+        .radar-ring-2 {
+          animation: radar 2s ease-out infinite 0.4s;
+        }
+        .radar-ring-3 {
+          animation: radar 2s ease-out infinite 0.8s;
+        }
+      `}} />
 
-        {/* User Info */}
-        <div className="text-center z-10">
-           <div className="w-24 h-24 mx-auto mb-4 rounded-full bg-gradient-to-br from-aurora-indigo to-aurora-pink p-1 shadow-lg shadow-aurora-indigo/30 animate-pulse">
-               <div className="w-full h-full rounded-full bg-slate-900 flex items-center justify-center text-3xl font-bold text-white uppercase">
-                   {callerName.charAt(0)}
-               </div>
-           </div>
-           <h2 className="text-2xl font-bold text-white mb-1">{callerName}</h2>
-           <p className="text-white/50">
-               {isCallActive ? 'Connected' : `Incoming ${callType} call...`}
-           </p>
-        </div>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020205]/90 backdrop-blur-md animate-in fade-in duration-300">
+        {/* Content Container - No Border */}
+        <div className="w-full max-w-sm flex flex-col items-center relative">
+          
+          {/* Ambient Background Glow */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/20 rounded-full blur-[80px] pointer-events-none" />
 
-        {/* Controls */}
-        <div className="flex items-center gap-6 z-10 w-full justify-center">
-            {!isCallActive ? (
+          {/* User Info */}
+          <div className="text-center z-10 relative">
+            {/* Avatar with Radar Ripple Effect */}
+            <div className="relative w-24 h-24 mx-auto mb-4">
+              {isSender ? (
                 <>
-                    {/* Decline */}
-                    <button 
-                        onClick={onDecline}
-                        className="flex flex-col items-center gap-2 group"
-                    >
-                        <div className="w-16 h-16 rounded-full bg-white/5 border border-red-500/30 text-red-400 group-hover:bg-red-500 group-hover:text-white transition-all flex items-center justify-center shadow-lg">
-                            <PhoneOff size={28} />
-                        </div>
-                        <span className="text-xs text-white/40 group-hover:text-white/80 transition-colors">Decline</span>
-                    </button>
-
-                    {/* Answer */}
-                    <button 
-                        onClick={onAnswer}
-                        className="flex flex-col items-center gap-2 group"
-                    >
-                        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 text-white shadow-[0_0_20px_rgba(34,197,94,0.4)] hover:shadow-[0_0_30px_rgba(34,197,94,0.6)] hover:scale-105 transition-all flex items-center justify-center">
-                            {callType === 'video' ? <Video size={28} /> : <Phone size={28} />}
-                        </div>
-                        <span className="text-xs text-white/40 group-hover:text-white/80 transition-colors">Answer</span>
-                    </button>
+                  {/* Three Concentric Radar Rings for Sender View */}
+                  <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ring-1" />
+                  <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ring-2" />
+                  <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ring-3" />
                 </>
+              ) : (
+                <>
+                  {/* Two Radar Ripples for Receiver View */}
+                  <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ripple-1" />
+                  <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ripple-2" />
+                </>
+              )}
+              {/* Avatar Circle */}
+              <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-indigo-600/40 to-purple-600/40 p-1 shadow-lg shadow-indigo-500/30">
+                <div className="w-full h-full rounded-full bg-[#020205] flex items-center justify-center text-3xl font-bold text-white uppercase">
+                  {callerName.charAt(0)}
+                </div>
+              </div>
+            </div>
+
+            {/* Name */}
+            <h2 className="text-xl font-bold text-white mt-4">{callerName}</h2>
+            
+            {/* Status */}
+            {isSender ? (
+              <p className="text-xs uppercase tracking-[0.3em] text-indigo-400 mt-1 font-bold">
+                CALLING...
+              </p>
             ) : (
-                <>
-                    {/* Active Call Controls */}
-                    <button 
-                        onClick={toggleMute}
-                        className={`p-4 rounded-full transition-all ${isMuted ? 'bg-white text-slate-900' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                    >
-                        {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
-                    </button>
-
-                    <button 
-                        onClick={handleHangup}
-                        className="p-5 rounded-full bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/30 hover:scale-105 transition-all"
-                    >
-                        <PhoneOff size={32} />
-                    </button>
-
-                    <button 
-                        onClick={toggleVideo}
-                        className={`p-4 rounded-full transition-all ${!isVideoEnabled ? 'bg-white text-slate-900' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                    >
-                        {isVideoEnabled ? <Video size={24} /> : <VideoOff size={24} />}
-                    </button>
-                </>
+              <p className="text-xs uppercase tracking-[0.2em] text-indigo-400 mt-1 font-medium">
+                {isCallActive ? 'CONNECTED' : `INCOMING ${callType.toUpperCase()} CALL`}
+              </p>
             )}
+          </div>
+
+          {/* Controls */}
+          {isSender ? (
+            /* Sender View - Only End Button at Bottom */
+            <div className="w-full mt-8 flex justify-center">
+              <button 
+                onClick={onDecline}
+                className="w-12 h-12 rounded-full bg-red-500/80 hover:bg-red-500 text-white transition-all flex items-center justify-center hover:scale-110"
+              >
+                <PhoneOff size={20} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-4 z-10 w-full justify-center flex-wrap mt-8">
+              {!isCallActive ? (
+                <>
+                  {/* Decline */}
+                  <button 
+                    onClick={onDecline}
+                    className="w-16 h-16 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center hover:scale-110"
+                  >
+                    <PhoneOff size={24} />
+                  </button>
+
+                  {/* Decline with Message */}
+                  {onDeclineWithMessage && (
+                    <button 
+                      onClick={onDeclineWithMessage}
+                      className="w-16 h-16 rounded-full bg-white/5 text-white/70 border border-white/10 hover:bg-white/10 hover:text-white transition-all flex items-center justify-center hover:scale-110"
+                    >
+                      <MessageSquare size={24} />
+                    </button>
+                  )}
+
+                  {/* Answer */}
+                  <button 
+                    onClick={onAnswer}
+                    className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white transition-all flex items-center justify-center hover:scale-110"
+                  >
+                    {callType === 'video' ? <Video size={24} /> : <Phone size={24} />}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Active Call Controls */}
+                  <button 
+                    onClick={toggleMute}
+                    className={`w-12 h-12 rounded-full transition-all flex items-center justify-center hover:scale-110 ${isMuted ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-white/5 text-white/90 border border-white/10 hover:bg-white/10'}`}
+                  >
+                    {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
+                  </button>
+
+                  <button 
+                    onClick={handleHangup}
+                    className="w-12 h-12 rounded-full bg-red-500/80 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.4)] transition-all flex items-center justify-center hover:scale-110"
+                  >
+                    <PhoneOff size={20} />
+                  </button>
+
+                  <button 
+                    onClick={toggleVideo}
+                    className={`w-12 h-12 rounded-full transition-all flex items-center justify-center hover:scale-110 ${!isVideoEnabled ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-white/5 text-white/90 border border-white/10 hover:bg-white/10'}`}
+                  >
+                    {isVideoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
-    </div>
+    </>
   );
 };
 

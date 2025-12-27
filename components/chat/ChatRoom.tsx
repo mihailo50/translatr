@@ -13,6 +13,7 @@ import MessageInput from './MessageInput';
 import LiveKitCallModal from './LiveKitCallModal';
 import CallOverlay from './CallOverlay';
 import MediaDrawer from './MediaDrawer';
+import CallNotificationBanner from './CallNotificationBanner';
 import { initiateCall } from '../../actions/calls';
 import { blockUserInRoom, unblockUserInRoom, getBlockStatus } from '../../actions/contacts';
 import { RoomEvent, ConnectionState } from 'livekit-client';
@@ -75,13 +76,35 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   const [isCallModalOpen, setIsCallModalOpen] = useState(false);
   const [activeCallToken, setActiveCallToken] = useState<string | null>(null);
   const [activeCallUrl, setActiveCallUrl] = useState<string | null>(null);
+  const [activeCallType, setActiveCallType] = useState<'audio' | 'video'>('audio');
   const [incomingCaller, setIncomingCaller] = useState('');
   const [callType, setCallType] = useState<'audio' | 'video'>('audio');
+  const [showCallBanner, setShowCallBanner] = useState(false);
+  const [incomingCallId, setIncomingCallId] = useState<string | null>(null);
+  const [incomingCallRoomId, setIncomingCallRoomId] = useState<string | null>(null);
+  
+  // Refs to access current call state without adding to dependency array
+  const activeCallTokenRef = useRef<string | null>(null);
+  const isCallModalOpenRef = useRef(false);
+  const showCallBannerRef = useRef(false);
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    activeCallTokenRef.current = activeCallToken;
+  }, [activeCallToken]);
+  
+  useEffect(() => {
+    isCallModalOpenRef.current = isCallModalOpen;
+  }, [isCallModalOpen]);
+  
+  useEffect(() => {
+    showCallBannerRef.current = showCallBanner;
+  }, [showCallBanner]);
   
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMediaDrawerOpen, setIsMediaDrawerOpen] = useState(false);
   const [isGroupMembersOpen, setIsGroupMembersOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLButtonElement>(null);
   const groupListRef = useRef<HTMLDivElement>(null);
 
   const [isTranslationEnabled, setIsTranslationEnabled] = useState(false);
@@ -166,35 +189,90 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   }, [searchQuery]);
 
   useEffect(() => {
-    if (!liveKitChatRoom) return;
-    const handleData = (payload: Uint8Array) => {
+    if (!liveKitChatRoom) {
+      console.log('ChatRoom: liveKitChatRoom is not available');
+      return;
+    }
+    
+    console.log('ChatRoom: Setting up data channel listener, room state:', liveKitChatRoom.state);
+    
+    const handleData = (payload: Uint8Array, participant?: any) => {
         const decoder = new TextDecoder();
         try {
             const data = JSON.parse(decoder.decode(payload));
+            console.log('ChatRoom: Received data:', data.type, 'from:', data.senderId, 'my userId:', userId, 'participant:', participant?.identity);
             
             // Handle Incoming Call
             if (data.type === 'call_invite' && data.senderId !== userId) {
+                console.log('ChatRoom: Incoming call detected!', data);
+                
+                // Ignore if we already have an active call token (we're already in a call)
+                if (activeCallTokenRef.current) {
+                    console.log('ChatRoom: Ignoring call invite - already in a call');
+                    return;
+                }
+                
+                const callRoomId = data.roomId;
+                const isCallFromCurrentRoom = callRoomId === roomId;
+                
+                // Clear any previous call state first
+                setShowCallBanner(false);
+                setIsCallModalOpen(false);
+                
                 setIncomingCaller(data.senderName || 'Unknown');
                 setCallType(data.callType || 'audio');
-                setIsCallModalOpen(true);
+                setIncomingCallId(data.callId || null);
+                setIncomingCallRoomId(callRoomId || null);
+                
+                // If call is from current room, show modal only (user is in chat with caller)
+                // If call is from different room, show banner only (user is not in chat with caller)
+                if (isCallFromCurrentRoom) {
+                    setShowCallBanner(false);
+                    setIsCallModalOpen(true);
+                    toast.info(`Incoming ${data.callType} call from ${data.senderName || 'Unknown'}`);
+                } else {
+                    setShowCallBanner(true);
+                    setIsCallModalOpen(false);
+                    toast.info(`Incoming ${data.callType} call from ${data.senderName || 'Unknown'}`);
+                }
             }
             
             // Handle Call Termination for 1-on-1
             if (data.type === 'call_ended' && data.senderId !== userId && roomDetails.room_type === 'direct') {
-                if (activeCallToken || isCallModalOpen) {
+                if (activeCallTokenRef.current || isCallModalOpenRef.current || showCallBannerRef.current) {
                     toast.info("Call ended");
+                    // Force disconnect by clearing call state
                     setActiveCallToken(null);
                     setActiveCallUrl(null);
+                    setActiveCallType('audio');
                     setIsCallModalOpen(false);
+                    setShowCallBanner(false);
                     setIncomingCaller('');
+                    setIncomingCallId(null);
+                    setIncomingCallRoomId(null);
                     updateUserStatus('online');
                 }
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error('ChatRoom: Error parsing data:', e);
+        }
     };
+    
+    // Listen for data received events
     liveKitChatRoom.on(RoomEvent.DataReceived, handleData);
-    return () => { liveKitChatRoom.off(RoomEvent.DataReceived, handleData); };
-  }, [liveKitChatRoom, userId, activeCallToken, isCallModalOpen, roomDetails.room_type, updateUserStatus]);
+    
+    return () => { 
+        console.log('ChatRoom: Cleaning up data channel listener');
+        liveKitChatRoom.off(RoomEvent.DataReceived, handleData); 
+    };
+  }, [liveKitChatRoom, userId, roomId, roomDetails.room_type, updateUserStatus]);
+
+  // Open call modal when notification panel is clicked during incoming call
+  useEffect(() => {
+    if (isNotificationsOpen && showCallBanner && incomingCaller && !isCallModalOpen) {
+      setIsCallModalOpen(true);
+    }
+  }, [isNotificationsOpen, showCallBanner, incomingCaller, isCallModalOpen]);
 
   const handleBack = () => {
       router.push('/');
@@ -205,6 +283,14 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           toast.error("You cannot call a blocked user.");
           return;
       }
+      
+      // Clear any previous call state first
+      setShowCallBanner(false);
+      setIsCallModalOpen(false);
+      setIncomingCaller('');
+      setIncomingCallId(null);
+      setIncomingCallRoomId(null);
+      
       updateUserStatus('in-call');
       const toastId = toast.loading("Starting secure call...");
       const res = await initiateCall(roomId, userId, userName, type);
@@ -212,6 +298,59 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           toast.dismiss(toastId);
           setActiveCallToken(res.token);
           setActiveCallUrl(res.serverUrl);
+          setActiveCallType(type);
+          
+          // Send call invite via client data channel with retry logic
+          const sendCallInvite = async (retries = 3) => {
+              if (!liveKitChatRoom) {
+                  console.warn('LiveKit chat room not available for call invite');
+                  return;
+              }
+              
+              // Wait a bit to ensure room is ready
+              await new Promise(resolve => setTimeout(resolve, 100));
+              
+              if (liveKitChatRoom.state !== ConnectionState.Connected) {
+                  console.warn('Room not connected, retrying...', liveKitChatRoom.state);
+                  if (retries > 0) {
+                      setTimeout(() => sendCallInvite(retries - 1), 500);
+                  }
+                  return;
+              }
+
+              if (!liveKitChatRoom.localParticipant) {
+                  console.warn('Local participant not available, retrying...');
+                  if (retries > 0) {
+                      setTimeout(() => sendCallInvite(retries - 1), 500);
+                  }
+                  return;
+              }
+
+              try {
+                  const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                  const dataPacket = JSON.stringify({
+                      type: 'call_invite',
+                      callId: callId,
+                      roomId: roomId,
+                      senderId: userId,
+                      senderName: userName,
+                      callType: type,
+                      timestamp: Date.now()
+                  });
+                  const encoder = new TextEncoder();
+                  await liveKitChatRoom.localParticipant.publishData(encoder.encode(dataPacket), { reliable: true });
+                  console.log('Call invite sent via client data channel', { callId, roomId, type });
+              } catch (error) {
+                  console.warn('Failed to send call invite via client data channel:', error);
+                  if (retries > 0) {
+                      setTimeout(() => sendCallInvite(retries - 1), 500);
+                  }
+              }
+          };
+          
+          // Send immediately and also after a short delay as backup
+          sendCallInvite();
+          setTimeout(() => sendCallInvite(2), 1000);
       } else {
           updateUserStatus('online'); // Revert on fail
           toast.error("Failed to start call", { id: toastId });
@@ -220,26 +359,106 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const handleAnswerCall = async () => {
       updateUserStatus('in-call');
-      const res = await initiateCall(roomId, userId, userName, callType);
-      if (res.success && res.token && res.serverUrl) {
-          setIsCallModalOpen(false);
-          setActiveCallToken(res.token);
-          setActiveCallUrl(res.serverUrl);
+      setShowCallBanner(false);
+      
+      // If call is from a different room, navigate to that room first
+      const targetRoomId = incomingCallRoomId || roomId;
+      if (targetRoomId !== roomId) {
+          // Navigate to the correct chat room
+          router.push(`/chat/${targetRoomId}`);
+          // Wait a bit for navigation, then initiate call
+          setTimeout(async () => {
+              const res = await initiateCall(targetRoomId, userId, userName, callType);
+              if (res.success && res.token && res.serverUrl) {
+                  setIsCallModalOpen(false);
+                  setActiveCallToken(res.token);
+                  setActiveCallUrl(res.serverUrl);
+                  setActiveCallType(callType);
+              } else {
+                  updateUserStatus('online');
+                  toast.error("Failed to join call");
+              }
+          }, 500);
       } else {
-          updateUserStatus('online');
-          toast.error("Failed to join call");
+          // Call is from current room, proceed normally
+          const res = await initiateCall(roomId, userId, userName, callType);
+          if (res.success && res.token && res.serverUrl) {
+              setIsCallModalOpen(false);
+              setActiveCallToken(res.token);
+              setActiveCallUrl(res.serverUrl);
+              setActiveCallType(callType);
+          } else {
+              updateUserStatus('online');
+              toast.error("Failed to join call");
+          }
       }
   };
 
-  const handleDeclineCall = () => {
+  const handleDeclineCall = async () => {
+      setShowCallBanner(false);
       setIsCallModalOpen(false);
       setIncomingCaller('');
-      // Optionally notify sender of decline
+      setIncomingCallId(null);
+      setIncomingCallRoomId(null);
+      updateUserStatus('online');
+      
+      // Notify sender of decline via data channel
+      if (liveKitChatRoom) {
+          try {
+              const payload = JSON.stringify({
+                  type: 'call_declined',
+                  callId: incomingCallId,
+                  senderId: userId,
+                  timestamp: Date.now()
+              });
+              const encoder = new TextEncoder();
+              await liveKitChatRoom.localParticipant.publishData(encoder.encode(payload), { reliable: true });
+          } catch (error) {
+              console.warn('Failed to send call decline signal:', error);
+          }
+      }
+  };
+
+  const handleDeclineWithMessage = async () => {
+      setShowCallBanner(false);
+      setIsCallModalOpen(false);
+      setIncomingCaller('');
+      setIncomingCallId(null);
+      setIncomingCallRoomId(null);
+      updateUserStatus('online');
+      
+      // Notify sender of decline with message via data channel
+      if (liveKitChatRoom) {
+          try {
+              const payload = JSON.stringify({
+                  type: 'call_declined_with_message',
+                  callId: incomingCallId,
+                  senderId: userId,
+                  timestamp: Date.now()
+              });
+              const encoder = new TextEncoder();
+              await liveKitChatRoom.localParticipant.publishData(encoder.encode(payload), { reliable: true });
+          } catch (error) {
+              console.warn('Failed to send call decline with message signal:', error);
+          }
+      }
+      
+      // Focus on message input to allow user to type a message
+      // The user can manually send a message explaining why they declined
+      toast.info("Call declined. You can send a message to explain.");
   };
 
   const handleEndCall = async (shouldSignalTerminate: boolean) => {
+      // Clear call state first to disconnect the overlay
       setActiveCallToken(null);
       setActiveCallUrl(null);
+      setActiveCallType('audio');
+      setShowCallBanner(false);
+      setIsCallModalOpen(false);
+      setIncomingCaller('');
+      setIncomingCallId(null);
+      setIncomingCallRoomId(null);
+      updateUserStatus('online');
       
       if (shouldSignalTerminate && liveKitChatRoom) {
           try {
@@ -263,6 +482,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
               });
               const encoder = new TextEncoder();
               await liveKitChatRoom.localParticipant.publishData(encoder.encode(payload), { reliable: true });
+              console.log('Call end signal sent');
           } catch (error) {
               // Gracefully handle errors (connection closed, PC manager closed, etc.)
               console.warn('Failed to send call end signal:', error);
@@ -417,9 +637,9 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       )}
       
       {/* --- FLOATING PANE HEADER --- */}
-      <div className="sticky top-0 left-0 right-0 z-50 w-full shrink-0 px-4 pt-2">
+      <div className="sticky top-0 left-0 right-0 z-50 w-full shrink-0 px-2 sm:px-4 pt-2">
         <div 
-          className="relative h-20 flex items-center mx-4 my-2 rounded-2xl border border-white/10 floating-header-pane"
+          className="relative h-20 flex items-center mx-2 sm:mx-4 my-2 rounded-2xl border border-white/10 floating-header-pane"
           style={{
             background: 'rgba(3, 3, 11, 0.85)',
             backdropFilter: 'blur(20px)',
@@ -432,8 +652,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
             <div className="absolute bottom-[-40%] right-[-10%] w-[250px] h-[250px] bg-purple-500/15 blur-[60px] rounded-full animate-aurora-2" />
           </div>
 
-          {/* CONTENT: max-w-4xl matches MessageList for perfect alignment */}
-          <div className="max-w-4xl mx-auto w-full px-6 flex items-center justify-between relative z-10">
+          {/* CONTENT: Full width on mobile, max-w-4xl on larger screens */}
+          <div className="max-w-4xl mx-auto w-full px-3 sm:px-6 flex items-center justify-between relative z-10">
             {isSearchOpen ? (
               <div className="flex items-center w-full gap-3 animate-in fade-in slide-in-from-top-1">
                 <Search className="text-indigo-400 w-5 h-5" />
@@ -449,18 +669,18 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
               </div>
             ) : (
               <>
-                <div className="flex items-center gap-4">
-                  <button onClick={handleBack} className="text-white/70 hover:text-white transition-colors">
+                <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+                  <button onClick={handleBack} className="text-white/70 hover:text-white transition-colors shrink-0">
                     <ArrowLeft size={22} />
                   </button>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                     {roomDetails.room_type === 'group' ? (
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-aurora-purple/80 to-aurora-pink/80 flex items-center justify-center text-white shadow-lg border border-white/10">
-                        <Users size={22} />
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-aurora-purple/80 to-aurora-pink/80 flex items-center justify-center text-white shadow-lg border border-white/10 shrink-0">
+                        <Users size={18} className="sm:w-[22px] sm:h-[22px]" />
                       </div>
                     ) : (
-                      <div className="relative">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500/40 to-purple-500/40 p-[1px]">
+                      <div className="relative shrink-0">
+                        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-indigo-500/40 to-purple-500/40 p-[1px]">
                           <div className="w-full h-full rounded-full bg-[#03030b] flex items-center justify-center overflow-hidden">
                             {roomDetails.participants?.[0]?.avatar ? (
                               <img src={roomDetails.participants[0].avatar} className="w-full h-full object-cover" alt="" />
@@ -474,20 +694,22 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                         )}
                       </div>
                     )}
-                    <div>
-                      <h2 className="text-white font-bold text-base tracking-tight leading-none mb-1 flex items-center gap-2">
-                        {(() => {
-                          if (roomDetails.room_type === 'direct' && roomDetails.participants?.[0]?.name) {
-                            return roomDetails.participants[0].name;
-                          }
-                          if (roomDetails.name && roomDetails.name !== 'Loading...' && roomDetails.name !== 'Unknown') {
-                            return roomDetails.name;
-                          }
-                          return 'Loading...';
-                        })()}
-                        {isBlocked && <Ban size={14} className="text-red-400" />}
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-white font-bold text-sm sm:text-base tracking-tight leading-none mb-1 flex items-center gap-1 sm:gap-2 min-w-0">
+                        <span className="truncate min-w-0">
+                          {(() => {
+                            if (roomDetails.room_type === 'direct' && roomDetails.participants?.[0]?.name) {
+                              return roomDetails.participants[0].name;
+                            }
+                            if (roomDetails.name && roomDetails.name !== 'Loading...' && roomDetails.name !== 'Unknown') {
+                              return roomDetails.name;
+                            }
+                            return 'Loading...';
+                          })()}
+                        </span>
+                        {isBlocked && <Ban size={14} className="text-red-400 shrink-0" />}
                         {/* Ambient Security Shield */}
-                        <div className="relative group/shield">
+                        <div className="relative group/shield shrink-0">
                           <ShieldCheck size={12} className="text-emerald-500 animate-pulse" />
                           {/* Glass Tooltip */}
                           <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg bg-white/10 backdrop-blur-md border border-white/20 shadow-lg opacity-0 group-hover/shield:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
@@ -546,23 +768,25 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setIsSearchOpen(true)} className="p-2 hover:bg-white/5 rounded-lg text-white/60 transition-colors"><Search size={20} /></button>
+                <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                  <button onClick={() => setIsSearchOpen(true)} className="p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 transition-colors"><Search size={18} className="sm:w-5 sm:h-5" /></button>
                   {!isBlocked && (
                     <>
-                      <button onClick={() => handleStartCall('audio')} className="p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-green-400 transition-colors hidden sm:block">
-                        <Phone size={20} />
+                      <button onClick={() => handleStartCall('audio')} className="p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-green-400 transition-colors">
+                        <Phone size={18} className="sm:w-5 sm:h-5" />
                       </button>
-                      <button onClick={() => handleStartCall('video')} className="p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-indigo-400 transition-colors hidden sm:block">
-                        <Video size={20} />
+                      <button onClick={() => handleStartCall('video')} className="p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-indigo-400 transition-colors">
+                        <Video size={18} className="sm:w-5 sm:h-5" />
                       </button>
                     </>
                   )}
-                  <div className="relative" ref={menuRef}>
-                    <button onClick={() => setIsMenuOpen(!isMenuOpen)} className={`p-2 hover:bg-white/5 rounded-lg text-white/60 transition-colors ${isMenuOpen ? 'bg-white/5 text-white' : ''}`}>
-                      <MoreVertical size={20} />
-                    </button>
-                  </div>
+                  <button 
+                    ref={menuRef}
+                    onClick={() => setIsMenuOpen(!isMenuOpen)} 
+                    className={`p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 transition-colors ${isMenuOpen ? 'bg-white/5 text-white' : ''}`}
+                  >
+                    <MoreVertical size={18} className="sm:w-5 sm:h-5" />
+                  </button>
                   {isMenuOpen && typeof document !== 'undefined' && createPortal(
                     <div 
                       className="menu-dropdown-portal fixed top-16 right-6 w-56 z-[100] rounded-xl py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right"
@@ -699,7 +923,27 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         sendRealtimeMessage={sendRealtimeMessage} // Pass the P2P function
       />
 
-      <LiveKitCallModal isOpen={isCallModalOpen} callerName={incomingCaller} callType={callType} onAnswer={handleAnswerCall} onDecline={handleDeclineCall} isCallActive={false} />
+      {/* Call Notification Banner */}
+      {showCallBanner && incomingCaller && (
+        <CallNotificationBanner
+          callerName={incomingCaller}
+          callType={callType}
+          onAccept={handleAnswerCall}
+          onDecline={handleDeclineCall}
+          onDeclineWithMessage={handleDeclineWithMessage}
+          onDismiss={handleDeclineCall}
+        />
+      )}
+
+      <LiveKitCallModal 
+        isOpen={isCallModalOpen} 
+        callerName={incomingCaller} 
+        callType={callType} 
+        onAnswer={handleAnswerCall} 
+        onDecline={handleDeclineCall}
+        onDeclineWithMessage={handleDeclineWithMessage}
+        isCallActive={false} 
+      />
       
       {activeCallToken && activeCallUrl && (
           <CallOverlay 
@@ -707,8 +951,10 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
             serverUrl={activeCallUrl} 
             roomName={roomDetails.name} 
             roomType={roomDetails.room_type}
+            callType={activeCallType}
             onDisconnect={handleCallDisconnect} 
-            userPreferredLanguage={userPreferredLanguage} 
+            userPreferredLanguage={userPreferredLanguage}
+            userId={userId}
           />
       )}
 
