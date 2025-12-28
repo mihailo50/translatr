@@ -212,22 +212,56 @@ export async function sendMessageAction(
                 }
 
                 // Create notifications for each recipient (excluding sender)
+                // Only create one notification per recipient per message
                 const recipients = allMembers.filter(m => m.profile_id !== senderId);
                 if (recipients.length > 0) {
-                    const notifications = recipients.map(recipient => ({
-                        recipient_id: recipient.profile_id,
-                        type: 'message' as const,
-                        content: {
-                            sender_name: senderName,
-                            preview: previewText,
-                            avatar_url: senderProfile?.avatar_url || null
-                        },
-                        related_id: roomId
-                    }));
-
-                    await supabase
+                    // Quick check for existing unread notifications for this room/message to avoid duplicates
+                    // Reduced time window to 2 seconds for faster processing
+                    const { data: existingNotifications } = await supabaseService
                         .from('notifications')
-                        .insert(notifications);
+                        .select('recipient_id')
+                        .eq('related_id', roomId)
+                        .eq('type', 'message')
+                        .eq('is_read', false)
+                        .gte('created_at', new Date(Date.now() - 2000).toISOString()) // Within last 2 seconds
+                        .limit(recipients.length); // Only fetch what we need
+                    
+                    const existingRecipientIds = new Set(
+                        existingNotifications?.map(n => n.recipient_id) || []
+                    );
+                    
+                    // Only create notifications for recipients who don't already have one
+                    const recipientsToNotify = recipients.filter(r => !existingRecipientIds.has(r.profile_id));
+                    
+                    if (recipientsToNotify.length > 0) {
+                        const notifications = recipientsToNotify.map(recipient => ({
+                            recipient_id: recipient.profile_id,
+                            type: 'message' as const,
+                            content: {
+                                sender_name: senderName,
+                                preview: previewText,
+                                avatar_url: senderProfile?.avatar_url || null
+                            },
+                            related_id: roomId
+                        }));
+
+                        // Insert notifications immediately without waiting for response
+                        const insertPromise = supabaseService
+                            .from('notifications')
+                            .insert(notifications)
+                            .select();
+
+                        // Log result asynchronously to not block
+                        insertPromise.then(({ data: insertedNotifications, error: notifInsertError }) => {
+                            if (notifInsertError) {
+                                console.error('Failed to insert notifications:', notifInsertError);
+                            } else {
+                                console.log(`✅ Created ${insertedNotifications?.length || 0} notifications for room ${roomId}`);
+                            }
+                        }).catch(err => {
+                            console.error('Notification insertion error:', err);
+                        });
+                    }
                 }
             }
         } catch (notifError) {

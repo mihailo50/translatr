@@ -51,7 +51,15 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 }) => {
   const router = useRouter();
   const supabase = createClient();
-  const { isNotificationsOpen, setIsNotificationsOpen } = useNotification();
+  const { isNotificationsOpen, setIsNotificationsOpen, setCurrentRoomId } = useNotification();
+  
+  // Track current room ID for notifications
+  useEffect(() => {
+    setCurrentRoomId(roomId);
+    return () => {
+      setCurrentRoomId(null);
+    };
+  }, [roomId, setCurrentRoomId]);
   // Debug logging
   useEffect(() => {
     console.log('ChatRoom - roomDetails:', {
@@ -67,7 +75,50 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       return <div className="flex h-full items-center justify-center text-white/50">Loading room...</div>;
   }
 
-  const { isConnected, messages, error, room: liveKitChatRoom, sendRealtimeMessage } = useLiveKitChat(roomId, userId, userName); 
+  const { isConnected, messages, error, room: liveKitChatRoom, sendRealtimeMessage } = useLiveKitChat(roomId, userId, userName);
+  
+  // Sound ref for playing notification sound when message arrives
+  const messageSoundRef = useRef<HTMLAudioElement | null>(null);
+  const lastMessageIdRef = useRef<string | null>(null);
+  
+  // Initialize message sound
+  useEffect(() => {
+    messageSoundRef.current = new Audio('/sounds/new-notification.mp3');
+    messageSoundRef.current.volume = 0.5;
+    messageSoundRef.current.preload = 'auto';
+    
+    return () => {
+      if (messageSoundRef.current) {
+        messageSoundRef.current.pause();
+        messageSoundRef.current = null;
+      }
+    };
+  }, []);
+  
+  // Play sound when a new message arrives from another user
+  useEffect(() => {
+    if (messages.length === 0) return;
+    
+    const lastMessage = messages[messages.length - 1];
+    
+    // Only play sound for messages from other users that we haven't seen yet
+    if (lastMessage && !lastMessage.isMe && lastMessage.id !== lastMessageIdRef.current) {
+      lastMessageIdRef.current = lastMessage.id;
+      
+      // Play sound for new message
+      const playSound = () => {
+        if (messageSoundRef.current) {
+          messageSoundRef.current.currentTime = 0;
+          messageSoundRef.current.play().catch((err: any) => {
+            // Silently fail if autoplay is blocked
+            console.log('Message sound blocked:', err.name);
+          });
+        }
+      };
+      
+      playSound();
+    }
+  }, [messages]); 
   
   // Presence Hook
   const { onlineUsers, updateUserStatus } = useUserStatus({ id: userId });
@@ -194,13 +245,13 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       return;
     }
     
-    console.log('ChatRoom: Setting up data channel listener, room state:', liveKitChatRoom.state);
+    console.log('ChatRoom: Setting up data channel listener, room state:', liveKitChatRoom.state, 'room name:', liveKitChatRoom.name);
     
     const handleData = (payload: Uint8Array, participant?: any) => {
         const decoder = new TextDecoder();
         try {
             const data = JSON.parse(decoder.decode(payload));
-            console.log('ChatRoom: Received data:', data.type, 'from:', data.senderId, 'my userId:', userId, 'participant:', participant?.identity);
+            console.log('ChatRoom: Received data:', data.type, 'from:', data.senderId, 'my userId:', userId, 'participant:', participant?.identity, 'data:', data);
             
             // Handle Incoming Call
             if (data.type === 'call_invite' && data.senderId !== userId) {
@@ -254,16 +305,45 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                 }
             }
         } catch (e) {
-            console.error('ChatRoom: Error parsing data:', e);
+            console.error('ChatRoom: Error parsing data:', e, 'payload:', payload);
         }
     };
     
-    // Listen for data received events
-    liveKitChatRoom.on(RoomEvent.DataReceived, handleData);
+    // Set up listener - handle both immediate connection and waiting for connection
+    const onConnected = () => {
+      console.log('ChatRoom: Room connected event, setting up data channel listener');
+      liveKitChatRoom.on(RoomEvent.DataReceived, handleData);
+    };
+    
+    // If already connected, set up listener immediately
+    if (liveKitChatRoom.state === ConnectionState.Connected) {
+      console.log('ChatRoom: Room already connected, setting up data channel listener immediately');
+      liveKitChatRoom.on(RoomEvent.DataReceived, handleData);
+    } else {
+      // Wait for connection event
+      console.log('ChatRoom: Room not connected yet, waiting for connection event...', liveKitChatRoom.state);
+      liveKitChatRoom.on(RoomEvent.Connected, onConnected);
+      
+      // Also poll in case the event doesn't fire
+      const checkConnection = setInterval(() => {
+        if (liveKitChatRoom.state === ConnectionState.Connected) {
+          console.log('ChatRoom: Room connected via polling, setting up listener');
+          liveKitChatRoom.on(RoomEvent.DataReceived, handleData);
+          clearInterval(checkConnection);
+        } else if (liveKitChatRoom.state === ConnectionState.Disconnected) {
+          console.log('ChatRoom: Room disconnected, stopping connection check');
+          clearInterval(checkConnection);
+        }
+      }, 200);
+      
+      // Cleanup polling after 10 seconds
+      setTimeout(() => clearInterval(checkConnection), 10000);
+    }
     
     return () => { 
         console.log('ChatRoom: Cleaning up data channel listener');
-        liveKitChatRoom.off(RoomEvent.DataReceived, handleData); 
+        liveKitChatRoom.off(RoomEvent.DataReceived, handleData);
+        liveKitChatRoom.off(RoomEvent.Connected, onConnected);
     };
   }, [liveKitChatRoom, userId, roomId, roomDetails.room_type, updateUserStatus]);
 
@@ -296,37 +376,79 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       const res = await initiateCall(roomId, userId, userName, type);
       if (res.success && res.token && res.serverUrl) {
           toast.dismiss(toastId);
-          setActiveCallToken(res.token);
+          // Ensure token is a string (handle both sync and async toJwt)
+          const token = typeof res.token === 'string' ? res.token : await res.token;
+          setActiveCallToken(token);
           setActiveCallUrl(res.serverUrl);
           setActiveCallType(type);
           
-          // Send call invite via client data channel with retry logic
-          const sendCallInvite = async (retries = 3) => {
+          // Wait for room to be connected, then send call invite
+          const waitForConnectionAndSend = async () => {
               if (!liveKitChatRoom) {
                   console.warn('LiveKit chat room not available for call invite');
                   return;
               }
               
-              // Wait a bit to ensure room is ready
-              await new Promise(resolve => setTimeout(resolve, 100));
+              // Wait for connection with timeout
+              const waitForConnection = (): Promise<void> => {
+                  return new Promise((resolve, reject) => {
+                      if (liveKitChatRoom.state === ConnectionState.Connected) {
+                          resolve();
+                          return;
+                      }
+                      
+                      const timeout = setTimeout(() => {
+                          liveKitChatRoom.off(RoomEvent.Connected, onConnected);
+                          reject(new Error('Connection timeout'));
+                      }, 10000); // 10 second timeout
+                      
+                      const onConnected = () => {
+                          clearTimeout(timeout);
+                          liveKitChatRoom.off(RoomEvent.Connected, onConnected);
+                          resolve();
+                      };
+                      
+                      liveKitChatRoom.on(RoomEvent.Connected, onConnected);
+                      
+                      // Also poll in case event doesn't fire
+                      const pollInterval = setInterval(() => {
+                          if (liveKitChatRoom.state === ConnectionState.Connected) {
+                              clearTimeout(timeout);
+                              clearInterval(pollInterval);
+                              liveKitChatRoom.off(RoomEvent.Connected, onConnected);
+                              resolve();
+                          } else if (liveKitChatRoom.state === ConnectionState.Disconnected) {
+                              clearTimeout(timeout);
+                              clearInterval(pollInterval);
+                              liveKitChatRoom.off(RoomEvent.Connected, onConnected);
+                              reject(new Error('Room disconnected'));
+                          }
+                      }, 200);
+                      
+                      // Cleanup polling after timeout
+                      setTimeout(() => clearInterval(pollInterval), 10000);
+                  });
+              };
               
-              if (liveKitChatRoom.state !== ConnectionState.Connected) {
-                  console.warn('Room not connected, retrying...', liveKitChatRoom.state);
-                  if (retries > 0) {
-                      setTimeout(() => sendCallInvite(retries - 1), 500);
-                  }
-                  return;
-              }
-
-              if (!liveKitChatRoom.localParticipant) {
-                  console.warn('Local participant not available, retrying...');
-                  if (retries > 0) {
-                      setTimeout(() => sendCallInvite(retries - 1), 500);
-                  }
-                  return;
-              }
-
               try {
+                  // Wait for connection
+                  console.log('Waiting for LiveKit room connection...', liveKitChatRoom.state);
+                  await waitForConnection();
+                  console.log('✅ Room connected, proceeding with call invite');
+                  
+                  // Wait a bit more for local participant to be ready
+                  let attempts = 0;
+                  while (!liveKitChatRoom.localParticipant && attempts < 20) {
+                      await new Promise(resolve => setTimeout(resolve, 100));
+                      attempts++;
+                  }
+                  
+                  if (!liveKitChatRoom.localParticipant) {
+                      console.error('Local participant never available after connection');
+                      return;
+                  }
+                  
+                  // Send call invite
                   const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                   const dataPacket = JSON.stringify({
                       type: 'call_invite',
@@ -338,19 +460,38 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                       timestamp: Date.now()
                   });
                   const encoder = new TextEncoder();
+                  
+                  // Send primary invite
                   await liveKitChatRoom.localParticipant.publishData(encoder.encode(dataPacket), { reliable: true });
-                  console.log('Call invite sent via client data channel', { callId, roomId, type });
+                  console.log('✅ Call invite sent via client data channel', { callId, roomId, type, roomState: liveKitChatRoom.state });
+                  
+                  // Send backup invites to ensure delivery
+                  setTimeout(() => {
+                      liveKitChatRoom.localParticipant?.publishData(encoder.encode(dataPacket), { reliable: true })
+                          .then(() => console.log('✅ Backup call invite #1 sent'))
+                          .catch(err => console.warn('Backup call invite #1 failed:', err));
+                  }, 500);
+                  
+                  setTimeout(() => {
+                      liveKitChatRoom.localParticipant?.publishData(encoder.encode(dataPacket), { reliable: true })
+                          .then(() => console.log('✅ Backup call invite #2 sent'))
+                          .catch(err => console.warn('Backup call invite #2 failed:', err));
+                  }, 1500);
+                  
+                  setTimeout(() => {
+                      liveKitChatRoom.localParticipant?.publishData(encoder.encode(dataPacket), { reliable: true })
+                          .then(() => console.log('✅ Backup call invite #3 sent'))
+                          .catch(err => console.warn('Backup call invite #3 failed:', err));
+                  }, 3000);
+                  
               } catch (error) {
-                  console.warn('Failed to send call invite via client data channel:', error);
-                  if (retries > 0) {
-                      setTimeout(() => sendCallInvite(retries - 1), 500);
-                  }
+                  console.error('Failed to wait for connection or send call invite:', error);
+                  toast.error('Failed to send call invite. Please try again.');
               }
           };
           
-          // Send immediately and also after a short delay as backup
-          sendCallInvite();
-          setTimeout(() => sendCallInvite(2), 1000);
+          // Start the process
+          waitForConnectionAndSend();
       } else {
           updateUserStatus('online'); // Revert on fail
           toast.error("Failed to start call", { id: toastId });
@@ -371,7 +512,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
               const res = await initiateCall(targetRoomId, userId, userName, callType);
               if (res.success && res.token && res.serverUrl) {
                   setIsCallModalOpen(false);
-                  setActiveCallToken(res.token);
+                  const token = typeof res.token === 'string' ? res.token : await res.token;
+                  setActiveCallToken(token);
                   setActiveCallUrl(res.serverUrl);
                   setActiveCallType(callType);
               } else {
@@ -384,7 +526,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           const res = await initiateCall(roomId, userId, userName, callType);
           if (res.success && res.token && res.serverUrl) {
               setIsCallModalOpen(false);
-              setActiveCallToken(res.token);
+              const token = typeof res.token === 'string' ? res.token : await res.token;
+              setActiveCallToken(token);
               setActiveCallUrl(res.serverUrl);
               setActiveCallType(callType);
           } else {

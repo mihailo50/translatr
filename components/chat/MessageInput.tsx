@@ -32,6 +32,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const [isViewOnce, setIsViewOnce] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = async (e: React.FormEvent | React.MouseEvent) => {
     e.preventDefault();
@@ -51,6 +52,17 @@ const MessageInput: React.FC<MessageInputProps> = ({
     setInputText(''); 
     setAttachment(null);
     setIsViewOnce(false);
+
+    // Immediately refocus the input after clearing (before async operations)
+    // This ensures the input is ready for the next message
+    if (!disabled && inputRef.current) {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        if (inputRef.current && !disabled) {
+          inputRef.current.focus();
+        }
+      });
+    }
 
     // 1. FAST PATH: Client-side Encrypted Broadcast
     let clientSentResult = null;
@@ -100,6 +112,21 @@ const MessageInput: React.FC<MessageInputProps> = ({
     }
     
     setIsSending(false);
+    
+    // Refocus the input field after sending completes
+    // This ensures focus is maintained even if it was lost during async operations
+    if (!disabled) {
+      // Use requestAnimationFrame + setTimeout to ensure:
+      // 1. React has updated the DOM (isSending state change)
+      // 2. Input is no longer disabled
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          if (inputRef.current && !disabled && !inputRef.current.disabled) {
+            inputRef.current.focus();
+          }
+        }, 0);
+      });
+    }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -202,12 +229,20 @@ const MessageInput: React.FC<MessageInputProps> = ({
             
             <div className="relative flex-1">
                  <input 
+                    ref={inputRef}
                     type="text" 
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Handle Enter key submission
+                      if (e.key === 'Enter' && !e.shiftKey && isActive) {
+                        e.preventDefault();
+                        handleSend(e);
+                      }
+                    }}
                     placeholder={isSending ? "Encrypting & Sending..." : "Message..."}
-                    disabled={isSending}
-                    className="w-full bg-white/[0.03] border border-white/5 rounded-2xl focus:ring-1 focus:ring-indigo-500/30 focus:shadow-[0_0_30px_rgba(99,102,241,0.15)] focus:bg-white/[0.06] focus:border-indigo-500/40 text-white placeholder-white/30 px-3 py-2 text-base h-10 pr-8 transition-all duration-500 ease-out"
+                    disabled={isSending || disabled}
+                    className="w-full bg-white/[0.03] border border-white/5 rounded-2xl focus:ring-1 focus:ring-indigo-500/30 focus:shadow-[0_0_30px_rgba(99,102,241,0.15)] focus:bg-white/[0.06] focus:border-indigo-500/40 text-white placeholder-white/30 px-3 py-2 text-base h-10 pr-8 transition-all duration-500 ease-out outline-none"
                     autoComplete="off"
                 />
                 <div className="absolute right-2 top-1/2 -translate-y-1/2" title="End-to-End Encrypted">

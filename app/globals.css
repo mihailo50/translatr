@@ -81,3 +81,15 @@ body {
     background-color: rgba(255, 255, 255, 0.08) !important;
     box-shadow: 0 0 15px rgba(99, 102, 241, 0.15), inset 0 0 10px rgba(255, 255, 255, 0.02) !important;
 }
+
+/* Aurora Cosmos Animations for Call Screens */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.15; transform: scale(1); }
+  50% { opacity: 0.25; transform: scale(1.05); }
+}
+.animate-float { animation: float 6s ease-in-out infinite; }
+.animate-nebula { animation: pulse-soft 8s ease-in-out infinite; }

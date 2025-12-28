@@ -24,7 +24,7 @@ const FloatingLocalVideo = () => {
     if (!localTrack) return null;
 
     return (
-        <div className="absolute top-6 right-6 w-32 md:w-48 aspect-video rounded-2xl border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-20 bg-black/40">
+        <div className="fixed top-4 right-4 md:top-6 md:right-6 w-32 md:w-48 aspect-video rounded-2xl border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-50 bg-black/40 transition-all">
             <VideoTrack trackRef={localTrack} className="w-full h-full object-cover mirror-mode" />
             <div className="absolute bottom-1 left-2 text-[10px] font-light tracking-wide text-white/90 z-20">You</div>
         </div>
@@ -34,14 +34,171 @@ const FloatingLocalVideo = () => {
 const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { roomName: string, roomType: 'direct' | 'group', callType: 'audio' | 'video', onDisconnect: (s: boolean) => void, userId?: string }) => {
     const { localParticipant } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
-    const tracks = useTracks(callType === 'video' ? [Track.Source.Camera] : []);
+    const videoTracks = useTracks(callType === 'video' ? [Track.Source.Camera] : []);
+    const audioTracks = useTracks(callType === 'audio' ? [Track.Source.Microphone] : []);
     
     // Filter remote tracks
-    const remoteTracks = tracks.filter(t => t.participant.identity !== localParticipant.identity);
+    const remoteVideoTracks = videoTracks.filter(t => t.participant.identity !== localParticipant.identity);
+    const remoteAudioTracks = audioTracks.filter(t => t.participant.identity !== localParticipant.identity);
 
     const [isMuted, setIsMuted] = useState(false);
     const [isVideoOff, setIsVideoOff] = useState(callType === 'audio'); // Video off by default for audio calls
+    const [callDuration, setCallDuration] = useState(0); // Call duration in seconds
+    const callStartTimeRef = useRef<number | null>(null);
     const room = useRoomContext();
+
+    // Call timer effect
+    useEffect(() => {
+        if (!room || room.state !== 'connected') {
+            setCallDuration(0);
+            callStartTimeRef.current = null;
+            return;
+        }
+
+        // Set start time when room connects (only once)
+        if (callStartTimeRef.current === null) {
+            callStartTimeRef.current = Date.now();
+        }
+
+        const interval = setInterval(() => {
+            if (callStartTimeRef.current) {
+                const elapsed = Math.floor((Date.now() - callStartTimeRef.current) / 1000);
+                setCallDuration(elapsed);
+            }
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [room]);
+
+    // Format call duration as MM:SS
+    const formatCallDuration = (seconds: number): string => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    // Ensure microphone is enabled when room connects
+    useEffect(() => {
+        if (!room || !localParticipant) return;
+        
+        const ensureMicrophoneEnabled = async () => {
+            try {
+                // Check if microphone is already enabled (for local tracks, check if published)
+                const micPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+                if (!micPublication || micPublication.isMuted) {
+                    console.log('CallOverlay: Enabling microphone...');
+                    await localParticipant.setMicrophoneEnabled(true);
+                    console.log('CallOverlay: Microphone enabled');
+                } else {
+                    console.log('CallOverlay: Microphone already enabled');
+                }
+            } catch (error) {
+                console.error('CallOverlay: Failed to enable microphone:', error);
+            }
+        };
+
+        // Wait for room to be connected
+        if (room.state === 'connected') {
+            ensureMicrophoneEnabled();
+        } else {
+            const handleConnected = () => {
+                ensureMicrophoneEnabled();
+            };
+            room.on(RoomEvent.Connected, handleConnected);
+            return () => {
+                room.off(RoomEvent.Connected, handleConnected);
+            };
+        }
+    }, [room, localParticipant]);
+
+    // Attach audio tracks to audio elements for playback
+    const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
+    
+    useEffect(() => {
+        if (callType !== 'audio' || !room) return;
+        
+        // Ensure we subscribe to remote audio tracks
+        remoteParticipants.forEach(participant => {
+            const audioPublication = participant.getTrackPublication(Track.Source.Microphone);
+            if (audioPublication && !audioPublication.isSubscribed) {
+                console.log(`CallOverlay: Subscribing to audio track for ${participant.identity}`);
+                audioPublication.setSubscribed(true);
+            }
+        });
+        
+        // Attach each remote audio track to an audio element
+        remoteAudioTracks.forEach(trackRef => {
+            const participantId = trackRef.participant.identity;
+            const publication = trackRef.publication;
+            const track = publication?.track;
+            
+            if (!track || !publication?.isSubscribed) {
+                console.log(`CallOverlay: Audio track not available or not subscribed for ${participantId}`);
+                return;
+            }
+            
+            // Get or create audio element for this participant
+            let audioElement = audioRefs.current.get(participantId);
+            if (!audioElement) {
+                audioElement = document.createElement('audio');
+                audioElement.autoplay = true;
+                audioElement.playsInline = true;
+                audioElement.style.display = 'none';
+                document.body.appendChild(audioElement);
+                audioRefs.current.set(participantId, audioElement);
+                console.log(`CallOverlay: Created audio element for ${participantId}`);
+            }
+            
+            // Attach track to audio element
+            if (track instanceof MediaStreamTrack) {
+                const stream = new MediaStream([track]);
+                // Only update if the stream has changed
+                if (audioElement.srcObject !== stream) {
+                    audioElement.srcObject = stream;
+                    audioElement.play().then(() => {
+                        console.log(`CallOverlay: Audio playing for ${participantId}`);
+                    }).catch(err => {
+                        console.warn(`CallOverlay: Failed to play audio for ${participantId}:`, err);
+                    });
+                }
+            }
+        });
+        
+        // Clean up audio elements for participants who left
+        const activeParticipantIds = new Set(remoteAudioTracks.map(t => t.participant.identity));
+        audioRefs.current.forEach((audioElement, participantId) => {
+            if (!activeParticipantIds.has(participantId)) {
+                console.log(`CallOverlay: Cleaning up audio element for ${participantId}`);
+                audioElement.pause();
+                audioElement.srcObject = null;
+                audioElement.remove();
+                audioRefs.current.delete(participantId);
+            }
+        });
+        
+        // Log audio tracks for debugging
+        console.log('CallOverlay: Audio tracks status:', {
+            remoteAudioTracks: remoteAudioTracks.length,
+            remoteParticipants: remoteParticipants.length,
+            tracks: remoteAudioTracks.map(t => ({
+                participant: t.participant.identity,
+                track: t.publication?.trackSid,
+                subscribed: t.publication?.isSubscribed,
+                trackType: t.publication?.track?.kind,
+                muted: t.publication?.isMuted
+            }))
+        });
+        
+        return () => {
+            // Cleanup on unmount
+            audioRefs.current.forEach((audioElement) => {
+                audioElement.pause();
+                audioElement.srcObject = null;
+                audioElement.remove();
+            });
+            audioRefs.current.clear();
+        };
+    }, [remoteAudioTracks, remoteParticipants, callType, room]);
 
     // Listen for room disconnection events and data channel messages
     useEffect(() => {
@@ -108,33 +265,11 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
 
     return (
         <div className="relative h-full w-full flex flex-col bg-[#020205]">
-            {/* Spatial Nebula Background with Slow Pulse Animation */}
-            <div className="absolute inset-0 z-0 overflow-hidden">
-                {/* Custom slow pulse animation */}
-                <style dangerouslySetInnerHTML={{ __html: `
-                    @keyframes slow-pulse {
-                        0%, 100% {
-                            opacity: 0.6;
-                            transform: scale(1);
-                        }
-                        50% {
-                            opacity: 1;
-                            transform: scale(1.1);
-                        }
-                    }
-                    .slow-pulse {
-                        animation: slow-pulse 10s ease-in-out infinite;
-                    }
-                `}} />
-                {/* Top-Left Nebula Blob */}
-                <div className="absolute top-0 left-0 bg-indigo-600/15 blur-[100px] rounded-full w-[600px] h-[600px] slow-pulse" 
-                     style={{ background: 'radial-gradient(circle, rgba(79, 70, 229, 0.15) 0%, transparent 70%)' }} />
-                {/* Bottom-Right Nebula Blob */}
-                <div className="absolute bottom-0 right-0 bg-purple-600/15 blur-[100px] rounded-full w-[600px] h-[600px] slow-pulse" 
-                     style={{ 
-                         background: 'radial-gradient(circle, rgba(147, 51, 234, 0.15) 0%, transparent 70%)',
-                         animationDelay: '2s'
-                     }} />
+            {/* Floating Status Bar */}
+            <div className="fixed top-8 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md z-40">
+                <ShieldCheck size={12} className="text-emerald-400" />
+                <span className="text-[10px] tracking-[0.2em] font-bold text-emerald-400/80 uppercase">SECURE E2EE</span>
+                <span className="text-white/50 text-xs">{formatCallDuration(callDuration)}</span>
             </div>
 
             {/* Header */}
@@ -152,7 +287,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
             {/* Main Stage (Remote Participants) */}
             <div className="relative flex-1 p-4 h-full flex items-center justify-center z-10">
                 {callType === 'audio' ? (
-                    // Audio call UI - show participant avatars/names
+                    // Audio call UI - show participant avatars/names and render audio tracks
                     <div className="flex flex-col items-center justify-center text-white/90 font-light tracking-wide">
                         {remoteParticipants.length === 0 ? (
                             <>
@@ -163,22 +298,29 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
                             </>
                         ) : (
                             <div className="flex flex-col items-center gap-4">
-                                {remoteParticipants.map(participant => (
-                                    <div key={participant.identity} className="flex flex-col items-center gap-2">
-                                        <div className="w-32 h-32 rounded-full bg-gradient-to-br from-indigo-600/40 to-purple-600/40 p-1 shadow-lg shadow-indigo-500/20">
-                                            <div className="w-full h-full rounded-full bg-[#020205] flex items-center justify-center text-4xl font-light tracking-wide text-white uppercase">
-                                                {(participant.name || participant.identity).charAt(0)}
+                                {remoteParticipants.map(participant => {
+                                    // Find audio track for this participant
+                                    const participantAudioTrack = remoteAudioTracks.find(
+                                        t => t.participant.identity === participant.identity
+                                    );
+                                    
+                                    return (
+                                        <div key={participant.identity} className="flex flex-col items-center gap-2">
+                                            <div className="w-32 h-32 rounded-full bg-gradient-to-br from-indigo-600/40 to-purple-600/40 p-1 shadow-lg shadow-indigo-500/20">
+                                                <div className="w-full h-full rounded-full bg-[#020205] flex items-center justify-center text-4xl font-light tracking-wide text-white uppercase">
+                                                    {(participant.name || participant.identity).charAt(0)}
+                                                </div>
                                             </div>
+                                            <p className="text-white/90 font-light tracking-wide">{participant.name || participant.identity}</p>
                                         </div>
-                                        <p className="text-white/90 font-light tracking-wide">{participant.name || participant.identity}</p>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
                 ) : (
                     // Video call UI
-                    remoteTracks.length === 0 ? (
+                    remoteVideoTracks.length === 0 ? (
                         <div className="flex flex-col items-center justify-center text-white/60 font-light tracking-wide animate-pulse">
                             <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-4">
                                 <span className="text-4xl">...</span>
@@ -186,8 +328,8 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
                             <p>Waiting for others to join...</p>
                         </div>
                     ) : (
-                        <div className={`grid gap-4 w-full h-full ${remoteTracks.length === 1 ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3'}`}>
-                            {remoteTracks.map(track => (
+                        <div className={`grid gap-4 w-full h-full ${remoteVideoTracks.length === 1 ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3'}`}>
+                            {remoteVideoTracks.map(track => (
                                 <div key={track.participant.identity} className="relative rounded-[2rem] border border-white/10 shadow-2xl overflow-hidden bg-black/40">
                                     <VideoTrack trackRef={track} className="w-full h-full object-cover" />
                                     <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded text-xs text-white/90 font-light tracking-wide">
@@ -204,16 +346,16 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
             {callType === 'video' && !isVideoOff && <FloatingLocalVideo />}
 
             {/* Floating Control Capsule */}
-            <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-[#050510]/80 backdrop-blur-3xl border border-white/10 rounded-full px-8 py-4 shadow-[0_0_40px_rgba(0,0,0,0.6)] flex items-center gap-6 z-50">
+            <div className="fixed bottom-6 md:bottom-8 left-1/2 -translate-x-1/2 w-fit px-6 py-3 rounded-full bg-white/[0.03] border border-white/10 backdrop-blur-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-4 md:gap-8 z-[100]">
                 {/* Mute Button */}
                 <button 
                     onClick={toggleMute} 
-                    className={`w-12 h-12 rounded-full flex items-center justify-center bg-white/5 border border-white/10 transition-all hover:scale-110 ${isMuted ? 'bg-red-500/20 border-red-500/30' : ''}`}
+                    className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-white/5 border border-white/10 transition-all hover:scale-110 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] ${isMuted ? 'bg-red-500/20 border-red-500/30' : ''}`}
                 >
                     {isMuted ? (
-                        <MicOff size={20} className="text-red-400" />
+                        <MicOff size={18} className="text-red-400" />
                     ) : (
-                        <Mic size={20} className="text-white/90" />
+                        <Mic size={18} className="text-white/90" />
                     )}
                 </button>
 
@@ -221,12 +363,12 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
                 {callType === 'video' && (
                     <button 
                         onClick={toggleVideo} 
-                        className={`w-12 h-12 rounded-full flex items-center justify-center bg-white/5 border border-white/10 transition-all hover:scale-110 ${isVideoOff ? 'bg-red-500/20 border-red-500/30' : ''}`}
+                        className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-white/5 border border-white/10 transition-all hover:scale-110 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] ${isVideoOff ? 'bg-red-500/20 border-red-500/30' : ''}`}
                     >
                         {isVideoOff ? (
-                            <VideoOff size={20} className="text-red-400" />
+                            <VideoOff size={18} className="text-red-400" />
                         ) : (
-                            <Video size={20} className="text-white/90" />
+                            <Video size={18} className="text-white/90" />
                         )}
                     </button>
                 )}
@@ -234,9 +376,9 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
                 {/* End Call Button */}
                 <button 
                     onClick={handleHangup}
-                    className="w-12 h-12 rounded-full flex items-center justify-center bg-red-500/80 hover:bg-red-500 text-white transition-all hover:scale-110"
+                    className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.3)] text-white transition-all hover:scale-110 animate-float"
                 >
-                    <PhoneOff size={20} />
+                    <PhoneOff size={18} />
                 </button>
             </div>
         </div>
@@ -267,7 +409,15 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#020205] text-white animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[9999] bg-[#020205] text-white animate-in fade-in duration-300">
+        {/* Aurora Cosmos Background Layer */}
+        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+            {/* Top-Left Nebula Blob */}
+            <div className="absolute top-[-10%] left-[-10%] w-[70%] h-[70%] bg-indigo-600/10 blur-[120px] rounded-full animate-nebula" />
+            {/* Bottom-Right Nebula Blob */}
+            <div className="absolute bottom-[-10%] right-[-10%] w-[70%] h-[70%] bg-purple-600/10 blur-[120px] rounded-full animate-nebula" style={{ animationDelay: '1s' }} />
+        </div>
+        
         <LiveKitRoom
             token={token}
             serverUrl={serverUrl}
@@ -277,7 +427,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
             onDisconnected={() => onDisconnect(false)} // Default disconnect fallback
             options={roomOptions}
             data-lk-theme="default"
-            className="h-full w-full"
+            className="h-full w-full relative z-10"
         >
             <CallContent roomName={roomName} roomType={roomType} callType={callType} onDisconnect={onDisconnect} userId={userId} />
         </LiveKitRoom>

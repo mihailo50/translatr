@@ -23,11 +23,85 @@ interface Notification {
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const { isNotificationsOpen, setIsNotificationsOpen } = useNotification();
+  const { isNotificationsOpen, setIsNotificationsOpen, currentRoomId } = useNotification();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState<{ top: number; right: number } | null>(null);
+  const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
+  const currentRoomIdRef = useRef<string | null>(null);
+  const audioUnlockedRef = useRef<boolean>(false);
+  const pendingSoundQueueRef = useRef<Array<() => void>>([]);
   const supabase = createClient();
+  
+  // Initialize notification sound and unlock audio on user interaction
+  useEffect(() => {
+    // Create and preload audio
+    const audio = new Audio('/sounds/new-notification.mp3');
+    audio.volume = 0.5;
+    audio.preload = 'auto';
+    
+    // Handle audio loading
+    audio.addEventListener('canplaythrough', () => {
+      console.log('🔊 Notification sound loaded and ready');
+    });
+    
+    audio.addEventListener('error', (e) => {
+      console.error('❌ Audio loading error:', e);
+      console.error('Audio file path: /sounds/new-notification.mp3');
+    });
+    
+    notificationSoundRef.current = audio;
+    
+    // Unlock audio on first user interaction (required by browsers)
+    const unlockAudio = async () => {
+      if (notificationSoundRef.current && !audioUnlockedRef.current) {
+        try {
+          await notificationSoundRef.current.play();
+          notificationSoundRef.current.pause();
+          notificationSoundRef.current.currentTime = 0;
+          audioUnlockedRef.current = true;
+          console.log('🔊 Audio unlocked for notifications');
+          
+          // Play any queued sounds
+          pendingSoundQueueRef.current.forEach(playFn => playFn());
+          pendingSoundQueueRef.current = [];
+        } catch (err: any) {
+          console.warn('Audio unlock failed:', err.name, err.message);
+        }
+      }
+    };
+    
+    // Try to unlock on various user interactions
+    const events = ['click', 'touchstart', 'keydown', 'mousedown', 'pointerdown'];
+    const handlers: Array<() => void> = [];
+    
+    events.forEach(event => {
+      const handler = () => {
+        if (!audioUnlockedRef.current) {
+          unlockAudio();
+        }
+      };
+      handlers.push(handler);
+      document.addEventListener(event, handler, { once: false, passive: true });
+    });
+    
+    return () => {
+      if (notificationSoundRef.current) {
+        notificationSoundRef.current.pause();
+        notificationSoundRef.current = null;
+      }
+      events.forEach((event, i) => {
+        if (handlers[i]) {
+          document.removeEventListener(event, handlers[i]);
+        }
+      });
+    };
+  }, []);
+  
+  // Keep currentRoomIdRef in sync with currentRoomId
+  useEffect(() => {
+    currentRoomIdRef.current = currentRoomId;
+  }, [currentRoomId]);
 
   // Calculate dropdown position when it opens
   useEffect(() => {
@@ -59,9 +133,16 @@ export default function NotificationBell() {
 
   // Fetch Initial Notifications & Subscribe to Realtime
   useEffect(() => {
+    let channel: any = null;
+    let mounted = true;
+    let pollInterval: NodeJS.Timeout | null = null;
+    let lastNotificationId: string | null = null;
+    const processedNotificationIds = new Set<string>(); // Track processed notifications to prevent duplicates
+    let initialFetchDone = false; // Track if initial fetch is complete
+
     const fetchNotifications = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || !mounted) return;
 
       const { data } = await supabase
         .from('notifications')
@@ -70,55 +151,311 @@ export default function NotificationBell() {
         .order('created_at', { ascending: false })
         .limit(10);
 
-      if (data) {
+      if (data && mounted) {
+        // Check if there are new notifications (only via polling, real-time handles its own)
+        if (lastNotificationId && data.length > 0 && data[0].id !== lastNotificationId) {
+          // New notification detected via polling - only process if not already processed
+          const newNotifications = data.filter(n => 
+            n.id !== lastNotificationId && 
+            !processedNotificationIds.has(n.id)
+          );
+          newNotifications.forEach(newNotification => {
+            // Don't mark as processed here - let handleNewNotification do it after sound plays
+            handleNewNotification(newNotification as Notification);
+          });
+        }
+        
         setNotifications(data as any);
         setUnreadCount(data.filter((n: any) => !n.is_read).length);
-      }
-
-      // Real-time Subscription
-      const channel = supabase
-        .channel('notifications_channel')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'notifications',
-            filter: `recipient_id=eq.${user.id}`,
-          },
-          (payload) => {
-            const newNotification = payload.new as Notification;
-            
-            // Add to state
-            setNotifications((prev) => [newNotification, ...prev]);
-            setUnreadCount((prev) => prev + 1);
-
-            // Show Toast
-            toast(
-                <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white/10 rounded-full">
-                        {getIcon(newNotification.type)}
-                    </div>
-                    <div>
-                        <p className="font-semibold text-sm text-white">{newNotification.content.sender_name || 'System'}</p>
-                        <p className="text-xs text-white/60 line-clamp-1">{newNotification.content.preview || 'New notification'}</p>
-                    </div>
-                </div>,
-                {
-                    style: { background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }
-                }
-            );
+        if (data.length > 0) {
+          lastNotificationId = data[0].id;
+          // Mark initial notifications as processed to avoid showing them again
+          if (!initialFetchDone) {
+            data.forEach((n: any) => {
+              processedNotificationIds.add(n.id);
+            });
+            initialFetchDone = true;
+            console.log(`📋 Marked ${data.length} initial notifications as processed`);
           }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
+        }
+      }
     };
 
-    fetchNotifications();
-  }, []);
+    const handleNewNotification = (newNotification: Notification) => {
+      if (!mounted) return;
+      
+      // Prevent duplicate processing - check BEFORE processing
+      if (processedNotificationIds.has(newNotification.id)) {
+        console.log('⏭️ Skipping duplicate notification:', newNotification.id);
+        // Even if duplicate, try to play sound in case it's a new notification that was processed quickly
+        // This handles race conditions between real-time and polling
+        return;
+      }
+      
+      console.log('🔔 New notification detected:', newNotification);
+      
+      // Mark as processed to prevent duplicates
+      processedNotificationIds.add(newNotification.id);
+      
+      // Check if user is currently viewing this chatroom
+      const isInCurrentRoom = newNotification.type === 'message' && 
+                             newNotification.related_id === currentRoomIdRef.current;
+      
+      // Play sound function - used in both cases (in room or not)
+      const playSound = () => {
+        console.log('🎵 Attempting to play notification sound...', { unlocked: audioUnlockedRef.current });
+        
+        // If audio is not unlocked, queue it and try to unlock
+        if (!audioUnlockedRef.current) {
+          console.log('⏳ Audio not unlocked yet, queuing sound...');
+          pendingSoundQueueRef.current.push(playSound);
+          
+          // Try to unlock immediately by attempting to play
+          if (notificationSoundRef.current) {
+            notificationSoundRef.current.play()
+              .then(() => {
+                notificationSoundRef.current?.pause();
+                notificationSoundRef.current!.currentTime = 0;
+                audioUnlockedRef.current = true;
+                console.log('🔊 Audio unlocked! Playing queued sound...');
+                // Play the sound now that it's unlocked
+                playSound();
+              })
+              .catch(() => {
+                console.log('⏳ Audio still locked, will play after user interaction');
+              });
+          }
+          return;
+        }
+        
+        // Strategy 1: Try preloaded audio
+        if (notificationSoundRef.current) {
+          try {
+            notificationSoundRef.current.currentTime = 0;
+            const playPromise = notificationSoundRef.current.play();
+            
+            if (playPromise !== undefined) {
+              playPromise
+                .then(() => {
+                  console.log('🔊 Notification sound played successfully (preloaded)');
+                })
+                .catch((err: any) => {
+                  console.warn('Preloaded audio failed:', err.name, err.message);
+                  // Fall through to Strategy 2
+                  playSoundFallback();
+                });
+            } else {
+              playSoundFallback();
+            }
+          } catch (err: any) {
+            console.warn('Preloaded audio error:', err);
+            playSoundFallback();
+          }
+        } else {
+          playSoundFallback();
+        }
+      };
+      
+      // Strategy 2: Create fresh audio instance
+      const playSoundFallback = () => {
+        try {
+          const sound = new Audio('/sounds/new-notification.mp3');
+          sound.volume = 0.5;
+          sound.currentTime = 0;
+          
+          // Add event listeners for debugging
+          sound.addEventListener('play', () => {
+            console.log('🔊 Sound started playing');
+          });
+          
+          sound.addEventListener('error', (e) => {
+            console.error('❌ Audio error event:', e);
+          });
+          
+          const playPromise = sound.play();
+          
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                console.log('🔊 Notification sound played successfully (fresh instance)');
+              })
+              .catch((err: any) => {
+                console.error('❌ Sound playback failed:', err.name, err.message);
+                if (err.name === 'NotAllowedError') {
+                  console.warn('💡 Browser blocked autoplay - user needs to interact with page first');
+                  console.warn('💡 Try clicking anywhere on the page to unlock audio');
+                  // Queue this sound to play after unlock
+                  if (!audioUnlockedRef.current) {
+                    pendingSoundQueueRef.current.push(playSoundFallback);
+                  }
+                } else if (err.name === 'NotSupportedError') {
+                  console.error('❌ Audio format not supported');
+                } else {
+                  console.error('❌ Unknown audio error:', err);
+                }
+              });
+          }
+        } catch (createErr: any) {
+          console.error('Failed to create audio:', createErr);
+        }
+      };
+      
+      // Always play sound when a notification is received
+      playSound();
+      
+      // Only show notification/toast if user is NOT in the current room
+      if (!isInCurrentRoom) {
+        console.log('✅ Showing notification (user not in room)');
+        
+        // Update state
+        setNotifications((prev) => {
+          // Double-check for duplicates in state
+          if (prev.some(n => n.id === newNotification.id)) {
+            return prev;
+          }
+          return [newNotification, ...prev];
+        });
+        setUnreadCount((prev) => prev + 1);
+
+        // Show Toast
+        toast(
+            <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/10 rounded-full">
+                    {getIcon(newNotification.type)}
+                </div>
+                <div>
+                    <p className="font-semibold text-sm text-white">{newNotification.content.sender_name || 'System'}</p>
+                    <p className="text-xs text-white/60 line-clamp-1">{newNotification.content.preview || 'New notification'}</p>
+                </div>
+            </div>,
+            {
+                style: { background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }
+            }
+        );
+      } else {
+        console.log('🔊 Playing sound only (user is in this room, deleting notification)');
+        
+        // User is in the chatroom - delete the notification immediately since they're already viewing it
+        // This prevents the notification from appearing later
+        // Use void to explicitly ignore the promise (fire and forget)
+        void (async () => {
+          try {
+            const { error } = await supabase
+              .from('notifications')
+              .delete()
+              .eq('id', newNotification.id)
+              .select();
+            
+            if (error) {
+              console.error('Failed to delete notification for user in room:', error);
+            } else {
+              console.log('✅ Deleted notification (user is in room)');
+            }
+          } catch (err) {
+            console.error('Error deleting notification:', err);
+          }
+        })();
+      }
+    };
+
+    const setupNotifications = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !mounted) return;
+
+      // Fetch initial notifications
+      await fetchNotifications();
+
+      // Set up real-time subscription with retry logic
+      const setupSubscription = (retryCount = 0) => {
+        if (!mounted) return;
+        
+        // Clean up existing channel if any
+        if (channel) {
+          supabase.removeChannel(channel);
+        }
+
+        // Create a simpler channel configuration
+        channel = supabase
+          .channel(`notifications_${user.id}_${Date.now()}`, {
+            config: {
+              broadcast: { self: false }
+            }
+          })
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'notifications',
+              filter: `recipient_id=eq.${user.id}`,
+            },
+            (payload) => {
+              console.log('🔔 Real-time notification received:', payload);
+              const newNotification = payload.new as Notification;
+              handleNewNotification(newNotification);
+            }
+          )
+          .subscribe((status, err) => {
+            console.log('📡 Notification subscription status:', status, err ? `Error: ${err.message}` : '');
+            if (status === 'SUBSCRIBED') {
+              console.log('✅ Successfully subscribed to notifications');
+            } else if (status === 'CHANNEL_ERROR') {
+              console.error('❌ Notification channel error:', err?.message || 'Unknown error');
+              // Retry subscription after a delay (max 3 retries)
+              if (retryCount < 3 && mounted) {
+                console.log(`🔄 Retrying subscription (attempt ${retryCount + 1}/3)...`);
+                setTimeout(() => {
+                  setupSubscription(retryCount + 1);
+                }, 2000 * (retryCount + 1)); // Exponential backoff
+              } else {
+                console.warn('⚠️ Max retries reached, will use polling fallback');
+              }
+            } else if (status === 'TIMED_OUT') {
+              console.warn('⏱️ Notification subscription timed out');
+              // Retry on timeout
+              if (retryCount < 3 && mounted) {
+                console.log(`🔄 Retrying subscription after timeout (attempt ${retryCount + 1}/3)...`);
+                setTimeout(() => {
+                  setupSubscription(retryCount + 1);
+                }, 2000 * (retryCount + 1));
+              }
+            } else if (status === 'CLOSED') {
+              console.warn('🔌 Notification channel closed');
+              // Retry if closed unexpectedly
+              if (retryCount < 2 && mounted) {
+                setTimeout(() => {
+                  setupSubscription(retryCount + 1);
+                }, 3000);
+              }
+            }
+          });
+      };
+
+      setupSubscription();
+
+      // Fallback: Poll for new notifications every 200ms for ultra-fast delivery
+      // This ensures notifications arrive quickly even if real-time has issues
+      pollInterval = setInterval(() => {
+        if (mounted) {
+          fetchNotifications();
+        }
+      }, 200);
+    };
+
+    setupNotifications();
+
+    // Cleanup function
+    return () => {
+      mounted = false;
+      if (channel) {
+        console.log('🧹 Cleaning up notification subscription');
+        supabase.removeChannel(channel);
+      }
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, []); // Empty deps - only run once on mount
 
   const handleNotificationClick = async (notification: Notification) => {
     // 1. Mark as read in DB
