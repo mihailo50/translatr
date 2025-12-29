@@ -286,25 +286,8 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         return;
       }
       
-      // First, ensure user is a member of the room to avoid RLS recursion issues
-      const { error: memberError } = await supabase
-        .from('room_members')
-        .insert({ room_id: roomId, profile_id: userId })
-        .select()
-        .single();
-      
-      // Ignore duplicate errors (user is already a member)
-      const isDuplicateError = memberError && (
-        memberError.code === '23505' || 
-        memberError.message?.includes('duplicate') ||
-        memberError.message?.includes('unique')
-      );
-      
-      if (memberError && !isDuplicateError) {
-        console.warn('Could not ensure room membership:', memberError);
-      }
-
-      // Always use server action fallback for reliability (bypasses RLS issues)
+      // Skip client-side membership check - server action handles it more efficiently
+      // Always use server action for reliability (bypasses RLS issues)
       // This is more reliable than direct client queries which can hit RLS recursion
       try {
         const { getMessages } = await import('../actions/chat');
@@ -312,55 +295,55 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         
         if (result.success && result.messages) {
           console.log(`Processing ${result.messages.length} messages for room ${roomId}`);
-          // Process the messages
-          const history: ChatMessage[] = [];
-          for (const row of result.messages) {
-            const isEncrypted = row.metadata?.encrypted;
-            const iv = row.metadata?.iv;
-            const attachment = row.metadata?.attachment_meta;
-
-            let text = row.original_text as string;
-            if (isEncrypted && iv) {
-              try {
-                text = await decryptData(row.original_text as string, iv, encryptionKey);
-              } catch (e) {
-                console.error('Failed to decrypt history message', row.id, e);
-                text = '[Encrypted message - decryption failed]';
-              }
-            }
-
-            history.push({
-              id: row.id,
-              type: 'CHAT_MESSAGE',
-              text,
-              lang: row.original_language || 'en',
-              translations: row.translations || {},
-              senderId: row.sender_id,
-              senderName: row.sender_id,
-              timestamp: new Date(row.created_at).getTime(),
-              isMe: row.sender_id === userId,
-              isEncrypted: !!isEncrypted,
-              iv,
-              attachment
-            });
-          }
-          console.log(`Setting ${history.length} messages in state`, {
-            roomId,
-            userId,
-            firstMessage: history[0] ? { id: history[0].id, text: history[0].text.substring(0, 50) } : null,
-            lastMessage: history[history.length - 1] ? { id: history[history.length - 1].id } : null
-          });
           
-          // Use functional update to ensure we don't overwrite with empty array
-          setMessages((prev) => {
-            // Merge with existing messages to avoid duplicates
-            const existingIds = new Set(prev.map(m => m.id));
-            const newMessages = history.filter(m => !existingIds.has(m.id));
-            const merged = [...prev, ...newMessages].sort((a, b) => a.timestamp - b.timestamp);
-            console.log(`Merged messages: ${prev.length} existing + ${newMessages.length} new = ${merged.length} total`);
-            messagesLoadedRef.current = true;
-            return merged;
-          });
+          // Process messages in parallel batches for faster decryption
+          const BATCH_SIZE = 20; // Process 20 messages at a time
+          const history: ChatMessage[] = [];
+          
+          for (let i = 0; i < result.messages.length; i += BATCH_SIZE) {
+            const batch = result.messages.slice(i, i + BATCH_SIZE);
+            
+            // Process batch in parallel
+            const batchPromises = batch.map(async (row) => {
+              const isEncrypted = row.metadata?.encrypted;
+              const iv = row.metadata?.iv;
+              const attachment = row.metadata?.attachment_meta;
+
+              let text = row.original_text as string;
+              if (isEncrypted && iv) {
+                try {
+                  text = await decryptData(row.original_text as string, iv, encryptionKey);
+                } catch (e) {
+                  console.error('Failed to decrypt history message', row.id, e);
+                  text = '[Encrypted message - decryption failed]';
+                }
+              }
+
+              return {
+                id: row.id,
+                type: 'CHAT_MESSAGE' as const,
+                text,
+                lang: row.original_language || 'en',
+                translations: row.translations || {},
+                senderId: row.sender_id,
+                senderName: row.sender_id,
+                timestamp: new Date(row.created_at).getTime(),
+                isMe: row.sender_id === userId,
+                isEncrypted: !!isEncrypted,
+                iv,
+                attachment
+              };
+            });
+            
+            const batchResults = await Promise.all(batchPromises);
+            history.push(...batchResults);
+          }
+          console.log(`Setting ${history.length} messages in state`);
+          
+          // Set messages directly (they're already sorted chronologically from server)
+          // This is faster than merging and sorting
+          setMessages(history);
+          messagesLoadedRef.current = true;
           return;
         } else {
           // No messages or error - log but don't clear existing messages

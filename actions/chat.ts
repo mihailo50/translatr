@@ -310,56 +310,50 @@ export async function getMessages(roomId: string) {
       console.warn('Could not ensure room membership in getMessages:', memberError);
     }
 
-    // For direct message rooms, check if room ID contains user ID first
-    // This allows users to see messages even if they haven't sent any yet
+    // Fast access check: For direct message rooms, check room ID format first (no DB query needed)
     let canAccess = false;
     
     if (roomId.startsWith('direct_')) {
       const parts = roomId.split('_');
       if (parts.length === 3 && (parts[1] === user.id || parts[2] === user.id)) {
-        // User is part of this direct room, they can access it
         canAccess = true;
       }
     }
     
-    // Also check if user is a member or has sent messages
+    // For non-direct rooms or if direct check failed, do parallel access checks
     if (!canAccess) {
-      const { data: members } = await serviceSupabase
-        .from('room_members')
-        .select('profile_id')
-        .eq('room_id', roomId)
-        .eq('profile_id', user.id);
+      const [membersResult, userMessagesResult] = await Promise.all([
+        serviceSupabase
+          .from('room_members')
+          .select('profile_id')
+          .eq('room_id', roomId)
+          .eq('profile_id', user.id)
+          .limit(1)
+          .maybeSingle(),
+        serviceSupabase
+          .from('messages')
+          .select('sender_id')
+          .eq('room_id', roomId)
+          .eq('sender_id', user.id)
+          .limit(1)
+          .maybeSingle()
+      ]);
 
-      const { data: userMessages } = await serviceSupabase
-        .from('messages')
-        .select('sender_id')
-        .eq('room_id', roomId)
-        .eq('sender_id', user.id)
-        .limit(1);
-
-      if ((members && members.length > 0) || (userMessages && userMessages.length > 0)) {
-        canAccess = true;
-      }
+      canAccess = !!(membersResult.data || userMessagesResult.data);
     }
 
     if (!canAccess) {
       return { success: false, error: 'Not a member of this room' };
     }
 
-    // Load messages using service role (bypasses RLS)
-    // First, verify messages exist in this room
-    const { count } = await serviceSupabase
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('room_id', roomId);
-    
-    console.log(`Room ${roomId} has ${count || 0} messages total`);
-
+    // Load messages directly (removed unnecessary count query)
+    // Order by created_at descending and limit to 500 for performance
+    // We'll reverse the array client-side if needed
     const { data, error } = await serviceSupabase
       .from('messages')
       .select('id, sender_id, original_text, original_language, translations, metadata, created_at')
       .eq('room_id', roomId)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
       .limit(500);
 
     if (error) {
@@ -367,13 +361,12 @@ export async function getMessages(roomId: string) {
       return { success: false, error: error.message || 'Unknown error' };
     }
 
-    console.log(`Loaded ${data?.length || 0} messages for room ${roomId}`, {
-      roomId,
-      messageCount: data?.length || 0,
-      firstMessage: data?.[0] ? { id: data[0].id, sender: data[0].sender_id } : null
-    });
+    // Reverse to get chronological order (oldest first)
+    const messages = data ? [...data].reverse() : [];
     
-    return { success: true, messages: data || [] };
+    console.log(`Loaded ${messages.length} messages for room ${roomId}`);
+    
+    return { success: true, messages };
   } catch (error) {
     console.error('GetMessages Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to load messages';

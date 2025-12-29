@@ -65,18 +65,24 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onClose, us
                 
                 {/* Status Dropdown */}
                 {isStatusDropdownOpen && (
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 glass rounded-xl border border-white/10 overflow-hidden z-20 shadow-xl animate-in fade-in zoom-in-95 duration-200">
-                        {STATUS_OPTIONS.map((opt) => (
-                            <button
-                                key={opt.value}
-                                onClick={() => { updateUserStatus(opt.value); setIsStatusDropdownOpen(false); }}
-                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/10 transition-colors text-left"
-                            >
-                                <div className={`w-3 h-3 rounded-full ${opt.color}`}></div>
-                                <span className={`text-sm ${status === opt.value ? 'text-white font-bold' : 'text-white/70'}`}>{opt.label}</span>
-                                {status === opt.value && <Check size={14} className="ml-auto text-aurora-indigo" />}
-                            </button>
-                        ))}
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 rounded-2xl border border-white/10 overflow-hidden z-20 shadow-[0_20px_40px_rgba(0,0,0,0.6)] animate-in fade-in zoom-in-95 duration-200 bg-[#050510]/95 backdrop-blur-2xl">
+                        <div className="p-1.5">
+                            {STATUS_OPTIONS.map((opt) => (
+                                <button
+                                    key={opt.value}
+                                    onClick={() => { updateUserStatus(opt.value); setIsStatusDropdownOpen(false); }}
+                                    className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center gap-3 transition-all duration-200 ${
+                                        status === opt.value 
+                                            ? 'bg-white/5 text-white' 
+                                            : 'text-white/80 hover:text-white hover:bg-white/10'
+                                    }`}
+                                >
+                                    <div className={`w-3 h-3 rounded-full ${opt.color}`}></div>
+                                    <span className="text-sm font-medium flex-1">{opt.label}</span>
+                                    {status === opt.value && <Check size={14} className="text-white" />}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>
