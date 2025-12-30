@@ -14,6 +14,7 @@ import LiveKitCallModal from './LiveKitCallModal';
 import CallOverlay from './CallOverlay';
 import MediaDrawer from './MediaDrawer';
 import CallNotificationBanner from './CallNotificationBanner';
+import ConfirmModal from '../ui/ConfirmModal';
 import { initiateCall } from '../../actions/calls';
 import { blockUserInRoom, unblockUserInRoom, getBlockStatus } from '../../actions/contacts';
 import { RoomEvent, ConnectionState } from 'livekit-client';
@@ -75,11 +76,12 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       return <div className="flex h-full items-center justify-center text-white/50">Loading room...</div>;
   }
 
-  const { isConnected, messages, error, room: liveKitChatRoom, sendRealtimeMessage } = useLiveKitChat(roomId, userId, userName);
+  const { isConnected, messages, error, room: liveKitChatRoom, sendRealtimeMessage, reloadMessages } = useLiveKitChat(roomId, userId, userName);
   
   // Sound ref for playing notification sound when message arrives
   const messageSoundRef = useRef<HTMLAudioElement | null>(null);
   const lastMessageIdRef = useRef<string | null>(null);
+  const messagesInitializedRef = useRef<boolean>(false);
   
   // Initialize message sound
   useEffect(() => {
@@ -95,14 +97,34 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     };
   }, []);
   
+  // Initialize lastMessageIdRef when messages are first loaded (prevents sound on page reload)
+  useEffect(() => {
+    if (messages.length > 0 && !messagesInitializedRef.current) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage) {
+        lastMessageIdRef.current = lastMessage.id;
+        messagesInitializedRef.current = true;
+        console.log('🔇 Initialized message tracking with last message ID:', lastMessage.id);
+      }
+    } else if (messages.length === 0) {
+      // Reset when messages are cleared (room change)
+      messagesInitializedRef.current = false;
+      lastMessageIdRef.current = null;
+    }
+  }, [messages.length]); // Only depend on length to avoid re-running on every message update
+  
   // Play sound when a new message arrives from another user
   useEffect(() => {
     if (messages.length === 0) return;
+    
+    // Don't play sound on initial load - wait until messages are initialized
+    if (!messagesInitializedRef.current) return;
     
     const lastMessage = messages[messages.length - 1];
     
     // Only play sound for messages from other users that we haven't seen yet
     if (lastMessage && !lastMessage.isMe && lastMessage.id !== lastMessageIdRef.current) {
+      console.log('🔔 New message detected, playing sound:', lastMessage.id);
       lastMessageIdRef.current = lastMessage.id;
       
       // Play sound for new message
@@ -155,6 +177,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMediaDrawerOpen, setIsMediaDrawerOpen] = useState(false);
   const [isGroupMembersOpen, setIsGroupMembersOpen] = useState(false);
+  const [showClearChatConfirm, setShowClearChatConfirm] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   const groupListRef = useRef<HTMLDivElement>(null);
 
@@ -168,9 +192,10 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   // --- Derived Status Logic ---
   const directPartnerId = roomDetails.room_type === 'direct' ? roomDetails.participants?.[0]?.id : undefined;
 
-  // Fetch fallback status from profiles if presence hasn't loaded yet
+  // Fetch fallback status from profiles and subscribe to real-time updates
   useEffect(() => {
       if (!directPartnerId) return;
+      
       const fetchStatus = async () => {
           const { data, error } = await supabase
               .from('profiles')
@@ -178,16 +203,108 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
               .eq('id', directPartnerId)
               .single();
           if (!error && data?.status) {
-              setPartnerProfileStatus(data.status as UserStatus);
+              const dbStatus = data.status as UserStatus;
+              console.log(`📊 Fetched partner status from DB: ${dbStatus} for user ${directPartnerId}`);
+              
+              // Always update state, even if it's the same, to trigger re-render
+              setPartnerProfileStatus(prev => {
+                  if (prev !== dbStatus) {
+                      console.log(`📊 Partner status changed: ${prev} → ${dbStatus}`);
+                  }
+                  return dbStatus;
+              });
+          } else if (error) {
+              console.error('❌ Error fetching partner status:', error);
+              // If we can't fetch, assume offline to be safe
+              setPartnerProfileStatus('offline');
+          } else {
+              // No data returned, assume offline
+              console.warn(`⚠️ No status data returned for partner ${directPartnerId}, assuming offline`);
+              setPartnerProfileStatus('offline');
           }
       };
+      
+      // Initial fetch
       fetchStatus();
+      
+      // Periodic refresh every 10 seconds to catch offline status changes faster
+      const refreshInterval = setInterval(() => {
+          console.log(`🔄 Refreshing partner status from DB for ${directPartnerId}`);
+          fetchStatus();
+      }, 10000);
+      
+      // Subscribe to real-time updates for this user's status
+      const channel = supabase
+          .channel(`profile_status_${directPartnerId}_${Date.now()}`)
+          .on(
+              'postgres_changes',
+              {
+                  event: 'UPDATE',
+                  schema: 'public',
+                  table: 'profiles',
+                  filter: `id=eq.${directPartnerId}`,
+              },
+              (payload) => {
+                  const updatedProfile = payload.new as any;
+                  if (updatedProfile.status) {
+                      console.log(`📊 Partner status updated via real-time: ${updatedProfile.status}`);
+                      setPartnerProfileStatus(updatedProfile.status as UserStatus);
+                  }
+              }
+          )
+          .subscribe();
+      
+      return () => {
+          clearInterval(refreshInterval);
+          supabase.removeChannel(channel);
+      };
   }, [directPartnerId, supabase]);
 
   const directPartnerStatus: UserStatus = useMemo(() => {
       if (!directPartnerId) return 'online'; // default optimistic
+      
+      // Priority: 1. Presence (most real-time), 2. Database status (fallback), 3. Default to offline
       const presenceStatus = onlineUsers[directPartnerId];
-      return presenceStatus || partnerProfileStatus || 'online';
+      
+      // CRITICAL: If presence explicitly says offline, ALWAYS trust it (most real-time)
+      if (presenceStatus === 'offline') {
+          console.log(`🔴 Partner ${directPartnerId} is OFFLINE (from presence)`);
+          return 'offline';
+      }
+      
+      // If presence has NO data (undefined/null), this means user is not in presence system = OFFLINE
+      // This is more reliable than trusting stale database status
+      if (!presenceStatus) {
+          // If DB also says offline, confirm it
+          if (partnerProfileStatus === 'offline') {
+              console.log(`🔴 Partner ${directPartnerId} is OFFLINE (no presence + DB confirms)`);
+              return 'offline';
+          }
+          // If DB says online but no presence data, trust presence (offline)
+          // Presence is real-time, DB can be stale if user closed app abruptly
+          console.log(`🔴 Partner ${directPartnerId} is OFFLINE (no presence data, ignoring stale DB status: ${partnerProfileStatus})`);
+          return 'offline';
+      }
+      
+      // If database says offline, trust it (user closed app, presence may not have updated yet)
+      if (partnerProfileStatus === 'offline') {
+          console.log(`🔴 Partner ${directPartnerId} is OFFLINE (from DB) - presence says: ${presenceStatus}`);
+          return 'offline';
+      }
+      
+      // If presence exists and is not offline, use it (most real-time)
+      if (presenceStatus && presenceStatus !== 'offline') {
+          return presenceStatus;
+      }
+      
+      // If we have database status and no presence, use DB
+      if (partnerProfileStatus && partnerProfileStatus !== 'offline') {
+          return partnerProfileStatus;
+      }
+      
+      // If we have no data at all, default to offline (more accurate than optimistic online)
+      console.log(`⚠️ No status data for partner ${directPartnerId}, defaulting to OFFLINE`);
+      return 'offline';
   }, [directPartnerId, onlineUsers, partnerProfileStatus]);
 
   const onlineGroupMembers = useMemo(() => {
@@ -214,6 +331,19 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     };
     checkBlock();
   }, [roomId]);
+
+  // Calculate menu position when it opens
+  useEffect(() => {
+    if (isMenuOpen && menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      setMenuPosition({
+        top: rect.bottom + 8, // 8px spacing below the button
+        right: window.innerWidth - rect.right
+      });
+    } else {
+      setMenuPosition(null);
+    }
+  }, [isMenuOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -662,7 +792,38 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const handleClearChat = () => {
       setIsMenuOpen(false);
-      toast.success("Chat history cleared (Local only)");
+      setShowClearChatConfirm(true);
+  };
+
+  const handleConfirmClearChat = async () => {
+      setShowClearChatConfirm(false);
+      
+      const toastId = toast.loading("Clearing chat...");
+      
+      try {
+          const { clearChatForUser } = await import('../../actions/chat');
+          const result = await clearChatForUser(roomId);
+          
+          if (result.success) {
+              toast.dismiss(toastId);
+              toast.success("Chat cleared successfully");
+              
+              // Reload messages to get the filtered list (without hidden messages)
+              if (reloadMessages) {
+                  await reloadMessages();
+              } else {
+                  // Fallback: reload page if reloadMessages is not available
+                  window.location.reload();
+              }
+          } else {
+              toast.dismiss(toastId);
+              toast.error(result.error || "Failed to clear chat");
+          }
+      } catch (error) {
+          toast.dismiss(toastId);
+          console.error('Error clearing chat:', error);
+          toast.error("Failed to clear chat");
+      }
   };
 
   const filteredMessages = useMemo(() => {
@@ -682,7 +843,9 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           case 'busy': return 'bg-red-500';
           case 'dnd': return 'bg-red-500'; // Could include icon
           case 'in-call': return 'bg-aurora-purple';
-          case 'offline': default: return 'bg-slate-500';
+          case 'invisible':
+          case 'offline': 
+          default: return 'bg-slate-500';
       }
   };
 
@@ -930,10 +1093,12 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                   >
                     <MoreVertical size={18} className="sm:w-5 sm:h-5" />
                   </button>
-                  {isMenuOpen && typeof document !== 'undefined' && createPortal(
+                  {isMenuOpen && menuPosition && typeof document !== 'undefined' && createPortal(
                     <div 
-                      className="menu-dropdown-portal fixed top-16 right-6 w-56 z-[100] rounded-xl py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right"
+                      className="menu-dropdown-portal fixed w-56 z-[100] rounded-xl py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right"
                       style={{
+                        top: `${menuPosition.top}px`,
+                        right: `${menuPosition.right}px`,
                         background: 'rgba(5, 5, 16, 0.9)',
                         backdropFilter: 'blur(24px) saturate(180%)',
                         WebkitBackdropFilter: 'blur(24px) saturate(180%)',
@@ -1102,6 +1267,18 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       )}
 
       <MediaDrawer isOpen={isMediaDrawerOpen} onClose={() => setIsMediaDrawerOpen(false)} messages={messages} roomName={roomDetails.name} />
+      
+      {/* Clear Chat Confirmation Modal */}
+      <ConfirmModal
+        isOpen={showClearChatConfirm}
+        onClose={() => setShowClearChatConfirm(false)}
+        onConfirm={handleConfirmClearChat}
+        title="Clear Chat History"
+        message="Are you sure you want to clear this chat? This will hide all messages for you, but the other user will still see them."
+        confirmText="Clear Chat"
+        cancelText="Cancel"
+        confirmVariant="danger"
+      />
     </div>
   );
 };

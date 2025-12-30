@@ -366,10 +366,109 @@ export async function getMessages(roomId: string) {
     
     console.log(`Loaded ${messages.length} messages for room ${roomId}`);
     
-    return { success: true, messages };
+    // Filter out messages hidden for this user
+    let hiddenMessageIds: string[] = [];
+    try {
+      const { data: hiddenData, error: hiddenError } = await serviceSupabase
+        .from('hidden_messages')
+        .select('message_id')
+        .eq('room_id', roomId)
+        .eq('user_id', user.id);
+      
+      if (hiddenError) {
+        // If table doesn't exist, that's okay - no messages are hidden yet
+        if (hiddenError.code === '42P01' || hiddenError.message?.includes('does not exist')) {
+          console.log('hidden_messages table does not exist yet - no messages hidden');
+        } else {
+          console.warn('Error checking hidden messages:', hiddenError);
+        }
+      } else if (hiddenData) {
+        hiddenMessageIds = hiddenData.map((h: any) => h.message_id);
+      }
+    } catch (hiddenError: any) {
+      // Table might not exist yet, that's okay
+      console.log('Could not check hidden messages (table may not exist):', hiddenError.message);
+    }
+    
+    // Filter out hidden messages
+    const visibleMessages = messages.filter(msg => !hiddenMessageIds.includes(msg.id));
+    
+    return { success: true, messages: visibleMessages };
   } catch (error) {
     console.error('GetMessages Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to load messages';
+    return { success: false, error: errorMessage };
+  }
+}
+
+export async function clearChatForUser(roomId: string) {
+  try {
+    const supabase = await createServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    // Use service role client to bypass RLS
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-key';
+    const serviceSupabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Get all message IDs in this room
+    const { data: roomMessages, error: messagesError } = await serviceSupabase
+      .from('messages')
+      .select('id')
+      .eq('room_id', roomId);
+
+    if (messagesError) {
+      console.error('Error fetching room messages:', messagesError);
+      return { success: false, error: 'Failed to fetch messages' };
+    }
+
+    if (!roomMessages || roomMessages.length === 0) {
+      return { success: true, message: 'No messages to hide' };
+    }
+
+    // Insert hidden message records for all messages in this room for this user
+    const hiddenRecords = roomMessages.map(msg => ({
+      room_id: roomId,
+      user_id: user.id,
+      message_id: msg.id
+    }));
+
+    // Insert in batches to avoid payload size issues
+    const BATCH_SIZE = 100;
+    let totalInserted = 0;
+    
+    for (let i = 0; i < hiddenRecords.length; i += BATCH_SIZE) {
+      const batch = hiddenRecords.slice(i, i + BATCH_SIZE);
+      const { error: insertError } = await serviceSupabase
+        .from('hidden_messages')
+        .upsert(batch, { onConflict: 'room_id,user_id,message_id', ignoreDuplicates: true });
+      
+      if (insertError) {
+        // If table doesn't exist, return helpful error
+        if (insertError.code === '42P01' || insertError.message?.includes('does not exist')) {
+          console.error('hidden_messages table does not exist. Creating it...');
+          // Try to create the table using raw SQL via service role
+          // Note: This requires the table to be created via migration first
+          // For now, we'll return an error with instructions
+          return { 
+            success: false, 
+            error: 'Please run the database migration to create hidden_messages table. See supabase_schema.sql for the SQL.' 
+          };
+        }
+        console.error('Error hiding messages:', insertError);
+        return { success: false, error: 'Failed to hide messages' };
+      }
+      totalInserted += batch.length;
+    }
+
+    return { success: true, message: `Hidden ${totalInserted} messages for you` };
+  } catch (error) {
+    console.error('ClearChatForUser Error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to clear chat';
     return { success: false, error: errorMessage };
   }
 }

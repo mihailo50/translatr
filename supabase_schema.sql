@@ -143,6 +143,25 @@ CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient_read ON notifications(recipient_id, is_read, created_at DESC);
 
 -- =====================================================
+-- 6. HIDDEN_MESSAGES TABLE
+-- =====================================================
+-- Tracks which messages are hidden for which users (per-user chat clearing)
+CREATE TABLE IF NOT EXISTS hidden_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    room_id TEXT NOT NULL,
+    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    message_id UUID NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(room_id, user_id, message_id)
+);
+
+-- Indexes for hidden_messages
+CREATE INDEX IF NOT EXISTS idx_hidden_messages_room_id ON hidden_messages(room_id);
+CREATE INDEX IF NOT EXISTS idx_hidden_messages_user_id ON hidden_messages(user_id);
+CREATE INDEX IF NOT EXISTS idx_hidden_messages_room_user ON hidden_messages(room_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_hidden_messages_message_id ON hidden_messages(message_id);
+
+-- =====================================================
 -- 6. ROW LEVEL SECURITY (RLS) POLICIES
 -- =====================================================
 
@@ -152,6 +171,7 @@ ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE room_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE hidden_messages ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
 -- PROFILES POLICIES
@@ -284,6 +304,25 @@ CREATE POLICY "Users can delete own notifications"
     USING (auth.uid() = recipient_id);
 
 -- =====================================================
+-- HIDDEN_MESSAGES POLICIES
+-- =====================================================
+
+-- Users can read their own hidden messages
+CREATE POLICY "Users can read own hidden messages"
+    ON hidden_messages FOR SELECT
+    USING (auth.uid() = user_id);
+
+-- Users can insert hidden messages for themselves
+CREATE POLICY "Users can insert own hidden messages"
+    ON hidden_messages FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+-- Users can delete their own hidden messages (to unhide)
+CREATE POLICY "Users can delete own hidden messages"
+    ON hidden_messages FOR DELETE
+    USING (auth.uid() = user_id);
+
+-- =====================================================
 -- 7. FUNCTIONS & TRIGGERS
 -- =====================================================
 
@@ -385,6 +424,7 @@ COMMENT ON TABLE contacts IS 'User relationships: friends, pending requests, blo
 COMMENT ON TABLE room_members IS 'Chat room membership tracking';
 COMMENT ON TABLE messages IS 'Chat messages with translation support';
 COMMENT ON TABLE notifications IS 'User notifications for messages, contact requests, etc.';
+COMMENT ON TABLE hidden_messages IS 'Tracks messages hidden per-user (for per-user chat clearing)';
 
 COMMENT ON COLUMN messages.translations IS 'JSONB object mapping language codes to translated text';
 COMMENT ON COLUMN messages.metadata IS 'JSONB object containing encryption data (iv, encrypted) and attachment metadata';

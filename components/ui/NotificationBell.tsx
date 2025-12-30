@@ -29,6 +29,7 @@ export default function NotificationBell() {
   const [dropdownPosition, setDropdownPosition] = useState<{ top: number; right: number } | null>(null);
   const notificationSoundRef = useRef<HTMLAudioElement | null>(null);
   const currentRoomIdRef = useRef<string | null>(null);
+  const roomEntryTimeRef = useRef<Map<string, number>>(new Map()); // Track when user entered each room
   const audioUnlockedRef = useRef<boolean>(false);
   const pendingSoundQueueRef = useRef<Array<() => void>>([]);
   const supabase = createClient();
@@ -99,8 +100,21 @@ export default function NotificationBell() {
   }, []);
   
   // Keep currentRoomIdRef in sync with currentRoomId
+  // Track when user enters each room to prevent playing sounds for old notifications
   useEffect(() => {
+    const previousRoomId = currentRoomIdRef.current;
     currentRoomIdRef.current = currentRoomId;
+    
+    // If user entered a new room, record the entry time
+    // This prevents old notifications from triggering sounds when polling detects them
+    if (currentRoomId && currentRoomId !== previousRoomId) {
+      const entryTime = Date.now();
+      roomEntryTimeRef.current.set(currentRoomId, entryTime);
+      console.log(`🚪 User entered room ${currentRoomId} at ${new Date(entryTime).toISOString()}`);
+    } else if (!currentRoomId) {
+      // User left all rooms
+      console.log('🚪 User left chatroom');
+    }
   }, [currentRoomId]);
 
   // Calculate dropdown position when it opens
@@ -139,6 +153,7 @@ export default function NotificationBell() {
     let lastNotificationId: string | null = null;
     const processedNotificationIds = new Set<string>(); // Track processed notifications to prevent duplicates
     let initialFetchDone = false; // Track if initial fetch is complete
+    let initialFetchTimestamp: number | null = null; // Track when initial fetch happened
 
     const fetchNotifications = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -155,10 +170,29 @@ export default function NotificationBell() {
         // Check if there are new notifications (only via polling, real-time handles its own)
         if (lastNotificationId && data.length > 0 && data[0].id !== lastNotificationId) {
           // New notification detected via polling - only process if not already processed
-          const newNotifications = data.filter(n => 
-            n.id !== lastNotificationId && 
-            !processedNotificationIds.has(n.id)
-          );
+          const newNotifications = data.filter(n => {
+            // Skip if already processed
+            if (processedNotificationIds.has(n.id)) {
+              return false;
+            }
+            
+            // Skip if notification is for current room and was created before user entered
+            if (n.type === 'message' && n.related_id === currentRoomIdRef.current) {
+              const roomEntryTime = roomEntryTimeRef.current.get(n.related_id);
+              if (roomEntryTime) {
+                const notificationTime = new Date(n.created_at).getTime();
+                if (notificationTime < roomEntryTime) {
+                  console.log('🔇 Polling: Skipping old notification for current room', n.id);
+                  // Mark as processed to avoid checking again
+                  processedNotificationIds.add(n.id);
+                  return false;
+                }
+              }
+            }
+            
+            return n.id !== lastNotificationId;
+          });
+          
           newNotifications.forEach(newNotification => {
             // Don't mark as processed here - let handleNewNotification do it after sound plays
             handleNewNotification(newNotification as Notification);
@@ -171,11 +205,13 @@ export default function NotificationBell() {
           lastNotificationId = data[0].id;
           // Mark initial notifications as processed to avoid showing them again
           if (!initialFetchDone) {
+            const now = Date.now();
+            initialFetchTimestamp = now;
             data.forEach((n: any) => {
               processedNotificationIds.add(n.id);
             });
             initialFetchDone = true;
-            console.log(`📋 Marked ${data.length} initial notifications as processed`);
+            console.log(`📋 Marked ${data.length} initial notifications as processed (timestamp: ${now})`);
           }
         }
       }
@@ -187,9 +223,22 @@ export default function NotificationBell() {
       // Prevent duplicate processing - check BEFORE processing
       if (processedNotificationIds.has(newNotification.id)) {
         console.log('⏭️ Skipping duplicate notification:', newNotification.id);
-        // Even if duplicate, try to play sound in case it's a new notification that was processed quickly
-        // This handles race conditions between real-time and polling
         return;
+      }
+      
+      // If this notification was created before the initial fetch, don't process it
+      // This prevents sounds from playing on page reload
+      if (initialFetchTimestamp !== null) {
+        const notificationTime = new Date(newNotification.created_at).getTime();
+        if (notificationTime < initialFetchTimestamp) {
+          console.log('🔇 Skipping notification created before initial fetch (page reload):', {
+            notificationId: newNotification.id,
+            notificationTime: new Date(notificationTime).toISOString(),
+            initialFetchTime: new Date(initialFetchTimestamp).toISOString()
+          });
+          processedNotificationIds.add(newNotification.id);
+          return;
+        }
       }
       
       console.log('🔔 New notification detected:', newNotification);
@@ -200,6 +249,44 @@ export default function NotificationBell() {
       // Check if user is currently viewing this chatroom
       const isInCurrentRoom = newNotification.type === 'message' && 
                              newNotification.related_id === currentRoomIdRef.current;
+      
+      // If notification is for the current room, check if it was created before user entered
+      // This prevents playing sounds for old notifications when user enters a chatroom
+      if (isInCurrentRoom) {
+        const roomEntryTime = roomEntryTimeRef.current.get(newNotification.related_id!);
+        const notificationTime = new Date(newNotification.created_at).getTime();
+        
+        // If user entered the room before this notification was created, it's an old notification
+        // Don't play sound for it
+        if (roomEntryTime && notificationTime < roomEntryTime) {
+          console.log('🔇 Skipping sound for old notification (created before user entered room)', {
+            notificationId: newNotification.id,
+            notificationTime: new Date(notificationTime).toISOString(),
+            roomEntryTime: new Date(roomEntryTime).toISOString()
+          });
+          
+          // Still delete the notification since user is in the room
+          void (async () => {
+            try {
+              const { error } = await supabase
+                .from('notifications')
+                .delete()
+                .eq('id', newNotification.id)
+                .select();
+              
+              if (error) {
+                console.error('Failed to delete old notification:', error);
+              } else {
+                console.log('✅ Deleted old notification (user is in room)');
+              }
+            } catch (err) {
+              console.error('Error deleting old notification:', err);
+            }
+          })();
+          
+          return; // Don't process this notification further
+        }
+      }
       
       // Play sound function - used in both cases (in room or not)
       const playSound = () => {

@@ -59,6 +59,8 @@ export default function ContactsPage() {
         return 'bg-red-500';
       case 'in-call':
         return 'bg-aurora-purple shadow-[0_0_8px_rgba(144,97,249,0.5)]';
+      case 'invisible':
+      case 'offline':
       default:
         return 'bg-slate-500';
     }

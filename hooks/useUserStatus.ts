@@ -14,6 +14,7 @@ export interface PresenceState {
 export const useUserStatus = (user: any) => {
   const [status, setStatus] = useState<UserStatus>('online');
   const [onlineUsers, setOnlineUsers] = useState<Record<string, UserStatus>>({});
+  const [lastSeenMap, setLastSeenMap] = useState<Record<string, number>>({}); // Track last seen timestamps
   const supabase = createClient();
   const presenceChannelRef = useRef<RealtimeChannel | null>(null);
 
@@ -87,23 +88,42 @@ export const useUserStatus = (user: any) => {
       .on('presence', { event: 'sync' }, () => {
         const newState = channel.presenceState();
         const userMap: Record<string, UserStatus> = {};
+        const seenMap: Record<string, number> = {};
+        const now = Date.now();
         
         for (const key in newState) {
             const presence = newState[key][0] as any;
             if (presence && presence.status) {
                 userMap[presence.user_id] = presence.status;
+                // Track last seen timestamp
+                if (presence.last_seen) {
+                    seenMap[presence.user_id] = new Date(presence.last_seen).getTime();
+                } else {
+                    seenMap[presence.user_id] = now;
+                }
             }
         }
         setOnlineUsers(prev => ({ ...prev, ...userMap }));
+        setLastSeenMap(prev => ({ ...prev, ...seenMap }));
       })
       .on('presence', { event: 'join' }, ({ key, newPresences }) => {
         const userMap: Record<string, UserStatus> = {};
+        const seenMap: Record<string, number> = {};
+        const now = Date.now();
+        
         newPresences.forEach((presence: any) => {
           if (presence.status) {
             userMap[presence.user_id] = presence.status;
+            // Track last seen timestamp
+            if (presence.last_seen) {
+                seenMap[presence.user_id] = new Date(presence.last_seen).getTime();
+            } else {
+                seenMap[presence.user_id] = now;
+            }
           }
         });
         setOnlineUsers(prev => ({ ...prev, ...userMap }));
+        setLastSeenMap(prev => ({ ...prev, ...seenMap }));
       })
       .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
         const userMap: Record<string, UserStatus> = {};
@@ -113,6 +133,26 @@ export const useUserStatus = (user: any) => {
           }
         });
         setOnlineUsers(prev => {
+          const updated = { ...prev };
+          // Set status to offline instead of deleting, so UI can show offline state
+          Object.keys(userMap).forEach(userId => {
+            updated[userId] = 'offline';
+            // Also update database status to offline (fire and forget)
+            void (async () => {
+              try {
+                await supabase
+                  .from('profiles')
+                  .update({ status: 'offline' })
+                  .eq('id', userId);
+              } catch (err) {
+                console.error('Failed to update offline status:', err);
+              }
+            })();
+          });
+          return updated;
+        });
+        // Remove from last seen map
+        setLastSeenMap(prev => {
           const updated = { ...prev };
           Object.keys(userMap).forEach(userId => {
             delete updated[userId];
@@ -130,13 +170,130 @@ export const useUserStatus = (user: any) => {
     // Re-track whenever status changes
     trackPresence(user.id, status, channel);
 
+    // Heartbeat: Update last_seen periodically to show we're still active
+    const heartbeatInterval = setInterval(() => {
+      if (presenceChannelRef.current && user?.id) {
+        trackPresence(user.id, status, presenceChannelRef.current);
+      }
+    }, 30000); // Every 30 seconds
+
+    // Check for stale presence: Mark users as offline if no update in 90 seconds
+    const staleCheckInterval = setInterval(() => {
+      const now = Date.now();
+      const STALE_THRESHOLD = 90000; // 90 seconds (reduced from 2 minutes for faster detection)
+      
+      setLastSeenMap(prev => {
+        setOnlineUsers(currentUsers => {
+          const updated = { ...currentUsers };
+          let hasChanges = false;
+          
+          Object.keys(prev).forEach(userId => {
+            const lastSeen = prev[userId];
+            if (now - lastSeen > STALE_THRESHOLD && updated[userId] !== 'offline') {
+              const secondsAgo = Math.round((now - lastSeen) / 1000);
+              console.log(`⏰ Marking user ${userId} as offline (stale presence, last seen ${secondsAgo}s ago)`);
+              updated[userId] = 'offline';
+              hasChanges = true;
+              
+              // Also update database status to offline
+              void (async () => {
+                try {
+                  await supabase
+                    .from('profiles')
+                    .update({ status: 'offline' })
+                    .eq('id', userId);
+                  console.log(`✅ Updated user ${userId} status to offline in database`);
+                } catch (err) {
+                  console.error(`❌ Failed to update user ${userId} status to offline:`, err);
+                }
+              })();
+            }
+          });
+          
+          return hasChanges ? updated : currentUsers;
+        });
+        return prev;
+      });
+    }, 15000); // Check every 15 seconds (more frequent checks)
+
+    // Handle page unload - set status to offline
+    const handleBeforeUnload = () => {
+      if (user?.id) {
+        const persisted = mapToPersistedStatus('offline');
+        // Try to update status (may not complete if page is closing)
+        void (async () => {
+          try {
+            await supabase
+              .from('profiles')
+              .update({ status: persisted })
+              .eq('id', user.id);
+          } catch (err) {
+            // Ignore errors on unload
+          }
+        })();
+      }
+    };
+
+    // Handle visibility change - set offline when tab is hidden for too long
+    let hiddenTimeoutRef: { current: NodeJS.Timeout | null } = { current: null };
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // After 5 minutes of being hidden, mark as offline
+        hiddenTimeoutRef.current = setTimeout(() => {
+          if (user?.id && document.hidden) {
+            const persisted = mapToPersistedStatus('offline');
+            setStatus('offline');
+            void (async () => {
+              try {
+                await supabase
+                  .from('profiles')
+                  .update({ status: persisted })
+                  .eq('id', user.id);
+              } catch (err) {
+                console.error('Failed to update status to offline:', err);
+              }
+            })();
+          }
+        }, 300000); // 5 minutes
+      } else {
+        // Tab is visible again, mark as online
+        if (hiddenTimeoutRef.current) {
+          clearTimeout(hiddenTimeoutRef.current);
+          hiddenTimeoutRef.current = null;
+        }
+        if (user?.id && status === 'offline') {
+          setStatus('online');
+          const persisted = mapToPersistedStatus('online');
+          void (async () => {
+            try {
+              await supabase
+                .from('profiles')
+                .update({ status: persisted })
+                .eq('id', user.id);
+            } catch (err) {
+              console.error('Failed to update status to online:', err);
+            }
+          })();
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
         presenceChannelRef.current = null;
+        clearInterval(heartbeatInterval);
+        clearInterval(staleCheckInterval);
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        if (hiddenTimeoutRef.current) clearTimeout(hiddenTimeoutRef.current);
         supabase.removeChannel(channel);
     };
-  }, [user?.id, status, trackPresence]);
+  }, [user?.id, status, trackPresence, mapToPersistedStatus, supabase]);
 
   // 3. Real-time subscription to profiles table for status changes
+  // This ensures status updates from DB are reflected in real-time across all users
   useEffect(() => {
     if (!user?.id) return;
 
@@ -160,6 +317,8 @@ export const useUserStatus = (user: any) => {
               mappedStatus = 'online'; // Map away to online for UI
             }
             
+            console.log(`📊 Status update from DB for user ${updatedUser.id}: ${mappedStatus}`);
+            
             setOnlineUsers(prev => ({
               ...prev,
               [updatedUser.id]: mappedStatus
@@ -167,7 +326,11 @@ export const useUserStatus = (user: any) => {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Subscribed to profiles status updates');
+        }
+      });
 
     return () => {
       supabase.removeChannel(profilesChannel);
