@@ -8,10 +8,9 @@
 -- 1. Open your Supabase project dashboard
 -- 2. Go to SQL Editor
 -- 3. Paste and run this entire script
--- 4. Create storage buckets via Dashboard:
+-- 4. Create storage bucket via Dashboard:
 --    - Go to Storage section
 --    - Create bucket: "attachments" (public)
---    - Create bucket: "avatars" (public)
 -- 5. Set up storage policies (see comments at bottom of file)
 --
 -- IMPORTANT: Make sure to enable Row Level Security (RLS)
@@ -32,7 +31,6 @@ CREATE TABLE IF NOT EXISTS profiles (
     bio TEXT,
     preferred_language TEXT NOT NULL DEFAULT 'en',
     theme TEXT NOT NULL DEFAULT 'aurora' CHECK (theme IN ('aurora', 'midnight')),
-    avatar_url TEXT,
     status TEXT NOT NULL DEFAULT 'offline' CHECK (status IN ('online', 'offline', 'away', 'invisible')),
     plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
     subscription_end_date TIMESTAMPTZ,
@@ -55,6 +53,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger to auto-update updated_at
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON profiles;
 CREATE TRIGGER update_profiles_updated_at
     BEFORE UPDATE ON profiles
     FOR EACH ROW
@@ -130,17 +129,46 @@ CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     recipient_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
     type TEXT NOT NULL CHECK (type IN ('message', 'contact_request', 'system')),
-    content JSONB NOT NULL DEFAULT '{}'::jsonb, -- Stores: { sender_name, preview, avatar_url }
+    content JSONB NOT NULL DEFAULT '{}'::jsonb, -- Stores: { sender_name, preview }
     is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    read_at TIMESTAMPTZ, -- Timestamp when notification was marked as read
     related_id TEXT, -- Optional: room_id, contact_id, etc.
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add read_at column if it doesn't exist (for existing tables)
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'notifications' AND column_name = 'read_at'
+    ) THEN
+        ALTER TABLE notifications ADD COLUMN read_at TIMESTAMPTZ;
+    END IF;
+END $$;
 
 -- Indexes for notifications
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient_id ON notifications(recipient_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
 CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notifications_recipient_read ON notifications(recipient_id, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_read_at ON notifications(read_at) WHERE read_at IS NOT NULL;
+
+-- Enable real-time replication for notifications table
+-- This allows Supabase real-time subscriptions to work
+-- Note: If table already exists in publication, this will error but can be ignored
+DO $$ 
+BEGIN
+    -- Try to add table to publication, ignore if already exists
+    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE notifications';
+EXCEPTION
+    WHEN duplicate_object THEN
+        -- Table already in publication, that's fine
+        NULL;
+    WHEN OTHERS THEN
+        -- Other errors, log but don't fail
+        RAISE NOTICE 'Could not add notifications to realtime publication: %', SQLERRM;
+END $$;
 
 -- =====================================================
 -- 6. HIDDEN_MESSAGES TABLE
@@ -178,16 +206,19 @@ ALTER TABLE hidden_messages ENABLE ROW LEVEL SECURITY;
 -- =====================================================
 
 -- Users can read all profiles (for search, contacts, etc.)
+DROP POLICY IF EXISTS "Users can read all profiles" ON profiles;
 CREATE POLICY "Users can read all profiles"
     ON profiles FOR SELECT
     USING (true);
 
 -- Users can only update their own profile
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 CREATE POLICY "Users can update own profile"
     ON profiles FOR UPDATE
     USING (auth.uid() = id);
 
 -- Users can insert their own profile
+DROP POLICY IF EXISTS "Users can insert own profile" ON profiles;
 CREATE POLICY "Users can insert own profile"
     ON profiles FOR INSERT
     WITH CHECK (auth.uid() = id);
@@ -197,21 +228,25 @@ CREATE POLICY "Users can insert own profile"
 -- =====================================================
 
 -- Users can read contacts where they are involved
+DROP POLICY IF EXISTS "Users can read own contacts" ON contacts;
 CREATE POLICY "Users can read own contacts"
     ON contacts FOR SELECT
     USING (auth.uid() = user_id OR auth.uid() = contact_id);
 
 -- Users can create contact requests
+DROP POLICY IF EXISTS "Users can create contact requests" ON contacts;
 CREATE POLICY "Users can create contact requests"
     ON contacts FOR INSERT
     WITH CHECK (auth.uid() = user_id);
 
 -- Users can update contacts where they are involved
+DROP POLICY IF EXISTS "Users can update own contacts" ON contacts;
 CREATE POLICY "Users can update own contacts"
     ON contacts FOR UPDATE
     USING (auth.uid() = user_id OR auth.uid() = contact_id);
 
 -- Users can delete contacts where they are involved
+DROP POLICY IF EXISTS "Users can delete own contacts" ON contacts;
 CREATE POLICY "Users can delete own contacts"
     ON contacts FOR DELETE
     USING (auth.uid() = user_id OR auth.uid() = contact_id);
@@ -221,6 +256,7 @@ CREATE POLICY "Users can delete own contacts"
 -- =====================================================
 
 -- Users can read room members for rooms they're in
+DROP POLICY IF EXISTS "Users can read room members" ON room_members;
 CREATE POLICY "Users can read room members"
     ON room_members FOR SELECT
     USING (
@@ -232,11 +268,13 @@ CREATE POLICY "Users can read room members"
     );
 
 -- Users can insert themselves into rooms
+DROP POLICY IF EXISTS "Users can insert themselves into rooms" ON room_members;
 CREATE POLICY "Users can insert themselves into rooms"
     ON room_members FOR INSERT
     WITH CHECK (auth.uid() = profile_id);
 
 -- Users can delete themselves from rooms
+DROP POLICY IF EXISTS "Users can delete themselves from rooms" ON room_members;
 CREATE POLICY "Users can delete themselves from rooms"
     ON room_members FOR DELETE
     USING (auth.uid() = profile_id);
@@ -246,6 +284,7 @@ CREATE POLICY "Users can delete themselves from rooms"
 -- =====================================================
 
 -- Users can read messages from rooms they're members of
+DROP POLICY IF EXISTS "Users can read messages in their rooms" ON messages;
 CREATE POLICY "Users can read messages in their rooms"
     ON messages FOR SELECT
     USING (
@@ -257,6 +296,7 @@ CREATE POLICY "Users can read messages in their rooms"
     );
 
 -- Users can insert messages into rooms they're members of
+DROP POLICY IF EXISTS "Users can insert messages in their rooms" ON messages;
 CREATE POLICY "Users can insert messages in their rooms"
     ON messages FOR INSERT
     WITH CHECK (
@@ -269,11 +309,13 @@ CREATE POLICY "Users can insert messages in their rooms"
     );
 
 -- Users can update their own messages (for editing/deleting)
+DROP POLICY IF EXISTS "Users can update own messages" ON messages;
 CREATE POLICY "Users can update own messages"
     ON messages FOR UPDATE
     USING (auth.uid() = sender_id);
 
 -- Users can delete their own messages
+DROP POLICY IF EXISTS "Users can delete own messages" ON messages;
 CREATE POLICY "Users can delete own messages"
     ON messages FOR DELETE
     USING (auth.uid() = sender_id);
@@ -283,22 +325,26 @@ CREATE POLICY "Users can delete own messages"
 -- =====================================================
 
 -- Users can only read their own notifications
+DROP POLICY IF EXISTS "Users can read own notifications" ON notifications;
 CREATE POLICY "Users can read own notifications"
     ON notifications FOR SELECT
     USING (auth.uid() = recipient_id);
 
 -- System can insert notifications (handled via service role)
 -- For user-created notifications, we'll use a function
+DROP POLICY IF EXISTS "Users can insert notifications for others" ON notifications;
 CREATE POLICY "Users can insert notifications for others"
     ON notifications FOR INSERT
     WITH CHECK (true); -- Will be restricted by application logic
 
 -- Users can update their own notifications (mark as read)
+DROP POLICY IF EXISTS "Users can update own notifications" ON notifications;
 CREATE POLICY "Users can update own notifications"
     ON notifications FOR UPDATE
     USING (auth.uid() = recipient_id);
 
 -- Users can delete their own notifications
+DROP POLICY IF EXISTS "Users can delete own notifications" ON notifications;
 CREATE POLICY "Users can delete own notifications"
     ON notifications FOR DELETE
     USING (auth.uid() = recipient_id);
@@ -308,16 +354,19 @@ CREATE POLICY "Users can delete own notifications"
 -- =====================================================
 
 -- Users can read their own hidden messages
+DROP POLICY IF EXISTS "Users can read own hidden messages" ON hidden_messages;
 CREATE POLICY "Users can read own hidden messages"
     ON hidden_messages FOR SELECT
     USING (auth.uid() = user_id);
 
 -- Users can insert hidden messages for themselves
+DROP POLICY IF EXISTS "Users can insert own hidden messages" ON hidden_messages;
 CREATE POLICY "Users can insert own hidden messages"
     ON hidden_messages FOR INSERT
     WITH CHECK (auth.uid() = user_id);
 
 -- Users can delete their own hidden messages (to unhide)
+DROP POLICY IF EXISTS "Users can delete own hidden messages" ON hidden_messages;
 CREATE POLICY "Users can delete own hidden messages"
     ON hidden_messages FOR DELETE
     USING (auth.uid() = user_id);
@@ -341,11 +390,26 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Trigger to create profile on user signup
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW
-    EXECUTE FUNCTION public.handle_new_user();
+-- Note: Creating triggers on auth.users requires superuser privileges
+-- If you don't have permissions, you can set this up via Supabase Dashboard:
+-- Dashboard > Database > Webhooks > New Webhook (on auth.users INSERT)
+-- Or use Supabase Auth Hooks
+DO $$ 
+BEGIN
+    -- Try to drop existing trigger if it exists
+    DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+    
+    -- Try to create the trigger
+    EXECUTE 'CREATE TRIGGER on_auth_user_created
+        AFTER INSERT ON auth.users
+        FOR EACH ROW
+        EXECUTE FUNCTION public.handle_new_user()';
+EXCEPTION
+    WHEN insufficient_privilege THEN
+        RAISE NOTICE 'Cannot create trigger on auth.users - requires superuser privileges. Set up via Dashboard > Database > Webhooks instead.';
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Could not create trigger on auth.users: %', SQLERRM;
+END $$;
 
 -- Function to create notification (can be called from server-side)
 CREATE OR REPLACE FUNCTION public.create_notification(
@@ -366,24 +430,118 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Function to delete old read notifications (older than 7 days)
+-- This follows standard practice: read notifications are kept for 7 days, then automatically deleted
+CREATE OR REPLACE FUNCTION public.cleanup_old_read_notifications()
+RETURNS INTEGER AS $$
+DECLARE
+    deleted_count INTEGER;
+BEGIN
+    -- Delete read notifications that were read more than 7 days ago
+    DELETE FROM notifications
+    WHERE is_read = TRUE
+      AND read_at IS NOT NULL
+      AND read_at < NOW() - INTERVAL '7 days';
+    
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+    
+    RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to check if user is a member of a room (bypasses RLS for storage policies)
+-- This prevents infinite recursion when storage policies check room membership
+CREATE OR REPLACE FUNCTION public.is_room_member(p_room_id TEXT, p_user_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    -- Use SECURITY DEFINER to bypass RLS and check room membership directly
+    RETURN EXISTS (
+        SELECT 1 FROM room_members
+        WHERE room_id = p_room_id
+        AND profile_id = p_user_id
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- =====================================================
--- 8. STORAGE BUCKETS
+-- 8. STORAGE BUCKETS & POLICIES
 -- =====================================================
--- Note: Storage buckets need to be created via Supabase Dashboard
--- or using the Supabase Management API. Here's the SQL equivalent:
+-- Note: Storage bucket needs to be created via Supabase Dashboard first:
+-- 1. Go to Storage section
+-- 2. Create bucket: "attachments" (public)
+-- 
+-- IMPORTANT: Storage policies require superuser permissions.
+-- If you get permission errors, create them via Dashboard:
+-- Storage > [bucket name] > Policies > New Policy
+-- 
+-- Note: RLS is already enabled on storage.objects by default in Supabase
 
--- Create attachments bucket (for message attachments)
--- INSERT INTO storage.buckets (id, name, public) 
--- VALUES ('attachments', 'attachments', true)
--- ON CONFLICT (id) DO NOTHING;
-
--- Create avatars bucket (for user avatars)
--- INSERT INTO storage.buckets (id, name, public) 
--- VALUES ('avatars', 'avatars', true)
--- ON CONFLICT (id) DO NOTHING;
-
--- Storage policies (run these after creating buckets)
--- Note: These need to be run after buckets are created via dashboard/API
+-- =====================================================
+-- STORAGE POLICIES - MUST BE CREATED VIA DASHBOARD
+-- =====================================================
+-- Storage policies CANNOT be created via SQL - they require owner/superuser privileges.
+-- You MUST create them manually via the Supabase Dashboard.
+-- 
+-- Steps to create storage policies:
+-- 1. Go to Storage > attachments bucket > Policies tab
+-- 2. Click "New Policy" for each of the 3 policies below
+-- 
+-- Policy 1: "Users can upload attachments to their rooms"
+--   Operation: INSERT
+--   Policy: bucket_id = 'attachments' AND public.is_room_member((storage.foldername(name))[1], auth.uid())
+-- 
+-- Policy 2: "Users can read attachments from their rooms"
+--   Operation: SELECT
+--   Policy: bucket_id = 'attachments' AND public.is_room_member((storage.foldername(name))[1], auth.uid())
+-- 
+-- Policy 3: "Users can delete attachments from their rooms"
+--   Operation: DELETE
+--   Policy: bucket_id = 'attachments' AND public.is_room_member((storage.foldername(name))[1], auth.uid())
+--
+-- NOTE: The DO block below is commented out because it requires owner privileges.
+-- Uncomment and run ONLY if you have superuser access.
+/*
+DO $$ 
+BEGIN
+    -- =====================================================
+    -- ATTACHMENTS BUCKET POLICIES
+    -- =====================================================
+    
+    -- Users can upload files to rooms they're members of
+    DROP POLICY IF EXISTS "Users can upload attachments to their rooms" ON storage.objects;
+    EXECUTE 'CREATE POLICY "Users can upload attachments to their rooms"
+        ON storage.objects FOR INSERT
+        WITH CHECK (
+            bucket_id = ''attachments''
+            AND public.is_room_member((storage.foldername(name))[1], auth.uid())
+        )';
+    
+    -- Users can read/view attachments from rooms they're members of
+    DROP POLICY IF EXISTS "Users can read attachments from their rooms" ON storage.objects;
+    EXECUTE 'CREATE POLICY "Users can read attachments from their rooms"
+        ON storage.objects FOR SELECT
+        USING (
+            bucket_id = ''attachments''
+            AND public.is_room_member((storage.foldername(name))[1], auth.uid())
+        )';
+    
+    -- Users can delete their own uploaded attachments
+    DROP POLICY IF EXISTS "Users can delete attachments from their rooms" ON storage.objects;
+    EXECUTE 'CREATE POLICY "Users can delete attachments from their rooms"
+        ON storage.objects FOR DELETE
+        USING (
+            bucket_id = ''attachments''
+            AND public.is_room_member((storage.foldername(name))[1], auth.uid())
+        )';
+    
+        
+EXCEPTION
+    WHEN insufficient_privilege THEN
+        RAISE NOTICE 'Cannot create storage policies - requires superuser privileges. Create them via Dashboard: Storage > [bucket] > Policies';
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Could not create storage policies: %. Create them via Dashboard instead.', SQLERRM;
+END $$;
+*/
 
 -- Allow authenticated users to upload attachments
 -- CREATE POLICY "Users can upload attachments"
@@ -401,19 +559,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 --         AND auth.role() = 'authenticated'
 --     );
 
--- Allow users to upload their own avatars
--- CREATE POLICY "Users can upload own avatars"
---     ON storage.objects FOR INSERT
---     WITH CHECK (
---         bucket_id = 'avatars' 
---         AND auth.role() = 'authenticated'
---         AND (storage.foldername(name))[1] = auth.uid()::text
---     );
-
--- Allow public read access to avatars
--- CREATE POLICY "Anyone can read avatars"
---     ON storage.objects FOR SELECT
---     USING (bucket_id = 'avatars');
 
 -- =====================================================
 -- 9. COMMENTS (Documentation)
@@ -428,7 +573,7 @@ COMMENT ON TABLE hidden_messages IS 'Tracks messages hidden per-user (for per-us
 
 COMMENT ON COLUMN messages.translations IS 'JSONB object mapping language codes to translated text';
 COMMENT ON COLUMN messages.metadata IS 'JSONB object containing encryption data (iv, encrypted) and attachment metadata';
-COMMENT ON COLUMN notifications.content IS 'JSONB object containing notification content (sender_name, preview, avatar_url)';
+COMMENT ON COLUMN notifications.content IS 'JSONB object containing notification content (sender_name, preview)';
 
 -- =====================================================
 -- END OF SCHEMA

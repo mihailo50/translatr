@@ -44,9 +44,30 @@ export default function ContactsPage() {
 
   const resolvePresenceStatus = useCallback((userId: string, fallback?: UserStatus): UserStatus => {
     const presence = onlineUsers[userId];
-    if (presence === 'invisible') return 'offline';
-    if (presence) return presence;
-    if (fallback) return fallback;
+    
+    // Priority: 1. Presence (most real-time), 2. No presence = offline, 3. Database status (fallback only if presence exists)
+    
+    // If presence explicitly says offline, ALWAYS trust it (most real-time)
+    if (presence === 'offline') {
+      return 'offline';
+    }
+    
+    // If presence has NO data (undefined/null), this means user is not in presence system = OFFLINE
+    // This is more reliable than trusting stale database status
+    if (!presence) {
+      // No presence data = user is offline (not connected to presence system)
+      // Don't trust fallback database status if user is not in presence
+      return 'offline';
+    }
+    
+    // If presence exists and is not offline, use it
+    if (presence && presence !== 'offline') {
+      // Map invisible to offline for display
+      if (presence === 'invisible') return 'offline';
+      return presence;
+    }
+    
+    // Fallback to offline (shouldn't reach here, but safety net)
     return 'offline';
   }, [onlineUsers]);
 
@@ -253,32 +274,35 @@ export default function ContactsPage() {
   };
 
   return (
-      <div className="h-full w-full flex flex-col p-4 md:p-8 space-y-6 max-w-6xl mx-auto">
+      <div className="h-full w-full flex flex-col bg-transparent max-w-6xl mx-auto">
         
-        {/* Header & Tabs */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <h1 className="text-3xl font-bold text-white mb-1">Contacts</h1>
-            <p className="text-white/50">Manage your circle.</p>
-          </div>
+        {/* Header with Glass Container */}
+        <div className="p-6 sticky top-0 z-40 backdrop-blur-xl border-b border-white/5">
+          <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/70 tracking-tight mb-1">
+            Contacts
+          </h1>
+          <p className="text-white/50 text-sm">Manage your circle.</p>
+        </div>
 
-          <div className="flex p-1 bg-white/5 backdrop-blur-md rounded-xl border border-white/10">
+        {/* Glass Pill Tabs - Segmented Control */}
+        <div className="px-6 pt-6">
+          <div className="bg-white/5 p-1 rounded-full border border-white/10 flex gap-1 mb-6 backdrop-blur-md">
             <button
               onClick={() => setActiveTab('friends')}
-              className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 ${
+              className={`flex-1 px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
                 activeTab === 'friends' 
-                  ? 'bg-white/10 text-white shadow-lg' 
-                  : 'text-white/50 hover:text-white hover:bg-white/5'
+                  ? 'bg-indigo-500/20 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)] border border-indigo-500/30' 
+                  : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'
               }`}
             >
               My Contacts
             </button>
             <button
               onClick={() => setActiveTab('requests')}
-              className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center gap-2 ${
+              className={`flex-1 px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
                 activeTab === 'requests' 
-                  ? 'bg-white/10 text-white shadow-lg' 
-                  : 'text-white/50 hover:text-white hover:bg-white/5'
+                  ? 'bg-indigo-500/20 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)] border border-indigo-500/30' 
+                  : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'
               }`}
             >
               Requests
@@ -290,10 +314,10 @@ export default function ContactsPage() {
             </button>
             <button
               onClick={() => setActiveTab('search')}
-              className={`px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 flex items-center gap-2 ${
+              className={`flex-1 px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
                 activeTab === 'search' 
-                  ? 'bg-aurora-indigo text-white shadow-lg shadow-aurora-indigo/20' 
-                  : 'text-white/50 hover:text-white hover:bg-white/5'
+                  ? 'bg-indigo-500/20 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)] border border-indigo-500/30' 
+                  : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'
               }`}
             >
               <UserPlus size={16} /> Add Contact
@@ -301,65 +325,78 @@ export default function ContactsPage() {
           </div>
         </div>
 
-        {/* --- VIEW: SEARCH --- */}
-        {activeTab === 'search' && (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Search Input */}
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto px-6 pb-6">
+
+          {/* --- VIEW: SEARCH --- */}
+          {activeTab === 'search' && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* Search Input - Liquid Glass */}
             <div className="relative group max-w-3xl mx-auto w-full">
-              <div className="absolute inset-0 bg-gradient-to-r from-aurora-indigo/30 to-aurora-purple/30 rounded-2xl blur-lg opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
-              <div className="relative glass-strong p-2 rounded-2xl flex items-center">
-                <Search className="ml-4 text-white/40" size={24} />
-                <input 
-                  type="text"
-                  placeholder="Search by display name or email..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-transparent border-none focus:ring-0 text-white placeholder-white/30 text-lg px-4 py-3"
-                  autoFocus
-                />
-                {isPending && <Loader2 className="mr-4 text-aurora-indigo animate-spin" />}
-              </div>
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-indigo-400 group-focus-within:scale-110 transition-all duration-300" size={20} />
+              <input 
+                type="text"
+                placeholder="Search by display name or email..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-12 pr-4 py-3.5 bg-white/[0.03] border border-white/5 rounded-2xl text-white placeholder-white/30 transition-all duration-300 focus:bg-white/[0.07] focus:border-indigo-500/40 focus:shadow-[0_0_20px_rgba(99,102,241,0.15)] focus:ring-0 focus:outline-none"
+                autoFocus
+              />
+              {isPending && (
+                <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-400 animate-spin" size={20} />
+              )}
             </div>
 
             {/* Results Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {searchResults.map((user) => (
-                <div key={user.id} className="glass p-5 rounded-2xl border border-white/5 flex items-center gap-4 hover:bg-white/10 transition-colors">
-                  <div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-lg font-bold text-white overflow-hidden border border-white/10">
-                    {user.avatar_url ? (
-                      <img src={user.avatar_url} alt={user.display_name || '?'} className="w-full h-full object-cover" />
-                    ) : (
-                      (user.display_name?.[0] || user.email?.[0] || '?').toUpperCase()
+              {searchResults.map((user, index) => (
+                <div 
+                  key={user.id} 
+                  className="group p-4 rounded-2xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.06] hover:border-white/10 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                  style={{ animationDelay: `${index * 50}ms` }}
+                >
+                  <div className="flex items-center gap-4">
+                    {/* Avatar with Gradient Ring */}
+                    <div className="p-[1px] rounded-full bg-gradient-to-tr from-indigo-500/50 to-purple-500/50 flex-shrink-0">
+                      <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-base font-bold text-white overflow-hidden border-2 border-[#020205]">
+                        {user.avatar_url ? (
+                          <img src={user.avatar_url} alt={user.display_name || '?'} className="w-full h-full object-cover" />
+                        ) : (
+                          (user.display_name?.[0] || user.email?.[0] || '?').toUpperCase()
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Text Content */}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-medium text-white/90 group-hover:text-white truncate">{user.display_name || 'Unknown'}</h3>
+                      <p className="text-xs text-white/40 group-hover:text-white/60 truncate">{user.email}</p>
+                    </div>
+                    
+                    {/* Action Buttons */}
+                    {user.status === 'none' && (
+                      <button 
+                        onClick={() => handleSendRequest(user.id)}
+                        disabled={isPending}
+                        className="p-2.5 rounded-xl bg-white/5 text-white/70 hover:bg-indigo-500 hover:text-white hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] transition-all flex-shrink-0"
+                      >
+                        <UserPlus size={18} />
+                      </button>
+                    )}
+                    {user.status === 'pending_sent' && (
+                      <div className="px-3 py-1.5 rounded-lg bg-white/5 text-white/50 text-xs font-medium flex items-center gap-1.5 border border-white/5 flex-shrink-0">
+                        <Clock size={12} /> Sent
+                      </div>
+                    )}
+                    {user.status === 'friends' && (
+                      <div className="p-2.5 rounded-xl bg-green-500/10 text-green-400 flex-shrink-0">
+                        <Check size={18} />
+                      </div>
+                    )}
+                    {user.status === 'pending_received' && (
+                       <span className="text-xs text-aurora-pink flex-shrink-0">Check Requests</span>
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-white font-semibold truncate">{user.display_name || 'Unknown'}</h3>
-                    <p className="text-white/40 text-sm truncate">{user.email}</p>
-                  </div>
-                  
-                  {/* Action Buttons */}
-                  {user.status === 'none' && (
-                    <button 
-                      onClick={() => handleSendRequest(user.id)}
-                      disabled={isPending}
-                      className="p-2.5 rounded-xl bg-aurora-indigo/10 text-aurora-indigo hover:bg-aurora-indigo hover:text-white transition-all shadow-lg hover:shadow-aurora-indigo/25"
-                    >
-                      <UserPlus size={20} />
-                    </button>
-                  )}
-                  {user.status === 'pending_sent' && (
-                    <div className="px-3 py-1.5 rounded-lg bg-white/5 text-white/50 text-xs font-medium flex items-center gap-1.5 border border-white/5">
-                      <Clock size={12} /> Sent
-                    </div>
-                  )}
-                  {user.status === 'friends' && (
-                    <div className="p-2.5 rounded-xl bg-green-500/10 text-green-400">
-                      <Check size={20} />
-                    </div>
-                  )}
-                  {user.status === 'pending_received' && (
-                     <span className="text-xs text-aurora-pink">Check Requests</span>
-                  )}
                 </div>
               ))}
               
@@ -370,43 +407,50 @@ export default function ContactsPage() {
               )}
             </div>
           </div>
-        )}
+          )}
 
-        {/* --- VIEW: FRIENDS --- */}
-        {activeTab === 'friends' && (
+          {/* --- VIEW: FRIENDS --- */}
+          {activeTab === 'friends' && (
           loading ? (
             <div className="flex justify-center py-20"><Loader2 className="animate-spin text-aurora-indigo w-8 h-8"/></div>
           ) : friends.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-500">
-              {friends.map((friend) => {
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {friends.map((friend, index) => {
                  const presenceStatus = resolvePresenceStatus(friend.id, friend.profile_status as UserStatus | undefined);
 
                  return (
-                   <div key={friend.id} className="glass group p-6 rounded-3xl border border-white/5 hover:border-aurora-indigo/30 transition-all duration-300 relative">
-                      <div className="flex items-start justify-between mb-4">
-                          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-2xl font-bold text-white border-2 border-white/5 group-hover:border-aurora-indigo/50 transition-all overflow-hidden shadow-lg">
+                   <div 
+                     key={friend.id} 
+                     className="group p-4 rounded-2xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.06] hover:border-white/10 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 duration-300 relative"
+                     style={{ animationDelay: `${index * 50}ms` }}
+                   >
+                      <div className="flex items-start justify-between mb-3">
+                          {/* Avatar with Gradient Ring */}
+                          <div className="p-[1px] rounded-full bg-gradient-to-tr from-indigo-500/50 to-purple-500/50 flex-shrink-0">
+                            <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-base font-bold text-white overflow-hidden border-2 border-[#020205]">
                               {friend.avatar_url ? (
                                   <img src={friend.avatar_url} alt="" className="w-full h-full object-cover" />
                               ) : (
                                   (friend.display_name?.[0] || '?').toUpperCase()
                               )}
+                            </div>
                           </div>
                           <div 
-                            className={`w-2.5 h-2.5 rounded-full border border-white/10 ${getPresenceColor(presenceStatus)}`} 
+                            className={`w-2.5 h-2.5 rounded-full border border-white/10 ${getPresenceColor(presenceStatus)} flex-shrink-0`} 
                             title={getPresenceLabel(presenceStatus)}
                             aria-label={`Status: ${getPresenceLabel(presenceStatus)}`}
                           />
                       </div>
                       
-                      <h3 className="text-xl font-bold text-white truncate mb-1">{friend.display_name}</h3>
-                      <p className="text-sm text-white/40 truncate mb-6">{friend.email}</p>
+                      <h3 className="text-base font-medium text-white/90 group-hover:text-white truncate mb-1">{friend.display_name}</h3>
+                      <p className="text-xs text-white/40 group-hover:text-white/60 truncate mb-4">{friend.email}</p>
 
                       <button 
                         onClick={() => handleOpenChat(friend.id)}
                         disabled={isPending}
-                        className="w-full py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white font-medium transition-colors flex items-center justify-center gap-2 border border-white/5 group-hover:border-white/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full p-2.5 rounded-xl bg-white/5 text-white/70 hover:bg-indigo-500 hover:text-white hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <MessageSquare size={18} className="text-aurora-indigo" />
+                        <MessageSquare size={16} />
                         Message
                       </button>
                    </div>
@@ -421,38 +465,42 @@ export default function ContactsPage() {
               <button onClick={() => setActiveTab('search')} className="text-aurora-indigo hover:underline">Find people to add</button>
             </div>
           )
-        )}
+          )}
 
-        {/* --- VIEW: REQUESTS --- */}
-        {activeTab === 'requests' && (
+          {/* --- VIEW: REQUESTS --- */}
+          {activeTab === 'requests' && (
           <div className="max-w-2xl mx-auto w-full animate-in slide-in-from-right-4 duration-300">
              {requests.length > 0 ? (
                 <div className="space-y-4">
-                    {requests.map(req => (
-                        <div key={req.id} className="glass-strong p-4 rounded-2xl flex items-center gap-4 border-l-4 border-l-aurora-pink">
-                            <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-white font-bold border border-white/10 overflow-hidden">
+                    {requests.map((req, index) => (
+                        <div 
+                            key={req.id} 
+                            className="bg-indigo-500/[0.03] border border-indigo-500/10 p-4 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                            style={{ animationDelay: `${index * 50}ms` }}
+                        >
+                            <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-white font-bold border border-white/10 overflow-hidden flex-shrink-0">
                                 {req.avatar_url ? (
                                     <img src={req.avatar_url} alt="" className="w-full h-full object-cover" />
                                 ) : (
                                     (req.display_name?.[0] || '?').toUpperCase()
                                 )}
                             </div>
-                            <div className="flex-1">
-                                <h3 className="font-bold text-white">{req.display_name}</h3>
+                            <div className="flex-1 min-w-0">
+                                <h3 className="font-bold text-white truncate">{req.display_name}</h3>
                                 <p className="text-xs text-white/50">Wants to connect</p>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-shrink-0">
                                 <button 
                                     onClick={() => handleDecline(req.relationship_id)}
                                     disabled={isPending}
-                                    className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                                    className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white hover:shadow-[0_0_20px_rgba(239,68,68,0.3)] transition-all duration-300 rounded-xl px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <X size={20} />
+                                    <X size={18} />
                                 </button>
                                 <button 
                                     onClick={() => handleAccept(req.relationship_id)}
                                     disabled={isPending}
-                                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold shadow-lg shadow-green-500/20 hover:scale-105 transition-transform"
+                                    className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all duration-300 rounded-xl px-6 py-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Accept
                                 </button>
@@ -469,8 +517,8 @@ export default function ContactsPage() {
                 </div>
              )}
           </div>
-        )}
-
+          )}
+        </div>
       </div>
   );
 }

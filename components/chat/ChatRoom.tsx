@@ -1010,7 +1010,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                             if (roomDetails.name && roomDetails.name !== 'Loading...' && roomDetails.name !== 'Unknown') {
                               return roomDetails.name;
                             }
-                            return 'Loading...';
+                            return roomDetails.participants?.[0]?.name || 'Chat';
                           })()}
                         </span>
                         {isBlocked && <Ban size={14} className="text-red-400 shrink-0" />}

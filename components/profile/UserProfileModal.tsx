@@ -45,14 +45,10 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onClose, us
         <div className="flex flex-col items-center mb-6">
             <div className="relative">
                 <div className="w-24 h-24 rounded-full bg-gradient-to-br from-aurora-indigo to-aurora-purple p-1 mb-4 shadow-lg shadow-aurora-indigo/20">
-                    <div className="w-full h-full rounded-full bg-slate-900 overflow-hidden relative">
-                        {user?.avatar ? (
-                            <img src={user.avatar} alt="Profile" className="w-full h-full object-cover" />
-                        ) : (
-                            <div className="w-full h-full flex items-center justify-center text-4xl font-bold text-white">
-                                {user?.name?.[0]?.toUpperCase() || 'U'}
-                            </div>
-                        )}
+                    <div className="w-full h-full rounded-full bg-slate-900 overflow-hidden relative flex items-center justify-center">
+                        <div className="text-4xl font-bold text-white">
+                            {user?.name?.[0]?.toUpperCase() || 'U'}
+                        </div>
                     </div>
                 </div>
                 {/* Status Indicator / Selector Trigger */}
@@ -67,21 +63,21 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onClose, us
                 {isStatusDropdownOpen && (
                     <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-48 rounded-2xl border border-white/10 overflow-hidden z-20 shadow-[0_20px_40px_rgba(0,0,0,0.6)] animate-in fade-in zoom-in-95 duration-200 bg-[#050510]/95 backdrop-blur-2xl">
                         <div className="p-1.5">
-                            {STATUS_OPTIONS.map((opt) => (
-                                <button
-                                    key={opt.value}
-                                    onClick={() => { updateUserStatus(opt.value); setIsStatusDropdownOpen(false); }}
+                        {STATUS_OPTIONS.map((opt) => (
+                            <button
+                                key={opt.value}
+                                onClick={() => { updateUserStatus(opt.value); setIsStatusDropdownOpen(false); }}
                                     className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center gap-3 transition-all duration-200 ${
                                         status === opt.value 
                                             ? 'bg-white/5 text-white' 
                                             : 'text-white/80 hover:text-white hover:bg-white/10'
                                     }`}
-                                >
-                                    <div className={`w-3 h-3 rounded-full ${opt.color}`}></div>
+                            >
+                                <div className={`w-3 h-3 rounded-full ${opt.color}`}></div>
                                     <span className="text-sm font-medium flex-1">{opt.label}</span>
                                     {status === opt.value && <Check size={14} className="text-white" />}
-                                </button>
-                            ))}
+                            </button>
+                        ))}
                         </div>
                     </div>
                 )}

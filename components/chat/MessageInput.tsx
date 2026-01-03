@@ -5,6 +5,7 @@ import { createClient } from '../../utils/supabase/client';
 import { toast } from 'sonner';
 import { deriveKey, encryptData } from '../../utils/encryption';
 import { ChatMessage } from '../../hooks/useLiveKitChat';
+import { processFileForUpload } from '../../utils/fileSecurity';
 
 interface MessageInputProps {
   roomId: string;
@@ -131,23 +132,48 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-        const file = e.target.files[0];
-        if (file.size > 5 * 1024 * 1024) { 
-            toast.error("File size too large (Max 5MB)");
+        const originalFile = e.target.files[0];
+        
+        // Check original file size (before processing)
+        if (originalFile.size > 10 * 1024 * 1024) { 
+            toast.error("File size too large (Max 10MB before compression)");
             return;
         }
+        
         setIsUploading(true);
         setIsViewOnce(false); // Reset default
 
         try {
-            const supabase = createClient();
-            const fileExt = file.name.split('.').pop();
-            const fileName = `${roomId}/${Date.now()}-${file.name}`;
+            // Process file: strip metadata, compress, and optimize
+            toast.loading("Processing file for security...", { id: 'file-processing' });
+            const { file: processedFile, originalSize, processedSize, compressionRatio } = await processFileForUpload(originalFile);
             
-            // Upload to Supabase storage
-            const { error: uploadError } = await supabase.storage.from('attachments').upload(fileName, file, {
+            // Check processed file size
+            if (processedFile.size > 5 * 1024 * 1024) {
+                toast.error("File size too large after processing (Max 5MB)", { id: 'file-processing' });
+                return;
+            }
+            
+            // Show compression info if significant
+            if (compressionRatio > 10) {
+                toast.success(`File optimized: ${(compressionRatio).toFixed(0)}% smaller`, { id: 'file-processing' });
+            } else {
+                toast.dismiss('file-processing');
+            }
+            
+            const supabase = createClient();
+            
+            // Generate secure filename (timestamp + random + sanitized name)
+            const timestamp = Date.now();
+            const random = Math.random().toString(36).substring(2, 9);
+            const sanitizedName = processedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const fileName = `${roomId}/${timestamp}-${random}-${sanitizedName}`;
+            
+            // Upload processed file to Supabase storage
+            const { error: uploadError } = await supabase.storage.from('attachments').upload(fileName, processedFile, {
                 cacheControl: '3600',
-                upsert: false
+                upsert: false,
+                contentType: processedFile.type
             });
             
             if (uploadError) {
@@ -157,13 +183,19 @@ const MessageInput: React.FC<MessageInputProps> = ({
             
             // Get public URL
             const { data: { publicUrl } } = supabase.storage.from('attachments').getPublicUrl(fileName);
-            const type = file.type.startsWith('image/') ? 'image' : 'file';
-            setAttachment({ url: publicUrl, type, name: file.name });
-            toast.success("File uploaded successfully");
+            const type = processedFile.type.startsWith('image/') ? 'image' : 'file';
+            
+            setAttachment({ 
+                url: publicUrl, 
+                type, 
+                name: originalFile.name // Use original name for display
+            });
+            
+            toast.success("File uploaded securely");
         } catch (error) {
             console.error('File upload failed:', error);
             const errorMessage = error instanceof Error ? error.message : 'Failed to upload file';
-            toast.error(`Upload failed: ${errorMessage}`);
+            toast.error(`Upload failed: ${errorMessage}`, { id: 'file-processing' });
             setAttachment(null);
         } finally {
             setIsUploading(false);

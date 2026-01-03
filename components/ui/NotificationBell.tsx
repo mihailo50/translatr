@@ -159,6 +159,29 @@ export default function NotificationBell() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || !mounted) return;
 
+      // Clean up old read notifications (older than 7 days) before fetching
+      // This follows standard practice: read notifications are kept for 7 days, then automatically deleted
+      try {
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        
+        const { error: deleteError } = await supabase
+          .from('notifications')
+          .delete()
+          .eq('recipient_id', user.id)
+          .eq('is_read', true)
+          .not('read_at', 'is', null)
+          .lt('read_at', sevenDaysAgo.toISOString());
+        
+        if (deleteError) {
+          console.error('Error cleaning up old notifications:', deleteError);
+        } else {
+          console.log('🧹 Cleaned up old read notifications (older than 7 days)');
+        }
+      } catch (err) {
+        console.error('Error during notification cleanup:', err);
+      }
+
       const { data } = await supabase
         .from('notifications')
         .select('*')
@@ -483,11 +506,19 @@ export default function NotificationBell() {
             }
           )
           .subscribe((status, err) => {
-            console.log('📡 Notification subscription status:', status, err ? `Error: ${err.message}` : '');
+            console.log('📡 Notification subscription status:', status, err ? `Error: ${err.message || 'Unknown error'}` : '');
             if (status === 'SUBSCRIBED') {
               console.log('✅ Successfully subscribed to notifications');
-            } else if (status === 'CHANNEL_ERROR') {
-              console.error('❌ Notification channel error:', err?.message || 'Unknown error');
+            } else if (status === 'CHANNEL_ERROR' || status === 'SUBSCRIPTION_ERROR') {
+              const errorMsg = err?.message || 'Unknown error';
+              console.error('❌ Notification channel error:', errorMsg);
+              
+              // Check if it's a replication issue
+              if (errorMsg.includes('replication') || errorMsg.includes('publication') || errorMsg.toLowerCase().includes('unknown')) {
+                console.warn('⚠️ Real-time replication may not be enabled for notifications table. Using polling fallback.');
+                console.warn('💡 To enable real-time: Run: ALTER PUBLICATION supabase_realtime ADD TABLE notifications;');
+              }
+              
               // Retry subscription after a delay (max 3 retries)
               if (retryCount < 3 && mounted) {
                 console.log(`🔄 Retrying subscription (attempt ${retryCount + 1}/3)...`);
@@ -549,7 +580,10 @@ export default function NotificationBell() {
     if (!notification.is_read) {
         await supabase
             .from('notifications')
-            .update({ is_read: true })
+            .update({ 
+                is_read: true,
+                read_at: new Date().toISOString()
+            })
             .eq('id', notification.id);
         
         // Optimistic Update
@@ -572,7 +606,10 @@ export default function NotificationBell() {
 
     await supabase
         .from('notifications')
-        .update({ is_read: true })
+        .update({ 
+            is_read: true,
+            read_at: new Date().toISOString()
+        })
         .eq('recipient_id', user.id)
         .eq('is_read', false);
 

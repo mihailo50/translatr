@@ -9,7 +9,6 @@ const profileSchema = z.object({
   bio: z.string().max(160, "Bio must be less than 160 characters").optional().or(z.literal('')),
   preferred_language: z.string(),
   theme: z.enum(['aurora', 'midnight']),
-  avatar_url: z.string().optional().or(z.literal('')),
 });
 
 export async function getProfile() {
@@ -36,7 +35,6 @@ export async function updateProfile(formData: FormData) {
     bio: formData.get('bio'),
     preferred_language: formData.get('preferred_language'),
     theme: formData.get('theme'),
-    avatar_url: formData.get('avatar_url'),
   };
 
   const validation = profileSchema.safeParse(rawData);

@@ -187,10 +187,10 @@ export async function sendMessageAction(
                 .eq('room_id', roomId);
 
             if (allMembers) {
-                // Get sender's profile for avatar
+                // Get sender's profile for name
                 const { data: senderProfile } = await supabase
                     .from('profiles')
-                    .select('avatar_url')
+                    .select('display_name')
                     .eq('id', senderId)
                     .single();
 
@@ -240,7 +240,6 @@ export async function sendMessageAction(
                             content: {
                                 sender_name: senderName,
                                 preview: previewText,
-                                avatar_url: senderProfile?.avatar_url || null
                             },
                             related_id: roomId
                         }));
