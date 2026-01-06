@@ -34,7 +34,8 @@ const FloatingLocalVideo = () => {
 const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { roomName: string, roomType: 'direct' | 'group', callType: 'audio' | 'video', onDisconnect: (s: boolean) => void, userId?: string }) => {
     const { localParticipant } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
-    const videoTracks = useTracks(callType === 'video' ? [Track.Source.Camera] : []);
+    // Always listen for camera tracks so users can enable video mid-call
+    const videoTracks = useTracks([Track.Source.Camera]);
     const audioTracks = useTracks(callType === 'audio' ? [Track.Source.Microphone] : []);
     
     // Filter remote tracks
@@ -265,6 +266,22 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
 
     return (
         <div className="relative h-full w-full flex flex-col bg-[#020205]">
+            {/* Inline styles for radar/pulse animations to match modal visuals */}
+            <style dangerouslySetInnerHTML={{ __html: `
+              @keyframes radar-ripple {
+                0% { transform: scale(1); opacity: 1; }
+                100% { transform: scale(2.5); opacity: 0; }
+              }
+              @keyframes radar {
+                0% { transform: scale(1); opacity: 0.5; }
+                100% { transform: scale(1.8); opacity: 0; }
+              }
+              .radar-ripple-1 { animation: radar-ripple 2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+              .radar-ripple-2 { animation: radar-ripple 2s cubic-bezier(0.4, 0, 0.2, 1) infinite 0.5s; }
+              .radar-ring-1 { animation: radar 2s ease-out infinite; }
+              .radar-ring-2 { animation: radar 2s ease-out infinite 0.4s; }
+              .radar-ring-3 { animation: radar 2s ease-out infinite 0.8s; }
+            `}} />
             {/* Floating Status Bar */}
             <div className="fixed top-8 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md z-40">
                 <ShieldCheck size={12} className="text-emerald-400" />
@@ -286,15 +303,42 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
 
             {/* Main Stage (Remote Participants) */}
             <div className="relative flex-1 p-4 h-full flex items-center justify-center z-10">
-                {callType === 'audio' ? (
+                {(() => {
+                    const hasRemoteVideo = remoteVideoTracks.length > 0;
+                    if (hasRemoteVideo) {
+                        // Video call UI (even if started as audio, show when remote video is present)
+                        return (
+                            <div className={`grid gap-4 w-full h-full ${remoteVideoTracks.length === 1 ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3'}`}>
+                                {remoteVideoTracks.map(track => (
+                                    <div key={track.participant.identity} className="relative rounded-[2rem] border border-white/10 shadow-2xl overflow-hidden bg-black/40">
+                                        <VideoTrack trackRef={track} className="w-full h-full object-cover" />
+                                        <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded text-xs text-white/90 font-light tracking-wide">
+                                            {track.participant.name || track.participant.identity}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    }
+                    // Audio-first UI
+                    return (
                     // Audio call UI - show participant avatars/names and render audio tracks
                     <div className="flex flex-col items-center justify-center text-white/90 font-light tracking-wide">
                         {remoteParticipants.length === 0 ? (
                             <>
-                                <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-4">
-                                    <span className="text-4xl">...</span>
+                                <div className="relative w-24 h-24 mx-auto mb-3 translate-y-1">
+                                    <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ring-1" />
+                                    <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ring-2" />
+                                    <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ring-3" />
+                                    <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-indigo-600/40 to-purple-600/40 p-1 shadow-lg shadow-indigo-500/20">
+                                        <div className="w-full h-full rounded-full bg-[#020205] flex items-center justify-center">
+                                            <span className="text-4xl">...</span>
+                                        </div>
+                                    </div>
                                 </div>
-                                <p className="text-white/60">Waiting for others to join...</p>
+                                <p className="text-white/60">
+                                    {roomType === 'direct' ? 'Connecting...' : 'Waiting for others to join...'}
+                                </p>
                             </>
                         ) : (
                             <div className="flex flex-col items-center gap-4">
@@ -306,9 +350,15 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
                                     
                                     return (
                                         <div key={participant.identity} className="flex flex-col items-center gap-2">
-                                            <div className="w-32 h-32 rounded-full bg-gradient-to-br from-indigo-600/40 to-purple-600/40 p-1 shadow-lg shadow-indigo-500/20">
-                                                <div className="w-full h-full rounded-full bg-[#020205] flex items-center justify-center text-4xl font-light tracking-wide text-white uppercase">
-                                                    {(participant.name || participant.identity).charAt(0)}
+                                            <div className="relative w-28 h-28 mx-auto translate-y-1">
+                                                {/* Concentric radar rings (match other call screens) */}
+                                                <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ring-1" />
+                                                <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ring-2" />
+                                                <div className="absolute inset-0 border border-indigo-500/30 rounded-full radar-ring-3" />
+                                                <div className="relative w-28 h-28 rounded-full bg-gradient-to-br from-indigo-600/40 to-purple-600/40 p-1 shadow-lg shadow-indigo-500/20">
+                                                    <div className="w-full h-full rounded-full bg-[#020205] flex items-center justify-center text-4xl font-light tracking-wide text-white uppercase">
+                                                        {(participant.name || participant.identity).charAt(0)}
+                                                    </div>
                                                 </div>
                                             </div>
                                             <p className="text-white/90 font-light tracking-wide">{participant.name || participant.identity}</p>
@@ -318,32 +368,11 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
                             </div>
                         )}
                     </div>
-                ) : (
-                    // Video call UI
-                    remoteVideoTracks.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center text-white/60 font-light tracking-wide animate-pulse">
-                            <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-4">
-                                <span className="text-4xl">...</span>
-                            </div>
-                            <p>Waiting for others to join...</p>
-                        </div>
-                    ) : (
-                        <div className={`grid gap-4 w-full h-full ${remoteVideoTracks.length === 1 ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3'}`}>
-                            {remoteVideoTracks.map(track => (
-                                <div key={track.participant.identity} className="relative rounded-[2rem] border border-white/10 shadow-2xl overflow-hidden bg-black/40">
-                                    <VideoTrack trackRef={track} className="w-full h-full object-cover" />
-                                    <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded text-xs text-white/90 font-light tracking-wide">
-                                        {track.participant.name || track.participant.identity}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )
-                )}
+                )} )()}
             </div>
 
-            {/* Floating Local Video - Only for video calls */}
-            {callType === 'video' && !isVideoOff && <FloatingLocalVideo />}
+            {/* Floating Local Video - show whenever camera is enabled */}
+            {!isVideoOff && <FloatingLocalVideo />}
 
             {/* Floating Control Capsule */}
             <div className="fixed bottom-6 md:bottom-8 left-1/2 -translate-x-1/2 w-fit px-6 py-3 rounded-full bg-white/[0.03] border border-white/10 backdrop-blur-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-4 md:gap-8 z-[100]">
@@ -359,19 +388,17 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
                     )}
                 </button>
 
-                {/* Video Toggle Button - Only for video calls */}
-                {callType === 'video' && (
-                    <button 
-                        onClick={toggleVideo} 
-                        className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-white/5 border border-white/10 transition-all hover:scale-110 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] ${isVideoOff ? 'bg-red-500/20 border-red-500/30' : ''}`}
-                    >
-                        {isVideoOff ? (
-                            <VideoOff size={18} className="text-red-400" />
-                        ) : (
-                            <Video size={18} className="text-white/90" />
-                        )}
-                    </button>
-                )}
+                {/* Video Toggle Button - Always available so users can enable video mid-call */}
+                <button 
+                    onClick={toggleVideo} 
+                    className={`w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-white/5 border border-white/10 transition-all hover:scale-110 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] ${isVideoOff ? 'bg-red-500/20 border-red-500/30' : ''}`}
+                >
+                    {isVideoOff ? (
+                        <VideoOff size={18} className="text-red-400" />
+                    ) : (
+                        <Video size={18} className="text-white/90" />
+                    )}
+                </button>
 
                 {/* End Call Button */}
                 <button 

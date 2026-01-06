@@ -26,13 +26,25 @@ export async function sendMessageAction(
   }
 ) {
   try {
+    // Validate required environment variables
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
+      console.error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable');
+      return { success: false, error: 'Server configuration error: Supabase URL not configured' };
+    }
+    
+    if (!supabaseServiceKey || supabaseServiceKey === 'placeholder-key') {
+      console.error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
+      return { success: false, error: 'Server configuration error: Supabase service role key not configured' };
+    }
+
     const openai = new OpenAI({ 
         apiKey: process.env.OPENAI_API_KEY || 'placeholder-key',
         dangerouslyAllowBrowser: true
     });
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-key';
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const livekitHost = process.env.NEXT_PUBLIC_LIVEKIT_URL || 'wss://placeholder.livekit.cloud';
@@ -164,33 +176,34 @@ export async function sendMessageAction(
             }
 
             // Ensure all participants are room members (use service role to bypass RLS)
-            const supabaseService = createClient(
-                process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
-                process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-key'
-            );
+            if (!supabaseUrl || !supabaseServiceKey) {
+              console.error('Cannot ensure room membership: Supabase credentials missing');
+              // Continue without adding members - message was already saved
+            } else {
+              const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
 
-            const existingMemberIds = members?.map(m => m.profile_id) || [];
-            const missingMembers = participantIds.filter(id => !existingMemberIds.includes(id));
+              const existingMemberIds = members?.map(m => m.profile_id) || [];
+              const missingMembers = participantIds.filter(id => !existingMemberIds.includes(id));
 
-            if (missingMembers.length > 0) {
-                // Add missing members using service role
-                await supabaseService
-                    .from('room_members')
-                    .insert(missingMembers.map(profile_id => ({ room_id: roomId, profile_id })))
-                    .select();
-            }
+              if (missingMembers.length > 0) {
+                  // Add missing members using service role
+                  await supabaseService
+                      .from('room_members')
+                      .insert(missingMembers.map(profile_id => ({ room_id: roomId, profile_id })))
+                      .select();
+              }
 
-            // Get updated member list for notifications
-            const { data: allMembers } = await supabaseService
-                .from('room_members')
-                .select('profile_id')
-                .eq('room_id', roomId);
+              // Get updated member list for notifications
+              const { data: allMembers } = await supabaseService
+                  .from('room_members')
+                  .select('profile_id')
+                  .eq('room_id', roomId);
 
-            if (allMembers) {
-                // Get sender's profile for name
+              if (allMembers) {
+                // Get sender's profile for name and avatar
                 const { data: senderProfile } = await supabase
                     .from('profiles')
-                    .select('display_name')
+                    .select('display_name, avatar_url')
                     .eq('id', senderId)
                     .single();
 
@@ -240,6 +253,7 @@ export async function sendMessageAction(
                             content: {
                                 sender_name: senderName,
                                 preview: previewText,
+                                avatar_url: senderProfile?.avatar_url || undefined,
                             },
                             related_id: roomId
                         }));
@@ -262,6 +276,7 @@ export async function sendMessageAction(
                         });
                     }
                 }
+              }
             }
         } catch (notifError) {
             // Don't fail message send if notification creation fails
@@ -287,8 +302,19 @@ export async function getMessages(roomId: string) {
     }
 
     // Use service role client to bypass RLS recursion
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-key';
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
+      console.error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable');
+      return { success: false, error: 'Server configuration error: Supabase URL not configured' };
+    }
+    
+    if (!supabaseServiceKey || supabaseServiceKey === 'placeholder-key') {
+      console.error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
+      return { success: false, error: 'Server configuration error: Supabase service role key not configured' };
+    }
+    
     const serviceSupabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Ensure user is a member (ignore duplicate errors)
@@ -392,7 +418,21 @@ export async function getMessages(roomId: string) {
     // Filter out hidden messages
     const visibleMessages = messages.filter(msg => !hiddenMessageIds.includes(msg.id));
     
-    return { success: true, messages: visibleMessages };
+    // Also fetch call records for this room
+    const { data: callRecordsData, error: callRecordsError } = await serviceSupabase
+      .from('call_records')
+      .select('id, caller_id, receiver_id, call_type, status, started_at, ended_at, duration_seconds, created_at, caller:profiles!call_records_caller_id_fkey(display_name, email), receiver:profiles!call_records_receiver_id_fkey(display_name, email)')
+      .eq('room_id', roomId)
+      .order('created_at', { ascending: false })
+      .limit(100);
+    
+    if (callRecordsError) {
+      console.warn('Failed to load call records:', callRecordsError);
+    }
+    
+    const callRecords = callRecordsData || [];
+    
+    return { success: true, messages: visibleMessages, callRecords };
   } catch (error) {
     console.error('GetMessages Error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Failed to load messages';
@@ -410,8 +450,19 @@ export async function clearChatForUser(roomId: string) {
     }
 
     // Use service role client to bypass RLS
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-key';
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
+      console.error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable');
+      return { success: false, error: 'Server configuration error: Supabase URL not configured' };
+    }
+    
+    if (!supabaseServiceKey || supabaseServiceKey === 'placeholder-key') {
+      console.error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
+      return { success: false, error: 'Server configuration error: Supabase service role key not configured' };
+    }
+    
     const serviceSupabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Get all message IDs in this room

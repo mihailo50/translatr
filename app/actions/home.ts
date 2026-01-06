@@ -78,10 +78,35 @@ export async function getHomeData() {
     .single();
 
   // Use service role to bypass RLS for reliable room membership management
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-key';
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
+    console.error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable');
+    return {
+      user: {
+        name: profile?.display_name || user.email?.split('@')[0] || 'User',
+        avatar: profile?.avatar_url || null,
+      },
+      conversations: [],
+      stats: {
+        totalTranslations: 0,
+        activeMinutes: 0,
+        messagesSent: 0,
+      },
+    };
+  }
+  
   const { createClient: createServiceClient } = await import('@supabase/supabase-js');
-  const serviceSupabase = createServiceClient(supabaseUrl, supabaseServiceKey);
+  let serviceSupabase;
+  
+  if (!supabaseServiceKey || supabaseServiceKey === 'placeholder-key') {
+    console.error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
+    // Fall back to regular client (with RLS) instead of failing completely
+    serviceSupabase = createServiceClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '');
+  } else {
+    serviceSupabase = createServiceClient(supabaseUrl, supabaseServiceKey);
+  }
 
   // Get all rooms the user is a member of
   const { data: roomMemberships } = await supabase

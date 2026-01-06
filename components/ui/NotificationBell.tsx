@@ -280,15 +280,15 @@ export default function NotificationBell() {
         const notificationTime = new Date(newNotification.created_at).getTime();
         
         // If user entered the room before this notification was created, it's an old notification
-        // Don't play sound for it
+        // Don't process it - just delete it silently
         if (roomEntryTime && notificationTime < roomEntryTime) {
-          console.log('🔇 Skipping sound for old notification (created before user entered room)', {
+          console.log('🔇 Skipping old notification (created before user entered room)', {
             notificationId: newNotification.id,
             notificationTime: new Date(notificationTime).toISOString(),
             roomEntryTime: new Date(roomEntryTime).toISOString()
           });
           
-          // Still delete the notification since user is in the room
+          // Delete the old notification since user is in the room
           void (async () => {
             try {
               const { error } = await supabase
@@ -309,9 +309,36 @@ export default function NotificationBell() {
           
           return; // Don't process this notification further
         }
+        
+        // User is in the chatroom and this is a NEW notification (created after they entered)
+        // Delete the notification immediately since they're already viewing it
+        // The ChatRoom component will play the sound when the message arrives
+        console.log('🔇 User is in room - deleting notification (ChatRoom will handle sound)');
+        void (async () => {
+          try {
+            const { error } = await supabase
+              .from('notifications')
+              .delete()
+              .eq('id', newNotification.id)
+              .select();
+            
+            if (error) {
+              console.error('Failed to delete notification for user in room:', error);
+            } else {
+              console.log('✅ Deleted notification (user is in room)');
+            }
+          } catch (err) {
+            console.error('Error deleting notification:', err);
+          }
+        })();
+        
+        return; // Don't show notification or play sound - ChatRoom handles it
       }
       
-      // Play sound function - used in both cases (in room or not)
+      // User is NOT in the chatroom - show notification with sound
+      console.log('✅ Showing notification with sound (user not in room)');
+      
+      // Play sound function
       const playSound = () => {
         console.log('🎵 Attempting to play notification sound...', { unlocked: audioUnlockedRef.current });
         
@@ -410,62 +437,34 @@ export default function NotificationBell() {
         }
       };
       
-      // Always play sound when a notification is received
+      // Play sound for notification
       playSound();
       
-      // Only show notification/toast if user is NOT in the current room
-      if (!isInCurrentRoom) {
-        console.log('✅ Showing notification (user not in room)');
-        
-        // Update state
-        setNotifications((prev) => {
-          // Double-check for duplicates in state
-          if (prev.some(n => n.id === newNotification.id)) {
-            return prev;
-          }
-          return [newNotification, ...prev];
-        });
-        setUnreadCount((prev) => prev + 1);
+      // Update state
+      setNotifications((prev) => {
+        // Double-check for duplicates in state
+        if (prev.some(n => n.id === newNotification.id)) {
+          return prev;
+        }
+        return [newNotification, ...prev];
+      });
+      setUnreadCount((prev) => prev + 1);
 
-        // Show Toast
-        toast(
-            <div className="flex items-center gap-3">
-                <div className="p-2 bg-white/10 rounded-full">
-                    {getIcon(newNotification.type)}
-                </div>
-                <div>
-                    <p className="font-semibold text-sm text-white">{newNotification.content.sender_name || 'System'}</p>
-                    <p className="text-xs text-white/60 line-clamp-1">{newNotification.content.preview || 'New notification'}</p>
-                </div>
-            </div>,
-            {
-                style: { background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }
-            }
-        );
-      } else {
-        console.log('🔊 Playing sound only (user is in this room, deleting notification)');
-        
-        // User is in the chatroom - delete the notification immediately since they're already viewing it
-        // This prevents the notification from appearing later
-        // Use void to explicitly ignore the promise (fire and forget)
-        void (async () => {
-          try {
-            const { error } = await supabase
-              .from('notifications')
-              .delete()
-              .eq('id', newNotification.id)
-              .select();
-            
-            if (error) {
-              console.error('Failed to delete notification for user in room:', error);
-            } else {
-              console.log('✅ Deleted notification (user is in room)');
-            }
-          } catch (err) {
-            console.error('Error deleting notification:', err);
+      // Show Toast notification
+      toast(
+          <div className="flex items-center gap-3">
+              <div className="p-2 bg-white/10 rounded-full">
+                  {getIcon(newNotification.type)}
+              </div>
+              <div>
+                  <p className="font-semibold text-sm text-white">{newNotification.content.sender_name || 'System'}</p>
+                  <p className="text-xs text-white/60 line-clamp-1">{newNotification.content.preview || 'New notification'}</p>
+              </div>
+          </div>,
+          {
+              style: { background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }
           }
-        })();
-      }
+      );
     };
 
     const setupNotifications = async () => {

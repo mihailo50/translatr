@@ -122,13 +122,56 @@ CREATE INDEX IF NOT EXISTS idx_messages_room_created ON messages(room_id, create
 CREATE INDEX IF NOT EXISTS idx_messages_original_text ON messages USING gin(to_tsvector('english', original_text));
 
 -- =====================================================
+-- 4.5. CALL RECORDS TABLE
+-- =====================================================
+-- Stores call history records in chatrooms
+CREATE TABLE IF NOT EXISTS call_records (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    room_id TEXT NOT NULL,
+    caller_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    receiver_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    call_type TEXT NOT NULL CHECK (call_type IN ('audio', 'video')),
+    status TEXT NOT NULL CHECK (status IN ('initiated', 'accepted', 'declined', 'missed', 'ended')),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ended_at TIMESTAMPTZ,
+    duration_seconds INTEGER, -- Duration in seconds (null if not accepted/ended)
+    call_id TEXT, -- Optional: LiveKit call ID
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT call_records_caller_fkey FOREIGN KEY (caller_id) REFERENCES profiles(id) ON DELETE CASCADE,
+    CONSTRAINT call_records_receiver_fkey FOREIGN KEY (receiver_id) REFERENCES profiles(id) ON DELETE SET NULL
+);
+
+-- Indexes for call_records
+CREATE INDEX IF NOT EXISTS idx_call_records_room_id ON call_records(room_id);
+CREATE INDEX IF NOT EXISTS idx_call_records_caller_id ON call_records(caller_id);
+CREATE INDEX IF NOT EXISTS idx_call_records_receiver_id ON call_records(receiver_id);
+CREATE INDEX IF NOT EXISTS idx_call_records_room_created ON call_records(room_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_call_records_call_id ON call_records(call_id) WHERE call_id IS NOT NULL;
+
+-- RLS Policies for call_records
+ALTER TABLE call_records ENABLE ROW LEVEL SECURITY;
+
+-- Users can read call records for rooms they're in
+DROP POLICY IF EXISTS "Users can read call records in their rooms" ON call_records;
+CREATE POLICY "Users can read call records in their rooms"
+    ON call_records FOR SELECT
+    USING (
+        public.is_room_member(call_records.room_id, auth.uid())
+        OR caller_id = auth.uid()
+        OR receiver_id = auth.uid()
+    );
+
+-- Service role can insert/update call records (via server actions)
+-- Note: Server actions use service role, so they bypass RLS
+
+-- =====================================================
 -- 5. NOTIFICATIONS TABLE
 -- =====================================================
 -- Stores user notifications
 CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     recipient_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-    type TEXT NOT NULL CHECK (type IN ('message', 'contact_request', 'system')),
+    type TEXT NOT NULL CHECK (type IN ('message', 'contact_request', 'system', 'call')),
     content JSONB NOT NULL DEFAULT '{}'::jsonb, -- Stores: { sender_name, preview }
     is_read BOOLEAN NOT NULL DEFAULT FALSE,
     read_at TIMESTAMPTZ, -- Timestamp when notification was marked as read
@@ -168,6 +211,21 @@ EXCEPTION
     WHEN OTHERS THEN
         -- Other errors, log but don't fail
         RAISE NOTICE 'Could not add notifications to realtime publication: %', SQLERRM;
+END $$;
+
+-- Enable real-time replication for messages table
+-- This allows real-time message subscriptions to work
+DO $$ 
+BEGIN
+    -- Try to add table to publication, ignore if already exists
+    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE messages';
+EXCEPTION
+    WHEN duplicate_object THEN
+        -- Table already in publication, that's fine
+        NULL;
+    WHEN OTHERS THEN
+        -- Other errors, log but don't fail
+        RAISE NOTICE 'Could not add messages to realtime publication: %', SQLERRM;
 END $$;
 
 -- =====================================================
@@ -255,16 +313,33 @@ CREATE POLICY "Users can delete own contacts"
 -- ROOM_MEMBERS POLICIES
 -- =====================================================
 
--- Users can read room members for rooms they're in
+-- Helper: check if a user is a member of a room.
+-- IMPORTANT: This must be SECURITY DEFINER to avoid infinite recursion when used in RLS,
+-- because querying room_members inside a room_members policy otherwise re-triggers itself.
+-- NOTE: Do NOT drop this function during migrations because RLS policies can depend on it.
+CREATE OR REPLACE FUNCTION public.is_room_member(p_room_id TEXT, p_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.room_members rm
+    WHERE rm.room_id = p_room_id
+      AND rm.profile_id = p_user_id
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_room_member(TEXT, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_room_member(TEXT, UUID) TO authenticated;
+
+-- Users can read room members for rooms they're in (uses SECURITY DEFINER helper to avoid recursion)
 DROP POLICY IF EXISTS "Users can read room members" ON room_members;
 CREATE POLICY "Users can read room members"
     ON room_members FOR SELECT
     USING (
-        EXISTS (
-            SELECT 1 FROM room_members rm
-            WHERE rm.room_id = room_members.room_id
-            AND rm.profile_id = auth.uid()
-        )
+        public.is_room_member(room_members.room_id, auth.uid())
     );
 
 -- Users can insert themselves into rooms
@@ -288,11 +363,7 @@ DROP POLICY IF EXISTS "Users can read messages in their rooms" ON messages;
 CREATE POLICY "Users can read messages in their rooms"
     ON messages FOR SELECT
     USING (
-        EXISTS (
-            SELECT 1 FROM room_members rm
-            WHERE rm.room_id = messages.room_id
-            AND rm.profile_id = auth.uid()
-        )
+        public.is_room_member(messages.room_id, auth.uid())
     );
 
 -- Users can insert messages into rooms they're members of
@@ -301,11 +372,7 @@ CREATE POLICY "Users can insert messages in their rooms"
     ON messages FOR INSERT
     WITH CHECK (
         auth.uid() = sender_id
-        AND EXISTS (
-            SELECT 1 FROM room_members rm
-            WHERE rm.room_id = messages.room_id
-            AND rm.profile_id = auth.uid()
-        )
+        AND public.is_room_member(messages.room_id, auth.uid())
     );
 
 -- Users can update their own messages (for editing/deleting)
@@ -450,18 +517,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to check if user is a member of a room (bypasses RLS for storage policies)
--- This prevents infinite recursion when storage policies check room membership
-CREATE OR REPLACE FUNCTION public.is_room_member(p_room_id TEXT, p_user_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-    -- Use SECURITY DEFINER to bypass RLS and check room membership directly
-    RETURN EXISTS (
-        SELECT 1 FROM room_members
-        WHERE room_id = p_room_id
-        AND profile_id = p_user_id
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- NOTE: Already defined above as SECURITY DEFINER `public.is_room_member(text, uuid)`.
 
 -- =====================================================
 -- 8. STORAGE BUCKETS & POLICIES

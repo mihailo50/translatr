@@ -58,6 +58,30 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
     <>
       {/* Custom Animations */}
       <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes caller-pulse {
+          0% {
+            transform: scale(1);
+            box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.6);
+          }
+          70% {
+            transform: scale(1.02);
+            box-shadow: 0 0 0 18px rgba(99, 102, 241, 0);
+          }
+          100% {
+            transform: scale(1);
+            box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+          }
+        }
+        @keyframes glow {
+          0%, 100% { opacity: 0.35; filter: blur(80px); }
+          50% { opacity: 0.6; filter: blur(90px); }
+        }
+        .caller-pulse {
+          animation: caller-pulse 1.8s ease-out infinite;
+        }
+        .caller-glow {
+          animation: glow 3s ease-in-out infinite;
+        }
         @keyframes radar-ripple {
           0% {
             transform: scale(1);
@@ -100,7 +124,7 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
         <div className="w-full max-w-sm flex flex-col items-center relative">
           
           {/* Ambient Background Glow */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/20 rounded-full blur-[80px] pointer-events-none" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/20 rounded-full blur-[80px] pointer-events-none caller-glow" />
 
           {/* User Info */}
           <div className="text-center z-10 relative">
@@ -121,7 +145,7 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
                 </>
               )}
               {/* Avatar Circle */}
-              <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-indigo-600/40 to-purple-600/40 p-1 shadow-lg shadow-indigo-500/30">
+              <div className={`relative w-24 h-24 rounded-full bg-gradient-to-br from-indigo-600/40 to-purple-600/40 p-1 shadow-lg shadow-indigo-500/30 ${isSender ? 'caller-pulse' : ''}`}>
                 <div className="w-full h-full rounded-full bg-[#020205] flex items-center justify-center text-3xl font-bold text-white uppercase">
                   {callerName.charAt(0)}
                 </div>
@@ -133,9 +157,11 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
             
             {/* Status */}
             {isSender ? (
-              <p className="text-xs uppercase tracking-[0.3em] text-indigo-400 mt-1 font-bold">
-                CALLING...
-              </p>
+              <div className="mt-1">
+                <p className="text-xs uppercase tracking-[0.3em] text-indigo-300/90 font-bold">
+                  CALLING<span className="inline-block animate-pulse">...</span>
+                </p>
+              </div>
             ) : (
               <p className="text-xs uppercase tracking-[0.2em] text-indigo-400 mt-1 font-medium">
                 {isCallActive ? 'CONNECTED' : `INCOMING ${callType.toUpperCase()} CALL`}

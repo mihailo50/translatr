@@ -293,6 +293,13 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         const { getMessages } = await import('../actions/chat');
         const result = await getMessages(roomId);
         
+        // Store call records if available (will be passed to MessageList)
+        if (result.success && result.callRecords) {
+          // Call records are stored separately and will be merged in MessageList
+          // We don't need to do anything here, just log
+          console.log(`Loaded ${result.callRecords.length} call records for room ${roomId}`);
+        }
+        
         if (result.success && result.messages) {
           console.log(`Processing ${result.messages.length} messages for room ${roomId}`);
           

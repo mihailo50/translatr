@@ -64,49 +64,99 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
   // Track room IDs to avoid unnecessary re-subscriptions
   const roomIdsRef = useRef<string>('');
   const cleanupRealtimeRef = useRef<(() => void) | undefined>(undefined);
+  const subscribedRoomsRef = useRef<Set<string>>(new Set());
   
   // Set up real-time subscription for new messages
   useEffect(() => {
+    let mounted = true;
+    const channels: any[] = [];
+    
     const setupRealtime = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || !mounted) return;
 
-      // Get all room IDs the user is involved in
-      const roomIds = conversations.map(c => c.id);
-      const roomIdsStr = roomIds.join(',');
+      // Get all room IDs the user is involved in (from current conversations)
+      const currentRoomIds = new Set(conversations.map(c => c.id));
+      
+      // Use conversations list instead of querying room_members (avoids RLS recursion)
+      // Also extract room IDs from direct message room IDs
+      const allRoomIds = new Set<string>(currentRoomIds);
+      
+      // Extract room IDs from direct message conversations
+      conversations.forEach(conv => {
+        if (conv.id.startsWith('direct_')) {
+          allRoomIds.add(conv.id);
+        }
+      });
+      
+      const allRoomIdsArray = Array.from(allRoomIds);
+      const roomIdsStr = allRoomIdsArray.sort().join(',');
       
       // Only set up subscriptions if room IDs have changed
-      if (roomIdsRef.current === roomIdsStr) {
+      if (roomIdsRef.current === roomIdsStr && roomIdsStr !== '') {
+        console.log('Room IDs unchanged, skipping subscription setup');
         return;
       }
       roomIdsRef.current = roomIdsStr;
-      
-      if (roomIds.length === 0) {
-        console.log('No conversations to subscribe to');
-        return;
-      }
 
-      console.log('Setting up real-time subscriptions for rooms:', roomIds);
+      console.log('🔔 Setting up real-time subscriptions for rooms:', allRoomIdsArray);
 
-      // Subscribe to new messages in all user's rooms
-      // Create separate subscriptions for each room (Supabase doesn't support IN filter for real-time)
-      const channels: any[] = [];
+      // Clear previous subscriptions
+      subscribedRoomsRef.current.clear();
       
-      roomIds.forEach((roomId) => {
-        const channel = supabase
-          .channel(`home-messages-${roomId}`)
-          .on(
-            'postgres_changes',
-            {
-              event: 'INSERT',
-              schema: 'public',
-              table: 'messages',
-              filter: `room_id=eq.${roomId}`,
-            },
-            async (payload) => {
-              console.log('New message received in real-time:', payload);
-              const newMessage = payload.new as any;
-              const messageRoomId = newMessage.room_id;
+      // Store user ID for use in callback
+      const userId = user.id;
+      
+      // Subscribe to ALL messages and filter client-side (more reliable)
+      // This ensures we catch messages even if room membership changes
+      const globalChannel = supabase
+        .channel(`home-messages-global-${Date.now()}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+          },
+          async (payload) => {
+            if (!mounted) return;
+            
+            const newMessage = payload.new as any;
+            const messageRoomId = newMessage.room_id;
+            
+            // Check if this message is for a room the user is involved in
+            // For direct messages, check if room ID contains user ID
+            const isDirectRoom = messageRoomId.startsWith('direct_');
+            let isUserInRoom = false;
+            
+            if (isDirectRoom) {
+              const parts = messageRoomId.split('_');
+              isUserInRoom = parts.length === 3 && (parts[1] === userId || parts[2] === userId);
+            }
+            
+            // If not a direct room, assume user is involved if message was received
+            // (We can't query room_members due to RLS recursion, so we'll be permissive)
+            // The server-side action ensures users are added to room_members when messages are sent
+            if (!isUserInRoom && !isDirectRoom) {
+              // For non-direct rooms, we'll process the message anyway
+              // The worst case is we show a conversation the user shouldn't see, but they can't access it due to RLS
+              // This is better than missing legitimate messages
+              console.log(`⚠️ Processing message for non-direct room ${messageRoomId} (assuming user is member)`);
+              isUserInRoom = true;
+            }
+            
+            if (!isUserInRoom) {
+              console.log(`⏭️ Ignoring message for room ${messageRoomId} - user not involved`);
+              return; // User is not involved in this room
+            }
+            
+            console.log('🔔 New message received in real-time for home page:', {
+              roomId: messageRoomId,
+              senderId: newMessage.sender_id,
+              userId: userId,
+              messageId: newMessage.id,
+              timestamp: newMessage.created_at
+            });
 
               // Get sender profile
               const { data: senderProfile } = await supabase
@@ -145,7 +195,7 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
 
               // Format sender name
               let senderName = 'You';
-              if (newMessage.sender_id !== user.id) {
+              if (newMessage.sender_id !== userId) {
                 senderName = senderProfile?.display_name || senderProfile?.email?.split('@')[0] || 'Someone';
               }
 
@@ -168,44 +218,123 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
                 lastMessageTime = messageDate.toLocaleDateString();
               }
 
-              // Update the conversation in the list
+              // Update the conversation in the list or add it if it doesn't exist
               setConversations((prev) => {
-                const updated = prev.map((conv) => {
-                  if (conv.id === messageRoomId) {
-                    const newTimestamp = messageDate.getTime();
-                    const existingTimestamp = (conv as any)._lastMessageTimestamp || 0;
+                const existingConv = prev.find(conv => conv.id === messageRoomId);
+                const newTimestamp = messageDate.getTime();
+                
+                if (existingConv) {
+                  // Update existing conversation - always update if timestamp is newer or equal
+                  const existingTimestamp = (existingConv as any)._lastMessageTimestamp || 0;
+                  
+                  // Always update if timestamp is newer or equal (to ensure UI stays in sync)
+                  if (newTimestamp >= existingTimestamp) {
+                    console.log(`✅ Updating conversation ${messageRoomId} with new message:`, {
+                      old: existingConv.lastMessage,
+                      new: `${senderName}: ${messageText}`,
+                      oldTimestamp: existingTimestamp,
+                      newTimestamp: newTimestamp
+                    });
                     
-                    // Only update if this message is newer
-                    if (newTimestamp >= existingTimestamp) {
-                      console.log(`Updating conversation ${messageRoomId} with new message:`, {
-                        old: conv.lastMessage,
-                        new: `${senderName}: ${messageText}`,
-                        timestamp: newTimestamp
-                      });
-                      
-                      return {
-                        ...conv,
-                        lastMessage: `${senderName}: ${messageText}`,
-                        time: lastMessageTime,
-                        _lastMessageTimestamp: newTimestamp,
-                      };
-                    }
-                  }
-                  return conv;
-                });
+                    const updated = prev.map((conv) => {
+                      if (conv.id === messageRoomId) {
+                        return {
+                          ...conv,
+                          lastMessage: `${senderName}: ${messageText}`,
+                          time: lastMessageTime,
+                          _lastMessageTimestamp: newTimestamp,
+                        };
+                      }
+                      return conv;
+                    });
 
-                // Sort by timestamp (most recent first)
-                return updated.sort((a, b) => {
-                  const aTime = (a as any)._lastMessageTimestamp || 0;
-                  const bTime = (b as any)._lastMessageTimestamp || 0;
-                  return bTime - aTime; // Descending order (newest first)
-                });
+                    // Sort by timestamp (most recent first)
+                    return updated.sort((a, b) => {
+                      const aTime = (a as any)._lastMessageTimestamp || 0;
+                      const bTime = (b as any)._lastMessageTimestamp || 0;
+                      return bTime - aTime; // Descending order (newest first)
+                    });
+                  } else {
+                    console.log(`⏭️ Skipping older message for conversation ${messageRoomId}`, {
+                      existingTimestamp,
+                      newTimestamp
+                    });
+                  }
+                  return prev; // No update needed
+                } else {
+                  // Add new conversation - this happens when a message arrives for a deleted conversation
+                  console.log(`Adding new conversation ${messageRoomId} from real-time message`);
+                  
+                  // Get sender's avatar
+                  const senderAvatar = senderProfile?.avatar_url || `https://picsum.photos/seed/${newMessage.sender_id}/50/50`;
+                  
+                  const newConv: Conversation & { _lastMessageTimestamp?: number } = {
+                    id: messageRoomId,
+                    name: senderName,
+                    type: 'direct', // Default to direct, could be enhanced to detect group
+                    lastMessage: `${senderName}: ${messageText}`,
+                    time: lastMessageTime,
+                    avatar: senderAvatar,
+                    unread: 0,
+                    _lastMessageTimestamp: newTimestamp,
+                  };
+                  
+                  // Add to list and sort
+                  const updated = [...prev, newConv].sort((a, b) => {
+                    const aTime = (a as any)._lastMessageTimestamp || 0;
+                    const bTime = (b as any)._lastMessageTimestamp || 0;
+                    return bTime - aTime; // Descending order (newest first)
+                  });
+                  
+                  return updated;
+                }
               });
             }
             )
-            .subscribe();
+          .subscribe((status, err) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('✅ Subscribed to ALL messages for real-time updates');
+            } else if (status === 'CHANNEL_ERROR' || status === 'SUBSCRIPTION_ERROR') {
+              console.error('❌ Failed to subscribe to messages:', {
+                status,
+                error: err || 'Unknown error',
+                errorType: err?.constructor?.name,
+                errorMessage: err?.message || 'No error message provided'
+              });
+              console.error('💡 Make sure real-time replication is enabled for the messages table in Supabase');
+              console.error('💡 Check Supabase dashboard: Database > Replication > Enable for "messages" table');
+            } else if (status === 'TIMED_OUT') {
+              console.warn('⏱️ Message subscription timed out, will retry...');
+            } else {
+              console.log('📡 Message subscription status:', status, err ? `(error: ${err})` : '');
+            }
+          });
+      
+      channels.push(globalChannel);
+      
+      // Also set up per-room subscriptions as backup (more targeted)
+      allRoomIdsArray.forEach((roomId) => {
+        subscribedRoomsRef.current.add(roomId);
         
-        channels.push(channel);
+        const roomChannel = supabase
+          .channel(`home-messages-${roomId}-${Date.now()}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'messages',
+              filter: `room_id=eq.${roomId}`,
+            },
+            async (payload) => {
+              if (!mounted) return;
+              console.log(`🔔 Room-specific subscription triggered for ${roomId}:`, payload);
+              // The global subscription will handle the update, but this confirms the subscription is working
+            }
+          )
+          .subscribe();
+        
+        channels.push(roomChannel);
       });
 
       return () => {
@@ -213,28 +342,155 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
         channels.forEach((channel) => {
           supabase.removeChannel(channel);
         });
+        // Clear subscribed rooms
+        subscribedRoomsRef.current.clear();
       };
     };
 
-    const cleanupRealtime =     setupRealtime().then((cleanup) => {
+    const cleanupRealtime = setupRealtime().then((cleanup) => {
       cleanupRealtimeRef.current = cleanup;
     });
 
-    // Periodic refresh removed - real-time subscriptions handle updates
-    // Client-side queries can hit RLS recursion issues, so we rely on:
-    // 1. Real-time subscriptions (already set up above)
-    // 2. Server-side data fetching (getHomeData) on page load
-    // If you need periodic refresh, use a server action instead
+    // Polling fallback: Periodically refresh conversations to catch any missed updates
+    // This ensures conversations update even if real-time subscriptions fail
+    // Reduced to 2 seconds for faster updates
+    const pollInterval = setInterval(async () => {
+      if (!mounted) return;
+      try {
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        if (!currentUser) return;
+
+        // Use current conversations to get room IDs (avoids RLS recursion on room_members)
+        const roomIds = conversations.map(c => c.id);
+        
+        if (roomIds.length === 0) return;
+        
+        // Get latest message for each room (simplified query to avoid RLS issues)
+        const latestMessagesPromises = roomIds.map(async (roomId) => {
+          const { data: messages } = await supabase
+            .from('messages')
+            .select('id, room_id, sender_id, original_text, metadata, created_at')
+            .eq('room_id', roomId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (!messages) return null;
+          
+          // Get sender profile separately to avoid join issues
+          const { data: senderProfile } = await supabase
+            .from('profiles')
+            .select('display_name, avatar_url, email')
+            .eq('id', messages.sender_id)
+            .maybeSingle();
+          
+          return { 
+            roomId, 
+            message: {
+              ...messages,
+              sender: senderProfile
+            }
+          };
+        });
+
+        const latestMessages = (await Promise.all(latestMessagesPromises)).filter(Boolean) as Array<{ roomId: string; message: any }>;
+
+        // Update conversations with latest messages
+        setConversations((prev) => {
+          let updated = [...prev];
+          let hasChanges = false;
+
+          latestMessages.forEach(({ roomId, message }) => {
+            const existingConv = updated.find(conv => conv.id === roomId);
+            const messageTimestamp = new Date(message.created_at).getTime();
+            const existingTimestamp = (existingConv as any)?._lastMessageTimestamp || 0;
+
+            // Only update if this message is newer
+            if (messageTimestamp > existingTimestamp) {
+              hasChanges = true;
+              
+              // Decrypt and format message
+              let messageText = message.original_text || '';
+              const metadata = message.metadata as any;
+              
+              if (metadata?.encrypted && metadata?.iv && messageText) {
+                messageText = '🔒 Encrypted message';
+              } else if (!messageText || messageText.trim() === '') {
+                if (metadata?.attachment_meta) {
+                  const attachment = metadata.attachment_meta;
+                  messageText = attachment.type === 'image' 
+                    ? (attachment.viewOnce ? '📸 View once photo' : '📷 Photo')
+                    : `📎 ${attachment.name || 'File'}`;
+                } else {
+                  messageText = 'Message';
+                }
+              }
+
+              if (messageText.length > 50) {
+                messageText = messageText.substring(0, 50) + '...';
+              }
+
+              const senderName = message.sender_id === currentUser.id 
+                ? 'You' 
+                : (message.sender?.display_name || message.sender?.email?.split('@')[0] || 'Someone');
+
+              const messageDate = new Date(message.created_at);
+              const now = new Date();
+              const diffMs = now.getTime() - messageDate.getTime();
+              const diffMins = Math.floor(diffMs / 60000);
+              const diffHours = Math.floor(diffMs / 3600000);
+              const diffDays = Math.floor(diffMs / 86400000);
+
+              let lastMessageTime = 'Just now';
+              if (diffMins >= 1 && diffMins < 60) {
+                lastMessageTime = `${diffMins}m ago`;
+              } else if (diffHours < 24) {
+                lastMessageTime = `${diffHours}h ago`;
+              } else if (diffDays < 7) {
+                lastMessageTime = `${diffDays}d ago`;
+              } else {
+                lastMessageTime = messageDate.toLocaleDateString();
+              }
+
+              if (existingConv) {
+                updated = updated.map(conv => 
+                  conv.id === roomId 
+                    ? { ...conv, lastMessage: `${senderName}: ${messageText}`, time: lastMessageTime, _lastMessageTimestamp: messageTimestamp }
+                    : conv
+                );
+              }
+            }
+          });
+
+          if (hasChanges) {
+            // Sort by timestamp
+            updated.sort((a, b) => {
+              const aTime = (a as any)._lastMessageTimestamp || 0;
+              const bTime = (b as any)._lastMessageTimestamp || 0;
+              return bTime - aTime;
+            });
+            return updated;
+          }
+
+          return prev;
+        });
+      } catch (error) {
+        console.error('Error in conversation polling:', error);
+      }
+    }, 2000); // Poll every 2 seconds as fallback for faster updates
 
     return () => {
+      mounted = false;
       // Clean up real-time subscriptions
       if (cleanupRealtimeRef.current) {
         cleanupRealtimeRef.current();
       }
       roomIdsRef.current = ''; // Reset on cleanup
       cleanupRealtimeRef.current = undefined;
+      subscribedRoomsRef.current.clear();
+      clearInterval(pollInterval); // Clear polling interval
     };
-  }, [conversations.map(c => c.id).join(','), supabase, decryptMessageClient]);
+  }, [conversations.map(c => c.id).join(','), supabase, decryptMessageClient]); // Re-subscribe when room IDs change
 
   const displayedConversations = showAll ? conversations : conversations.slice(0, 3);
 

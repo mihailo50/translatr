@@ -1,16 +1,46 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { Lock } from 'lucide-react';
 import MessageBubble from './MessageBubble';
+import CallRecordBubble from './CallRecordBubble';
 import { ChatMessage } from '../../hooks/useLiveKitChat';
+
+interface CallRecord {
+  id: string;
+  caller_id: string;
+  receiver_id: string | null;
+  call_type: 'audio' | 'video';
+  status: 'initiated' | 'accepted' | 'declined' | 'missed' | 'ended';
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number | null;
+  created_at: string;
+  caller?: {
+    display_name?: string | null;
+    email?: string | null;
+  } | null;
+  receiver?: {
+    display_name?: string | null;
+    email?: string | null;
+  } | null;
+}
 
 interface MessageListProps {
   messages: ChatMessage[];
+  callRecords?: CallRecord[];
+  currentUserId?: string;
   userPreferredLanguage: string;
   isTranslationEnabled: boolean;
   isNotificationsOpen?: boolean;
 }
 
-const MessageList: React.FC<MessageListProps> = ({ messages, userPreferredLanguage, isTranslationEnabled, isNotificationsOpen = false }) => {
+const MessageList: React.FC<MessageListProps> = ({ 
+  messages, 
+  callRecords = [], 
+  currentUserId = '',
+  userPreferredLanguage, 
+  isTranslationEnabled, 
+  isNotificationsOpen = false 
+}) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isMounted, setIsMounted] = useState(false);
 
@@ -22,9 +52,35 @@ const MessageList: React.FC<MessageListProps> = ({ messages, userPreferredLangua
     setIsMounted(true);
   }, []);
 
+  // Merge messages and call records, sort chronologically
+  const mergedItems = useMemo(() => {
+    const items: Array<{ type: 'message' | 'call'; data: ChatMessage | CallRecord; timestamp: number }> = [];
+    
+    // Add messages
+    messages.forEach(msg => {
+      items.push({
+        type: 'message',
+        data: msg,
+        timestamp: msg.timestamp
+      });
+    });
+    
+    // Add call records
+    callRecords.forEach(record => {
+      items.push({
+        type: 'call',
+        data: record,
+        timestamp: new Date(record.created_at).getTime()
+      });
+    });
+    
+    // Sort by timestamp
+    return items.sort((a, b) => a.timestamp - b.timestamp);
+  }, [messages, callRecords]);
+
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [mergedItems]);
 
   return (
     <div 
@@ -53,17 +109,30 @@ const MessageList: React.FC<MessageListProps> = ({ messages, userPreferredLangua
                 </div>
             )}
 
-            {messages.map((msg) => (
-               <MessageBubble 
-                  key={msg.id}
-                  message={{
-                      ...msg,
-                      original_language: msg.lang
-                  }}
-                  userPreferredLanguage={userPreferredLanguage}
-                  isTranslationEnabled={isTranslationEnabled}
-               />
-            ))}
+            {mergedItems.map((item) => {
+              if (item.type === 'call') {
+                return (
+                  <CallRecordBubble
+                    key={`call-${item.data.id}`}
+                    record={item.data as CallRecord}
+                    currentUserId={currentUserId}
+                  />
+                );
+              } else {
+                const msg = item.data as ChatMessage;
+                return (
+                  <MessageBubble 
+                    key={msg.id}
+                    message={{
+                        ...msg,
+                        original_language: msg.lang
+                    }}
+                    userPreferredLanguage={userPreferredLanguage}
+                    isTranslationEnabled={isTranslationEnabled}
+                  />
+                );
+              }
+            })}
             <div ref={messagesEndRef} />
         </div>
     </div>

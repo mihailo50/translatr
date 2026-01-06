@@ -6,6 +6,7 @@ import Sidebar from './Sidebar';
 import AuroraBackground from '../ui/AuroraBackground';
 import NotificationBell from '../ui/NotificationBell';
 import GlobalSearch from './GlobalSearch';
+import GlobalCallHandler from '../chat/GlobalCallHandler';
 import { Menu } from 'lucide-react';
 import { Toaster } from 'sonner';
 
@@ -71,6 +72,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           </div>
         </main>
       </div>
+      <GlobalCallHandler />
       <Toaster position="top-right" theme="dark" />
     </AuroraBackground>
   );

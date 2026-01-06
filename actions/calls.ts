@@ -1,6 +1,8 @@
 'use server';
 
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
+import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js';
+import { createClient as createServerClient } from '../utils/supabase/server';
 
 export async function initiateCall(roomId: string, userId: string, userName: string, type: 'audio' | 'video') {
   try {
@@ -10,14 +12,8 @@ export async function initiateCall(roomId: string, userId: string, userName: str
     const livekitHost = wsUrl?.replace('wss://', 'https://');
 
     if (!apiKey || !apiSecret || !wsUrl) {
-      // Mock for demo if envs missing
-      console.warn("LiveKit credentials missing, returning mock success for UI demo");
-      return { 
-          success: true, 
-          token: "mock-token", 
-          callId: `call_${Date.now()}`,
-          serverUrl: wsUrl || "wss://demo.livekit.cloud"
-      };
+      console.error('LiveKit credentials missing. Set LIVEKIT_API_KEY, LIVEKIT_API_SECRET, NEXT_PUBLIC_LIVEKIT_URL.');
+      return { success: false, error: 'LiveKit is not configured on the server' };
     }
 
     // 1. Generate Token for the caller
@@ -40,14 +36,88 @@ export async function initiateCall(roomId: string, userId: string, userName: str
       ? await jwtResult 
       : jwtResult;
 
-    // 2. Broadcast 'call_started' system message via LiveKit Data Channel
+    const callId = `call_${Date.now()}`;
+
+    // 2. Create call notification in database for recipient(s)
+    // This ensures users receive call notifications even when not in the chat room
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      
+      if (supabaseUrl && supabaseUrl !== 'https://placeholder.supabase.co') {
+        // Prefer service role when available; otherwise fall back to authenticated server client.
+        // RLS allows inserts (WITH CHECK true) and recipients can SELECT their own notifications.
+        const supabaseDb =
+          supabaseServiceKey && supabaseServiceKey !== 'placeholder-key'
+            ? createSupabaseAdminClient(supabaseUrl, supabaseServiceKey)
+            : await createServerClient();
+        
+        // Get recipient(s) from room_members (for direct rooms, extract from room ID)
+        let recipientIds: string[] = [];
+        
+        if (roomId.startsWith('direct_')) {
+          // Extract user IDs from direct room ID format: direct_userId1_userId2
+          const parts = roomId.split('_');
+          if (parts.length === 3) {
+            recipientIds = [parts[1], parts[2]].filter(id => id !== userId);
+          }
+        } else {
+          // For group rooms, get all members except the caller
+          const { data: members, error: membersError } = await supabaseDb
+            .from('room_members')
+            .select('profile_id')
+            .eq('room_id', roomId);
+          
+          if (membersError) {
+            console.error('Failed to fetch room members for call notifications:', membersError);
+          }
+          if (members) {
+            recipientIds = members
+              .map(m => m.profile_id)
+              .filter(id => id !== userId);
+          }
+        }
+        
+        // Create notifications for all recipients
+        if (recipientIds.length > 0) {
+          const notifications = recipientIds.map(recipientId => ({
+            recipient_id: recipientId,
+            type: 'call' as const,
+            content: {
+              sender_name: userName,
+              call_type: type,
+              call_id: callId,
+              room_id: roomId,
+            },
+            related_id: roomId,
+          }));
+          
+          const { error: insertError } = await supabaseDb
+            .from('notifications')
+            .insert(notifications);
+          
+          if (insertError) {
+            console.error('Failed to insert call notifications:', insertError);
+          } else {
+            console.log(`✅ Created ${notifications.length} call notification(s) for room ${roomId}`);
+          }
+        }
+      } else {
+        console.error('Missing NEXT_PUBLIC_SUPABASE_URL; cannot create call notifications.');
+      }
+    } catch (notifError) {
+      console.error('Failed to create call notifications:', notifError);
+      // Continue - LiveKit data channel will still work for users in the room
+    }
+
+    // 3. Broadcast 'call_started' system message via LiveKit Data Channel
     // This allows other users in the chat to see an "Incoming Call" modal
     try {
         const roomService = new RoomServiceClient(livekitHost!, apiKey, apiSecret);
         
         const dataPacket = JSON.stringify({
             type: 'call_invite',
-            callId: `call_${Date.now()}`,
+            callId: callId,
             roomId: roomId,
             senderId: userId,
             senderName: userName,
@@ -67,7 +137,7 @@ export async function initiateCall(roomId: string, userId: string, userName: str
         // Continue, as the caller can still join the room
     }
 
-    return { success: true, token, serverUrl: wsUrl };
+    return { success: true, token, serverUrl: wsUrl, callId };
 
   } catch (error) {
     console.error('Initiate Call Error:', error);
