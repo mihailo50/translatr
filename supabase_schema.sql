@@ -497,24 +497,28 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to delete old read notifications (older than 7 days)
--- This follows standard practice: read notifications are kept for 7 days, then automatically deleted
-CREATE OR REPLACE FUNCTION public.cleanup_old_read_notifications()
+-- Function to delete old notifications (older than 24 hours)
+-- This deletes ALL notifications (read and unread) older than 24 hours
+CREATE OR REPLACE FUNCTION public.cleanup_old_notifications()
 RETURNS INTEGER AS $$
 DECLARE
     deleted_count INTEGER;
 BEGIN
-    -- Delete read notifications that were read more than 7 days ago
+    -- Delete all notifications (read and unread) older than 24 hours
     DELETE FROM notifications
-    WHERE is_read = TRUE
-      AND read_at IS NOT NULL
-      AND read_at < NOW() - INTERVAL '7 days';
+    WHERE created_at < NOW() - INTERVAL '24 hours';
     
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
     
     RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Create a cron job to run cleanup every hour
+-- Note: This requires pg_cron extension to be enabled
+-- To enable: Run 'CREATE EXTENSION IF NOT EXISTS pg_cron;' as superuser in your Supabase SQL editor
+-- Then uncomment the following line:
+-- SELECT cron.schedule('cleanup-old-notifications', '0 * * * *', 'SELECT public.cleanup_old_notifications();');
 
 -- Function to check if user is a member of a room (bypasses RLS for storage policies)
 -- NOTE: Already defined above as SECURITY DEFINER `public.is_room_member(text, uuid)`.

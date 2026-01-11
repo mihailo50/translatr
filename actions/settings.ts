@@ -1,98 +1,187 @@
 'use server';
 
-import { createClient } from '../utils/supabase/server';
+import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerClient } from '../utils/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { z } from 'zod';
 
-const profileSchema = z.object({
-  display_name: z.string().min(2, "Name must be at least 2 characters").max(50),
-  bio: z.string().max(160, "Bio must be less than 160 characters").optional().or(z.literal('')),
-  preferred_language: z.string(),
-  theme: z.enum(['aurora', 'midnight']),
-});
-
+/**
+ * Get current user profile
+ */
 export async function getProfile() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
-    
-  return { user, profile: data };
-}
-
-export async function updateProfile(formData: FormData) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: 'Unauthorized' };
-
-  const rawData = {
-    display_name: formData.get('display_name'),
-    bio: formData.get('bio'),
-    preferred_language: formData.get('preferred_language'),
-    theme: formData.get('theme'),
-  };
-
-  const validation = profileSchema.safeParse(rawData);
-  if (!validation.success) {
-    return { error: validation.error.issues[0].message };
-  }
-
-  const { error } = await supabase
-    .from('profiles')
-    .update({
-        ...validation.data,
-        updated_at: new Date().toISOString(),
-    })
-    .eq('id', user.id);
-
-  if (error) return { error: error.message };
-
   try {
-    revalidatePath('/settings');
-    revalidatePath('/', 'layout'); 
-  } catch (e) {
-    // Ignore revalidatePath errors in client env
+    const supabase = await createServerClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return { user: null, profile: null };
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError) {
+      console.error('Error fetching profile:', profileError);
+      return { user, profile: null };
+    }
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email || '',
+      },
+      profile: profile || null,
+    };
+  } catch (error: any) {
+    console.error('GetProfile error:', error);
+    return { user: null, profile: null };
   }
-  
-  return { success: true };
 }
 
-export async function updateSubscription(plan: 'free' | 'pro') {
-    const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { error: 'Unauthorized' };
-
-    // In a real app, this would verify payment with Stripe/etc.
-    const { error } = await supabase
-        .from('profiles')
-        .update({ 
-            plan: plan,
-            // If upgrading to pro, set arbitrary future date. If free, null.
-            subscription_end_date: plan === 'pro' ? new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString() : null
-        })
-        .eq('id', user.id);
-
-    if (error) return { error: error.message };
-    
-    try {
-        revalidatePath('/settings');
-        revalidatePath('/', 'layout');
-    } catch(e) {}
-
-    return { success: true };
-}
-
+/**
+ * Sign out the current user
+ */
 export async function signOutAction() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
-  
-  // We return success: true instead of redirecting here.
-  // This avoids the NEXT_REDIRECT error in Next.js Server Actions when called from client components
-  // and allows the client to show a toast before redirecting.
-  return { success: true };
+  try {
+    const supabase = await createServerClient();
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error('Sign out error:', error);
+      return { success: false, error: error.message };
+    }
+
+    revalidatePath('/', 'layout');
+    return { success: true };
+  } catch (error: any) {
+    console.error('SignOutAction error:', error);
+    return { success: false, error: error.message || 'Failed to sign out' };
+  }
+}
+
+/**
+ * Update user profile
+ */
+export async function updateProfile(formData: FormData) {
+  try {
+    const supabase = await createServerClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const displayName = formData.get('display_name') as string;
+    const bio = formData.get('bio') as string;
+    const preferredLanguage = formData.get('preferred_language') as string;
+    const theme = formData.get('theme') as 'aurora' | 'midnight';
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        display_name: displayName || null,
+        bio: bio || null,
+        preferred_language: preferredLanguage || 'en',
+        theme: theme || 'aurora',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', user.id);
+
+    if (error) {
+      console.error('Error updating profile:', error);
+      return { success: false, error: error.message };
+    }
+
+    revalidatePath('/settings');
+    revalidatePath('/', 'layout');
+    return { success: true };
+  } catch (error: any) {
+    console.error('UpdateProfile error:', error);
+    return { success: false, error: error.message || 'Failed to update profile' };
+  }
+}
+
+/**
+ * Update user subscription plan
+ */
+export async function updateSubscription(plan: 'free' | 'pro') {
+  try {
+    const supabase = await createServerClient();
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return { success: false, error: 'Unauthorized' };
+    }
+
+    const updateData: any = {
+      plan: plan,
+      updated_at: new Date().toISOString(),
+    };
+
+    // If downgrading to free, clear subscription end date
+    if (plan === 'free') {
+      updateData.subscription_end_date = null;
+    } else if (plan === 'pro') {
+      // If upgrading to pro, set subscription end date to 1 year from now
+      const endDate = new Date();
+      endDate.setFullYear(endDate.getFullYear() + 1);
+      updateData.subscription_end_date = endDate.toISOString();
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update(updateData)
+      .eq('id', user.id);
+
+    if (error) {
+      console.error('Error updating subscription:', error);
+      return { success: false, error: error.message };
+    }
+
+    revalidatePath('/settings');
+    return { success: true };
+  } catch (error: any) {
+    console.error('UpdateSubscription error:', error);
+    return { success: false, error: error.message || 'Failed to update subscription' };
+  }
+}
+
+/**
+ * Manually trigger notification cleanup (for testing or manual cleanup)
+ */
+export async function cleanupOldNotifications(): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
+      return { success: false, error: 'Server configuration error' };
+    }
+
+    if (!supabaseServiceKey || supabaseServiceKey === 'placeholder-key') {
+      return { success: false, error: 'Server configuration error' };
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Call the cleanup function
+    const { data, error } = await supabase.rpc('cleanup_old_notifications');
+
+    if (error) {
+      console.error('Error cleaning up notifications:', error);
+      return { success: false, error: error.message };
+    }
+
+    const deletedCount = data || 0;
+
+    return {
+      success: true,
+      deletedCount
+    };
+  } catch (error: any) {
+    console.error('Cleanup notifications error:', error);
+    return { success: false, error: error.message || 'Failed to cleanup notifications' };
+  }
 }

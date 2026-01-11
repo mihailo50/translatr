@@ -14,6 +14,8 @@ interface CallOverlayProps {
   onDisconnect: (shouldSignalTerminate: boolean) => void;
   userPreferredLanguage?: string;
   userId?: string;
+  onParticipantJoined?: () => void;
+  onCallAccepted?: (callId?: string) => void;
 }
 
 const FloatingLocalVideo = () => {
@@ -31,9 +33,97 @@ const FloatingLocalVideo = () => {
     );
 };
 
-const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { roomName: string, roomType: 'direct' | 'group', callType: 'audio' | 'video', onDisconnect: (s: boolean) => void, userId?: string }) => {
+const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onParticipantJoined, onCallAccepted }: { roomName: string, roomType: 'direct' | 'group', callType: 'audio' | 'video', onDisconnect: (s: boolean) => void, userId?: string, onParticipantJoined?: () => void, onCallAccepted?: (callId?: string) => void }) => {
     const { localParticipant } = useLocalParticipant();
     const remoteParticipants = useRemoteParticipants();
+    const room = useRoomContext();
+    const participantJoinedRef = useRef(false);
+    
+    // Listen for DataChannel messages from call room (for call_accepted signals)
+    useEffect(() => {
+        if (!room || room.state !== 'connected') return;
+        
+        const handleDataReceived = (payload: Uint8Array, participant?: any) => {
+            const decoder = new TextDecoder();
+            try {
+                const data = JSON.parse(decoder.decode(payload));
+                console.log('CallOverlay: Received DataChannel message:', data.type, 'from:', participant?.identity);
+                
+                // Handle call_accepted signal from call room
+                if (data.type === 'call_accepted' && participant && participant.identity !== userId) {
+                    console.log('CallOverlay: Call accepted signal received via call room DataChannel');
+                    if (onCallAccepted) {
+                        onCallAccepted(data.callId);
+                    }
+                }
+            } catch (error) {
+                console.warn('CallOverlay: Failed to parse DataChannel message:', error);
+            }
+        };
+        
+        room.on(RoomEvent.DataReceived, handleDataReceived);
+        
+        return () => {
+            room.off(RoomEvent.DataReceived, handleDataReceived);
+        };
+    }, [room, userId, onCallAccepted]);
+    
+    // Notify parent when participant joins (for call acceptance detection)
+    useEffect(() => {
+        if (!room || room.state !== 'connected' || !localParticipant) return;
+        
+        const handleParticipantConnected = () => {
+            // When a remote participant joins, send call_accepted signal via call room DataChannel
+            // This is a fallback for when the chat room DataChannel signal fails
+            if (remoteParticipants.length > 0 && localParticipant && !participantJoinedRef.current) {
+                participantJoinedRef.current = true;
+                
+                // Notify parent component (ChatRoom) that participant joined
+                if (onParticipantJoined) {
+                    onParticipantJoined();
+                }
+                
+                // Send call_accepted signal via call room DataChannel as backup
+                // Wait a bit for DataChannel to be ready
+                setTimeout(() => {
+                    try {
+                        const payload = JSON.stringify({
+                            type: 'call_accepted',
+                            senderId: userId || localParticipant.identity,
+                            timestamp: Date.now()
+                        });
+                        const encoder = new TextEncoder();
+                        const encodedPayload = encoder.encode(payload);
+                        
+                        localParticipant.publishData(encodedPayload, { reliable: true })
+                            .then(() => console.log('✅ Sent call_accepted via call room DataChannel'))
+                            .catch(err => {
+                                console.warn('Failed to send call_accepted via call room (reliable):', err);
+                                // Try lossy as fallback
+                                localParticipant.publishData(encodedPayload, { reliable: false })
+                                    .then(() => console.log('✅ Sent call_accepted via call room DataChannel (lossy)'))
+                                    .catch(() => console.warn('Failed to send call_accepted via call room (both reliable and lossy failed)'));
+                            });
+                    } catch (error) {
+                        console.warn('Error sending call_accepted via call room:', error);
+                    }
+                }, 500); // Wait 500ms for DataChannel to be ready
+            }
+        };
+        
+        // Check if participants already exist
+        if (remoteParticipants.length > 0 && !participantJoinedRef.current) {
+            handleParticipantConnected();
+        }
+        
+        // Listen for new participants
+        room.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+        
+        return () => {
+            room.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
+        };
+    }, [room, localParticipant, remoteParticipants.length, userId, onParticipantJoined]);
+    
     // Always listen for camera tracks so users can enable video mid-call
     const videoTracks = useTracks([Track.Source.Camera]);
     const audioTracks = useTracks(callType === 'audio' ? [Track.Source.Microphone] : []);
@@ -46,7 +136,6 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId }: { r
     const [isVideoOff, setIsVideoOff] = useState(callType === 'audio'); // Video off by default for audio calls
     const [callDuration, setCallDuration] = useState(0); // Call duration in seconds
     const callStartTimeRef = useRef<number | null>(null);
-    const room = useRoomContext();
 
     // Call timer effect
     useEffect(() => {
@@ -420,7 +509,9 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
     callType,
     onDisconnect,
     userPreferredLanguage = 'en',
-    userId
+    userId,
+    onParticipantJoined,
+    onCallAccepted
 }) => {
   // Setup E2EE for Video
   const roomOptions = useMemo<RoomOptions>(() => {
@@ -456,7 +547,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
             data-lk-theme="default"
             className="h-full w-full relative z-10"
         >
-            <CallContent roomName={roomName} roomType={roomType} callType={callType} onDisconnect={onDisconnect} userId={userId} />
+            <CallContent roomName={roomName} roomType={roomType} callType={callType} onDisconnect={onDisconnect} userId={userId} onParticipantJoined={onParticipantJoined} onCallAccepted={onCallAccepted} />
         </LiveKitRoom>
     </div>
   );

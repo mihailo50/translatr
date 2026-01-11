@@ -30,6 +30,18 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 export const useNotification = () => {
   const context = useContext(NotificationContext);
   if (context === undefined) {
+    // During SSR or if not within provider, return default values instead of throwing
+    // This prevents hydration errors and allows graceful degradation
+    if (typeof window === 'undefined') {
+      // Server-side: return default values
+      return {
+        isNotificationsOpen: false,
+        setIsNotificationsOpen: () => {},
+        currentRoomId: null,
+        setCurrentRoomId: () => {},
+      };
+    }
+    // Client-side but not in provider: this is a real error
     throw new Error('useNotification must be used within a NotificationProvider');
   }
   return context;

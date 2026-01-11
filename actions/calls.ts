@@ -55,11 +55,44 @@ export async function initiateCall(roomId: string, userId: string, userName: str
         // Get recipient(s) from room_members (for direct rooms, extract from room ID)
         let recipientIds: string[] = [];
         
+        console.log(`📞 Initiating call - roomId: ${roomId}, userId: ${userId}, type: ${type}`);
+        
         if (roomId.startsWith('direct_')) {
           // Extract user IDs from direct room ID format: direct_userId1_userId2
-          const parts = roomId.split('_');
-          if (parts.length === 3) {
-            recipientIds = [parts[1], parts[2]].filter(id => id !== userId);
+          // UUIDs use hyphens (-), room ID uses underscores (_) as separators
+          // So we need to split carefully - take everything after "direct_" and before the last underscore-UUID
+          const withoutPrefix = roomId.substring('direct_'.length);
+          
+          // UUIDs are 36 characters (with hyphens). Split by _ and reconstruct
+          const parts = withoutPrefix.split('_');
+          
+          if (parts.length >= 2) {
+            // Handle case where UUIDs might have been split - reconstruct them
+            // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 chars)
+            const userId1 = parts[0];
+            const userId2 = parts.slice(1).join('_'); // In case userId2 had underscores (shouldn't happen but be safe)
+            
+            console.log(`📞 Parsed direct room - userId1: ${userId1}, userId2: ${userId2}`);
+            recipientIds = [userId1, userId2].filter(id => id !== userId && id.length > 0);
+            console.log(`📞 Recipient IDs after filtering caller: ${JSON.stringify(recipientIds)}`);
+          } else {
+            console.error(`📞 Failed to parse direct room ID: ${roomId}, parts: ${JSON.stringify(parts)}`);
+          }
+          
+          // Fallback: If parsing failed, query room_members
+          if (recipientIds.length === 0) {
+            console.log('📞 Fallback: querying room_members for direct room');
+            const { data: members, error: membersError } = await supabaseDb
+              .from('room_members')
+              .select('profile_id')
+              .eq('room_id', roomId);
+            
+            if (membersError) {
+              console.error('📞 Failed to fetch room members:', membersError);
+            } else if (members) {
+              recipientIds = members.map(m => m.profile_id).filter(id => id !== userId);
+              console.log(`📞 Got recipients from room_members: ${JSON.stringify(recipientIds)}`);
+            }
           }
         } else {
           // For group rooms, get all members except the caller
@@ -77,6 +110,8 @@ export async function initiateCall(roomId: string, userId: string, userName: str
               .filter(id => id !== userId);
           }
         }
+        
+        console.log(`📞 Final recipient IDs: ${JSON.stringify(recipientIds)}`);
         
         // Create notifications for all recipients
         if (recipientIds.length > 0) {
@@ -99,8 +134,10 @@ export async function initiateCall(roomId: string, userId: string, userName: str
           if (insertError) {
             console.error('Failed to insert call notifications:', insertError);
           } else {
-            console.log(`✅ Created ${notifications.length} call notification(s) for room ${roomId}`);
+            console.log(`✅ Created ${notifications.length} call notification(s) for room ${roomId}, recipients: ${JSON.stringify(recipientIds)}`);
           }
+        } else {
+          console.warn(`📞 No recipients found for call in room ${roomId}. Notification not created.`);
         }
       } else {
         console.error('Missing NEXT_PUBLIC_SUPABASE_URL; cannot create call notifications.');

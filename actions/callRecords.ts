@@ -15,6 +15,14 @@ export interface CallRecord {
   duration_seconds: number | null;
   call_id: string | null;
   created_at: string;
+  caller?: {
+    display_name?: string | null;
+    email?: string | null;
+  } | null;
+  receiver?: {
+    display_name?: string | null;
+    email?: string | null;
+  } | null;
 }
 
 /**
@@ -165,7 +173,7 @@ export async function updateCallRecordByCallId(
 }
 
 /**
- * Get call records for a room
+ * Get call records for a room with caller and receiver profile information
  */
 export async function getCallRecords(roomId: string): Promise<{ success: boolean; records?: CallRecord[]; error?: string }> {
   try {
@@ -178,7 +186,11 @@ export async function getCallRecords(roomId: string): Promise<{ success: boolean
 
     const { data, error } = await supabase
       .from('call_records')
-      .select('*')
+      .select(`
+        *,
+        caller:profiles!call_records_caller_fkey(display_name, email),
+        receiver:profiles!call_records_receiver_fkey(display_name, email)
+      `)
       .eq('room_id', roomId)
       .order('created_at', { ascending: false })
       .limit(100); // Limit to last 100 call records

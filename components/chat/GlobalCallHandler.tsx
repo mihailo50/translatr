@@ -139,15 +139,12 @@ export default function GlobalCallHandler() {
           const callRoomId = latestCall.content.room_id;
           const isInChatroom = currentRoomId === callRoomId || pathname === `/chat/${callRoomId}`;
           
-          if (isInChatroom) {
-            console.log('⏭️ User is in chatroom, skipping existing call banner');
-            // Mark notification as read
-            await supabase
-              .from('notifications')
-              .update({ is_read: true, read_at: new Date().toISOString() })
-              .eq('id', latestCall.id);
-            return; // Don't show banner if user is in the chatroom
-          }
+            if (isInChatroom) {
+                console.log('⏭️ User is in chatroom, skipping existing call banner (ChatRoom will handle it)');
+                // Don't mark as read here - let ChatRoom handle it
+                // This prevents race condition where notification is marked read before ChatRoom can display it
+                return; // Don't show banner if user is in the chatroom
+              }
           
           processedCallIdsRef.current.add(latestCall.id);
           setIncomingCall(latestCall);
@@ -191,11 +188,8 @@ export default function GlobalCallHandler() {
               
               if (isInChatroom) {
                 console.log('⏭️ User is in chatroom, skipping banner (ChatRoom will handle it)');
-                // Mark notification as read since user is in the room
-                await supabase
-                  .from('notifications')
-                  .update({ is_read: true, read_at: new Date().toISOString() })
-                  .eq('id', callNotif.id);
+                // Don't mark as read here - let ChatRoom handle it
+                // This prevents race condition where notification is marked read before ChatRoom can display it
                 return; // Don't show banner if user is in the chatroom
               }
               
@@ -296,6 +290,67 @@ export default function GlobalCallHandler() {
       cleanup.then(cleanupFn => cleanupFn?.());
     };
   }, [supabase, currentRoomId, pathname, incomingCall]);
+
+  // Polling fallback: Check for new call notifications every 2 seconds
+  // This handles cases where Realtime subscriptions fail or are delayed
+  useEffect(() => {
+    if (!userIdRef.current) return;
+    
+    const pollForCalls = async () => {
+      if (!mountedRef.current || !userIdRef.current) return;
+      
+      try {
+        const { data: calls } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('recipient_id', userIdRef.current)
+          .eq('type', 'call')
+          .eq('is_read', false)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (calls && calls.length > 0 && mountedRef.current) {
+          const latestCall = calls[0] as CallNotification;
+          
+          // Skip if already processed
+          if (processedCallIdsRef.current.has(latestCall.id)) return;
+          
+          // Check if user is in the chatroom
+          const callRoomId = latestCall.content.room_id;
+          const isInChatroom = currentRoomId === callRoomId || pathname === `/chat/${callRoomId}`;
+          
+          if (isInChatroom) {
+            console.log('⏭️ Polling: User is in chatroom, skipping banner');
+            processedCallIdsRef.current.add(latestCall.id);
+            return;
+          }
+          
+          // Check if call notification is not too old (within 30 seconds)
+          const callAge = Date.now() - new Date(latestCall.created_at).getTime();
+          if (callAge > 30000) {
+            console.log('⏭️ Polling: Call notification is too old, skipping');
+            processedCallIdsRef.current.add(latestCall.id);
+            return;
+          }
+          
+          console.log('📞 Polling: Found new call notification:', latestCall);
+          processedCallIdsRef.current.add(latestCall.id);
+          setIncomingCall(latestCall);
+          setShowBanner(true);
+          playRingtone();
+        }
+      } catch (error) {
+        console.error('Error polling for call notifications:', error);
+      }
+    };
+    
+    // Start polling
+    const pollInterval = setInterval(pollForCalls, 2000);
+    
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [supabase, currentRoomId, pathname]);
 
   // When we have an incoming call, subscribe directly to that call_id updates too.
   // This covers edge cases where receiver_id is null or policy filters don't match.

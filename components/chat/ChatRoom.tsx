@@ -53,6 +53,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 }) => {
   const router = useRouter();
   const supabase = createClient();
+  // Use notification context - safe for SSR with updated hook
   const { isNotificationsOpen, setIsNotificationsOpen, setCurrentRoomId } = useNotification();
   
   // Track current room ID for notifications
@@ -110,7 +111,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     
     loadCallRecords();
     
-    // Subscribe to call record updates
+    // Subscribe to call record updates - both for reloading records AND detecting call cancellation
     const channel = supabase
       .channel(`call-records-${roomId}`)
       .on(
@@ -121,9 +122,40 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           table: 'call_records',
           filter: `room_id=eq.${roomId}`,
         },
-        () => {
+        (payload) => {
           // Reload call records when they change
           loadCallRecords();
+          
+          // Check if this is a call status update that should close the incoming call UI
+          const record = payload.new as any;
+          if (record && (record.status === 'missed' || record.status === 'ended' || record.status === 'declined')) {
+            console.log(`📞 ChatRoom: Call record status changed to ${record.status}, clearing call UI`);
+            
+            // Stop ringtone if playing
+            if (ringtoneRef.current) {
+              ringtoneRef.current.pause();
+              ringtoneRef.current.currentTime = 0;
+            }
+            if (ringbackRef.current) {
+              ringbackRef.current.pause();
+              ringbackRef.current.currentTime = 0;
+            }
+            
+            // Clear call UI state if we're showing an incoming call
+            if (isCallModalOpenRef.current && !activeCallTokenRef.current) {
+              setIsCallModalOpen(false);
+              setShowCallBanner(false);
+              setIncomingCaller('');
+              setIncomingCallId(null);
+              setIncomingCallRoomId(null);
+              
+              if (record.status === 'missed') {
+                toast.info('Missed call');
+              } else if (record.status === 'ended') {
+                toast.info('Call ended');
+              }
+            }
+          }
         }
       )
       .subscribe();
@@ -132,6 +164,99 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       supabase.removeChannel(channel);
     };
   }, [roomId, supabase]);
+  
+  // Track processed call notification IDs to prevent duplicate handling
+  const processedCallNotifIdsRef = useRef<Set<string>>(new Set());
+  
+  // Fallback: Poll for incoming call notifications for THIS room
+  // This handles cases where LiveKit DataChannel misses the call_invite
+  useEffect(() => {
+    if (!userId || !roomId) return;
+    
+    const checkForCallNotifications = async () => {
+      // Skip if we already have an active call or are showing the call modal
+      if (activeCallTokenRef.current || isCallModalOpenRef.current || showCallBannerRef.current) {
+        return;
+      }
+      
+      try {
+        const { data: calls } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('recipient_id', userId)
+          .eq('type', 'call')
+          .eq('related_id', roomId)
+          .eq('is_read', false)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (calls && calls.length > 0) {
+          const latestCall = calls[0];
+          
+          // Skip if already processed
+          if (processedCallNotifIdsRef.current.has(latestCall.id)) {
+            return;
+          }
+          
+          // Check if call is recent (within 30 seconds)
+          const callAge = Date.now() - new Date(latestCall.created_at).getTime();
+          if (callAge > 30000) {
+            // Mark old call notification as read and add to processed
+            processedCallNotifIdsRef.current.add(latestCall.id);
+            await supabase
+              .from('notifications')
+              .update({ is_read: true, read_at: new Date().toISOString() })
+              .eq('id', latestCall.id);
+            return;
+          }
+          
+          // Mark as processed to prevent re-handling
+          processedCallNotifIdsRef.current.add(latestCall.id);
+          
+          console.log('📞 ChatRoom: Found unread call notification via polling:', latestCall);
+          
+          // Extract call details from notification
+          const content = latestCall.content as any;
+          const callerId = content?.sender_name || 'Unknown';
+          const callTypeFromNotif = content?.call_type || 'audio';
+          const callId = content?.call_id;
+          
+          // Don't show call UI if we initiated this call
+          if (callId && callId.includes(userId)) {
+            return;
+          }
+          
+          // Show call UI
+          setIncomingCaller(callerId);
+          setCallType(callTypeFromNotif);
+          setIncomingCallId(callId || null);
+          setIncomingCallRoomId(roomId);
+          setIsCallModalOpen(true);
+          setShowCallBanner(false);
+          playRingtone();
+          
+          toast.info(`Incoming ${callTypeFromNotif} call from ${callerId}`);
+          
+          // Mark notification as read after showing UI
+          await supabase
+            .from('notifications')
+            .update({ is_read: true, read_at: new Date().toISOString() })
+            .eq('id', latestCall.id);
+        }
+      } catch (error) {
+        console.error('Error checking for call notifications:', error);
+      }
+    };
+    
+    // Check immediately and then every 2 seconds
+    checkForCallNotifications();
+    const pollInterval = setInterval(checkForCallNotifications, 2000);
+    
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [userId, roomId, supabase]);
+  
   // Debug logging
   useEffect(() => {
     console.log('ChatRoom - roomDetails:', {
@@ -994,21 +1119,99 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       }
       
       // Send call_accepted signal to caller (so they can stop ringback)
-      if (liveKitChatRoom && incomingCallId) {
-          try {
-              const payload = JSON.stringify({
-                  type: 'call_accepted',
-                  callId: incomingCallId,
-                  senderId: userId,
-                  timestamp: Date.now()
+      // Wait for chat room to be connected before sending
+      const sendCallAcceptedSignal = async () => {
+          if (!liveKitChatRoom || !incomingCallId) return;
+          
+          // Wait for room to be connected
+          const waitForConnection = async (): Promise<boolean> => {
+              if (liveKitChatRoom.state === ConnectionState.Connected && liveKitChatRoom.localParticipant) {
+                  return true;
+              }
+              
+              return new Promise((resolve) => {
+                  const timeout = setTimeout(() => resolve(false), 3000);
+                  
+                  const onConnected = () => {
+                      clearTimeout(timeout);
+                      liveKitChatRoom.off(RoomEvent.Connected, onConnected);
+                      // Wait a bit for localParticipant to be ready
+                      setTimeout(() => resolve(liveKitChatRoom.localParticipant !== null), 500);
+                  };
+                  
+                  liveKitChatRoom.on(RoomEvent.Connected, onConnected);
+                  
+                  // Also poll
+                  const pollInterval = setInterval(() => {
+                      if (liveKitChatRoom.state === ConnectionState.Connected && liveKitChatRoom.localParticipant) {
+                          clearTimeout(timeout);
+                          clearInterval(pollInterval);
+                          liveKitChatRoom.off(RoomEvent.Connected, onConnected);
+                          resolve(true);
+                      }
+                  }, 200);
+                  
+                  setTimeout(() => {
+                      clearInterval(pollInterval);
+                      liveKitChatRoom.off(RoomEvent.Connected, onConnected);
+                  }, 3000);
               });
-              const encoder = new TextEncoder();
-              await liveKitChatRoom.localParticipant.publishData(encoder.encode(payload), { reliable: true });
+          };
+          
+          const isConnected = await waitForConnection();
+          if (!isConnected) {
+              console.warn('Chat room not connected, skipping call_accepted signal');
+              return;
+          }
+          
+          const payload = JSON.stringify({
+              type: 'call_accepted',
+              callId: incomingCallId,
+              senderId: userId,
+              timestamp: Date.now()
+          });
+          const encoder = new TextEncoder();
+          const encodedPayload = encoder.encode(payload);
+          
+          // Send primary signal
+          try {
+              await liveKitChatRoom.localParticipant.publishData(encodedPayload, { reliable: true });
               console.log('✅ Sent call_accepted signal');
           } catch (error) {
               console.warn('Failed to send call accepted signal:', error);
+              // Try with lossy as fallback
+              try {
+                  await liveKitChatRoom.localParticipant.publishData(encodedPayload, { reliable: false });
+                  console.log('✅ Sent call_accepted signal (lossy fallback)');
+              } catch (fallbackError) {
+                  console.error('Failed to send call accepted signal (both reliable and lossy failed):', fallbackError);
+              }
           }
-      }
+          
+          // Send backup signals for reliability (especially on mobile)
+          setTimeout(() => {
+              liveKitChatRoom.localParticipant?.publishData(encodedPayload, { reliable: true })
+                  .then(() => console.log('✅ Backup call_accepted #1 sent'))
+                  .catch(err => {
+                      console.warn('Backup call_accepted #1 failed, trying lossy:', err);
+                      liveKitChatRoom.localParticipant?.publishData(encodedPayload, { reliable: false })
+                          .catch(() => {});
+                  });
+          }, 500);
+          
+          setTimeout(() => {
+              liveKitChatRoom.localParticipant?.publishData(encodedPayload, { reliable: true })
+                  .then(() => console.log('✅ Backup call_accepted #2 sent'))
+                  .catch(err => {
+                      console.warn('Backup call_accepted #2 failed, trying lossy:', err);
+                      liveKitChatRoom.localParticipant?.publishData(encodedPayload, { reliable: false })
+                          .catch(() => {});
+                  });
+          }, 1500);
+      };
+      
+      // Send signal (fire and forget)
+      sendCallAcceptedSignal();
       
       // If call is from a different room, navigate to that room first
       const targetRoomId = incomingCallRoomId || roomId;
@@ -1697,6 +1900,48 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
             onDisconnect={handleCallDisconnect} 
             userPreferredLanguage={userPreferredLanguage}
             userId={userId}
+            onParticipantJoined={() => {
+              // When a participant joins the call room, stop ringback (fallback if call_accepted signal failed)
+              if (isCaller && ringbackRef.current) {
+                console.log('📞 Participant joined call room, stopping ringback');
+                stopRingback();
+                if (callTimeoutRef.current) {
+                  clearTimeout(callTimeoutRef.current);
+                  callTimeoutRef.current = null;
+                }
+                setIsCallModalOpen(false);
+                setIsCaller(false);
+                
+                // Update call record if needed
+                if (callRecordIdRef.current && callStartTimeRef.current === null) {
+                  updateCallRecord(callRecordIdRef.current, 'accepted');
+                  setCallStartTime(Date.now());
+                  callStartTimeRef.current = Date.now();
+                }
+              }
+            }}
+            onCallAccepted={(callId?: string) => {
+              // Handle call_accepted signal received from call room DataChannel
+              if (isCaller) {
+                console.log('📞 Call accepted signal received from call room DataChannel');
+                stopRingback();
+                if (callTimeoutRef.current) {
+                  clearTimeout(callTimeoutRef.current);
+                  callTimeoutRef.current = null;
+                }
+                setIsCallModalOpen(false);
+                setIsCaller(false);
+                
+                // Update call record if needed
+                if (callRecordIdRef.current && callStartTimeRef.current === null) {
+                  updateCallRecord(callRecordIdRef.current, 'accepted');
+                  setCallStartTime(Date.now());
+                  callStartTimeRef.current = Date.now();
+                } else if (callId) {
+                  updateCallRecordByCallId(callId, 'accepted');
+                }
+              }
+            }}
           />
       )}
 
