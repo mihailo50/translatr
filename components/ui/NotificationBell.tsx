@@ -43,7 +43,7 @@ export default function NotificationBell() {
     
     // Handle audio loading
     audio.addEventListener('canplaythrough', () => {
-      console.log('🔊 Notification sound loaded and ready');
+      // Notification sound ready
     });
     
     audio.addEventListener('error', (e) => {
@@ -61,13 +61,12 @@ export default function NotificationBell() {
           notificationSoundRef.current.pause();
           notificationSoundRef.current.currentTime = 0;
           audioUnlockedRef.current = true;
-          console.log('🔊 Audio unlocked for notifications');
           
           // Play any queued sounds
           pendingSoundQueueRef.current.forEach(playFn => playFn());
           pendingSoundQueueRef.current = [];
         } catch (err: any) {
-          console.warn('Audio unlock failed:', err.name, err.message);
+          // Audio unlock failed
         }
       }
     };
@@ -110,10 +109,8 @@ export default function NotificationBell() {
     if (currentRoomId && currentRoomId !== previousRoomId) {
       const entryTime = Date.now();
       roomEntryTimeRef.current.set(currentRoomId, entryTime);
-      console.log(`🚪 User entered room ${currentRoomId} at ${new Date(entryTime).toISOString()}`);
     } else if (!currentRoomId) {
       // User left all rooms
-      console.log('🚪 User left chatroom');
     }
   }, [currentRoomId]);
 
@@ -176,7 +173,7 @@ export default function NotificationBell() {
         if (deleteError) {
           console.error('Error cleaning up old notifications:', deleteError);
         } else {
-          console.log('🧹 Cleaned up old read notifications (older than 7 days)');
+          // Cleaned up old notifications
         }
       } catch (err) {
         console.error('Error during notification cleanup:', err);
@@ -264,13 +261,11 @@ export default function NotificationBell() {
         }
       }
       
-      console.log('🔔 New notification detected:', newNotification);
-      
       // Mark as processed to prevent duplicates
       processedNotificationIds.add(newNotification.id);
       
       // Check if user is currently viewing this chatroom
-      const isInCurrentRoom = newNotification.type === 'message' && 
+      const isInCurrentRoom = (newNotification.type === 'message' || newNotification.type === 'call') && 
                              newNotification.related_id === currentRoomIdRef.current;
       
       // If notification is for the current room, check if it was created before user entered
@@ -282,28 +277,16 @@ export default function NotificationBell() {
         // If user entered the room before this notification was created, it's an old notification
         // Don't process it - just delete it silently
         if (roomEntryTime && notificationTime < roomEntryTime) {
-          console.log('🔇 Skipping old notification (created before user entered room)', {
-            notificationId: newNotification.id,
-            notificationTime: new Date(notificationTime).toISOString(),
-            roomEntryTime: new Date(roomEntryTime).toISOString()
-          });
-          
           // Delete the old notification since user is in the room
           void (async () => {
             try {
-              const { error } = await supabase
+              await supabase
                 .from('notifications')
                 .delete()
                 .eq('id', newNotification.id)
                 .select();
-              
-              if (error) {
-                console.error('Failed to delete old notification:', error);
-              } else {
-                console.log('✅ Deleted old notification (user is in room)');
-              }
             } catch (err) {
-              console.error('Error deleting old notification:', err);
+              console.error('Error deleting notification:', err);
             }
           })();
           
@@ -312,21 +295,14 @@ export default function NotificationBell() {
         
         // User is in the chatroom and this is a NEW notification (created after they entered)
         // Delete the notification immediately since they're already viewing it
-        // The ChatRoom component will play the sound when the message arrives
-        console.log('🔇 User is in room - deleting notification (ChatRoom will handle sound)');
+        // The ChatRoom component will handle the call modal/sound
         void (async () => {
           try {
-            const { error } = await supabase
+            await supabase
               .from('notifications')
               .delete()
               .eq('id', newNotification.id)
               .select();
-            
-            if (error) {
-              console.error('Failed to delete notification for user in room:', error);
-            } else {
-              console.log('✅ Deleted notification (user is in room)');
-            }
           } catch (err) {
             console.error('Error deleting notification:', err);
           }
@@ -335,16 +311,11 @@ export default function NotificationBell() {
         return; // Don't show notification or play sound - ChatRoom handles it
       }
       
-      // User is NOT in the chatroom - show notification with sound
-      console.log('✅ Showing notification with sound (user not in room)');
-      
       // Play sound function
       const playSound = () => {
-        console.log('🎵 Attempting to play notification sound...', { unlocked: audioUnlockedRef.current });
         
         // If audio is not unlocked, queue it and try to unlock
         if (!audioUnlockedRef.current) {
-          console.log('⏳ Audio not unlocked yet, queuing sound...');
           pendingSoundQueueRef.current.push(playSound);
           
           // Try to unlock immediately by attempting to play
@@ -499,7 +470,6 @@ export default function NotificationBell() {
               filter: `recipient_id=eq.${user.id}`,
             },
             (payload) => {
-              console.log('🔔 Real-time notification received:', payload);
               const newNotification = payload.new as Notification;
               handleNewNotification(newNotification);
             }

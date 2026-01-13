@@ -352,8 +352,7 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
     });
 
     // Polling fallback: Periodically refresh conversations to catch any missed updates
-    // This ensures conversations update even if real-time subscriptions fail
-    // Reduced to 2 seconds for faster updates
+    // Optimized to use a single batched query for faster performance
     const pollInterval = setInterval(async () => {
       if (!mounted) return;
       try {
@@ -365,42 +364,42 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
         
         if (roomIds.length === 0) return;
         
-        // Get latest message for each room (simplified query to avoid RLS issues)
-        const latestMessagesPromises = roomIds.map(async (roomId) => {
-          const { data: messages } = await supabase
-            .from('messages')
-            .select('id, room_id, sender_id, original_text, metadata, created_at')
-            .eq('room_id', roomId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          
-          if (!messages) return null;
-          
-          // Get sender profile separately to avoid join issues
-          const { data: senderProfile } = await supabase
-            .from('profiles')
-            .select('display_name, avatar_url, email')
-            .eq('id', messages.sender_id)
-            .maybeSingle();
-          
-          return { 
-            roomId, 
-            message: {
-              ...messages,
-              sender: senderProfile
-            }
-          };
+        // Batch query: Get latest messages for ALL rooms in a single query
+        // This is much faster than N individual queries
+        const { data: latestMessages } = await supabase
+          .from('messages')
+          .select('id, room_id, sender_id, original_text, metadata, created_at')
+          .in('room_id', roomIds)
+          .order('created_at', { ascending: false })
+          .limit(roomIds.length * 2); // Get a few extra to ensure we have latest for each room
+        
+        if (!latestMessages || latestMessages.length === 0) return;
+        
+        // Group messages by room and get the latest for each
+        const latestByRoom = new Map<string, typeof latestMessages[0]>();
+        latestMessages.forEach(msg => {
+          if (!latestByRoom.has(msg.room_id)) {
+            latestByRoom.set(msg.room_id, msg);
+          }
         });
-
-        const latestMessages = (await Promise.all(latestMessagesPromises)).filter(Boolean) as Array<{ roomId: string; message: any }>;
+        
+        // Get unique sender IDs
+        const senderIds = [...new Set(Array.from(latestByRoom.values()).map(m => m.sender_id))];
+        
+        // Batch query for sender profiles
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, display_name, avatar_url, email')
+          .in('id', senderIds);
+        
+        const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
 
         // Update conversations with latest messages
         setConversations((prev) => {
           let updated = [...prev];
           let hasChanges = false;
 
-          latestMessages.forEach(({ roomId, message }) => {
+          latestByRoom.forEach((message, roomId) => {
             const existingConv = updated.find(conv => conv.id === roomId);
             const messageTimestamp = new Date(message.created_at).getTime();
             const existingTimestamp = (existingConv as any)?._lastMessageTimestamp || 0;
@@ -430,9 +429,10 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
                 messageText = messageText.substring(0, 50) + '...';
               }
 
+              const senderProfile = profileMap.get(message.sender_id);
               const senderName = message.sender_id === currentUser.id 
                 ? 'You' 
-                : (message.sender?.display_name || message.sender?.email?.split('@')[0] || 'Someone');
+                : (senderProfile?.display_name || senderProfile?.email?.split('@')[0] || 'Someone');
 
               const messageDate = new Date(message.created_at);
               const now = new Date();
@@ -477,7 +477,7 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
       } catch (error) {
         console.error('Error in conversation polling:', error);
       }
-    }, 2000); // Poll every 2 seconds as fallback for faster updates
+    }, 1000); // Poll every 1 second for near-instant updates
 
     return () => {
       mounted = false;

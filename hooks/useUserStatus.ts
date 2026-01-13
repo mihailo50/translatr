@@ -190,8 +190,6 @@ export const useUserStatus = (user: any) => {
           Object.keys(prev).forEach(userId => {
             const lastSeen = prev[userId];
             if (now - lastSeen > STALE_THRESHOLD && updated[userId] !== 'offline') {
-              const secondsAgo = Math.round((now - lastSeen) / 1000);
-              console.log(`⏰ Marking user ${userId} as offline (stale presence, last seen ${secondsAgo}s ago)`);
               updated[userId] = 'offline';
               hasChanges = true;
               
@@ -202,7 +200,6 @@ export const useUserStatus = (user: any) => {
                     .from('profiles')
                     .update({ status: 'offline' })
                     .eq('id', userId);
-                  console.log(`✅ Updated user ${userId} status to offline in database`);
                 } catch (err) {
                   console.error(`❌ Failed to update user ${userId} status to offline:`, err);
                 }
@@ -317,8 +314,6 @@ export const useUserStatus = (user: any) => {
               mappedStatus = 'online'; // Map away to online for UI
             }
             
-            console.log(`📊 Status update from DB for user ${updatedUser.id}: ${mappedStatus}`);
-            
             setOnlineUsers(prev => ({
               ...prev,
               [updatedUser.id]: mappedStatus
@@ -327,9 +322,7 @@ export const useUserStatus = (user: any) => {
         }
       )
       .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Subscribed to profiles status updates');
-        }
+        // Subscription status (no logging)
       });
 
     return () => {
@@ -356,7 +349,7 @@ export const useUserStatus = (user: any) => {
         .update({ status: persisted })
         .eq('id', user.id)
         .then(() => {
-          console.log('✅ Status updated in database:', persisted);
+          // Status persisted
         })
         .catch((error) => {
           console.error('❌ Failed to update status in database:', error);

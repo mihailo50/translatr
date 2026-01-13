@@ -107,9 +107,10 @@ export async function sendMessageAction(
       .select()
       .single();
 
-    if (dbError) {
+    if (dbError || !messageData) {
         // Log the full error object as string so we can read it in console
         console.error("DB Error", JSON.stringify(dbError, null, 2));
+        return { success: false, error: dbError?.message || 'Failed to save message to database' };
     }
 
     // Broadcast to LiveKit Room (Server-Side)
@@ -284,7 +285,7 @@ export async function sendMessageAction(
         }
     }
 
-    return { success: true, messageId: messageData?.id };
+    return { success: true, messageId: messageData.id };
 
   } catch (error) {
     console.error('SendMessageAction Error:', error);

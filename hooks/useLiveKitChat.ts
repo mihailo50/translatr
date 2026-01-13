@@ -68,7 +68,6 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         }
         
         const responseText = await response.text();
-        console.log('Token API raw response:', responseText.substring(0, 200));
         
         let responseData;
         try {
@@ -78,20 +77,11 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
           throw new Error('Invalid JSON response from token API');
         }
         
-        console.log('Token API parsed response:', {
-          hasToken: 'token' in responseData,
-          tokenType: typeof responseData.token,
-          responseKeys: Object.keys(responseData),
-          tokenIsString: typeof responseData.token === 'string',
-          tokenValue: typeof responseData.token === 'string' ? responseData.token.substring(0, 50) + '...' : responseData.token
-        });
-        
         // Extract token and ensure it's a string
         let token = responseData.token;
         
         // If token is an object, try to extract the string value
         if (typeof token === 'object' && token !== null) {
-          console.warn('Token is an object, attempting to extract string value. Object keys:', Object.keys(token));
           // Try common object properties that might contain the token
           if ('token' in token && typeof token.token === 'string') {
             token = token.token;
@@ -139,25 +129,23 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         setRoom(newRoom);
 
         newRoom.on(RoomEvent.Connected, () => {
-          console.log('LiveKit room connected successfully');
           if (mounted) setIsConnected(true);
         });
 
         newRoom.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
-          console.log('LiveKit room disconnected:', reason ? String(reason) : 'unknown reason');
           if (mounted) setIsConnected(false);
         });
 
         newRoom.on(RoomEvent.ConnectionQualityChanged, (quality) => {
-          console.log('Connection quality changed:', quality);
+          // Connection quality changed
         });
 
         newRoom.on(RoomEvent.Reconnecting, () => {
-          console.log('LiveKit reconnecting...');
+          // LiveKit reconnecting
         });
 
         newRoom.on(RoomEvent.Reconnected, () => {
-          console.log('LiveKit reconnected');
+          // LiveKit reconnected
         });
 
         newRoom.on(RoomEvent.DataReceived, async (payload: Uint8Array, participant?: RemoteParticipant | LocalParticipant) => {
@@ -222,17 +210,11 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
           throw new Error('Invalid JWT token format');
         }
         
-        console.log('Connecting to LiveKit:', {
-          url: wsUrl,
-          tokenLength: token.length,
-          tokenPreview: token.substring(0, 20) + '...',
-          roomId,
-          identity: userId
-        });
+        // Connecting to LiveKit
         
         try {
           await newRoom.connect(wsUrl, token);
-          console.log('LiveKit connect() call completed successfully');
+          // LiveKit connected
         } catch (connectError) {
           console.error('Error during room.connect():', connectError);
           throw connectError;
@@ -256,12 +238,12 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
     }
 
     return () => {
-      console.log('Cleaning up LiveKit connection...', { roomId, userName, userId });
+      // Cleaning up LiveKit connection
       mounted = false;
       if (roomRef.current) {
         try {
           roomRef.current.disconnect();
-          console.log('LiveKit room disconnected in cleanup');
+          // Room disconnected
         } catch (cleanupError) {
           console.error('Error during cleanup disconnect:', cleanupError);
         }
@@ -274,15 +256,15 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
   useEffect(() => {
     const loadHistory = async () => {
       if (!roomId || !userId || !encryptionKey) {
-        console.log('Skipping message load:', { roomId: !!roomId, userId: !!userId, encryptionKey: !!encryptionKey });
+        // Skipping message load
         return;
       }
       
-      console.log('Loading message history for room:', roomId);
+      // Loading message history
       
       // Prevent multiple loads for the same room
       if (messagesLoadedRef.current) {
-        console.log('Messages already loaded for this room, skipping');
+        // Messages already loaded
         return;
       }
       
@@ -297,11 +279,11 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         if (result.success && result.callRecords) {
           // Call records are stored separately and will be merged in MessageList
           // We don't need to do anything here, just log
-          console.log(`Loaded ${result.callRecords.length} call records for room ${roomId}`);
+          // Call records loaded
         }
         
         if (result.success && result.messages) {
-          console.log(`Processing ${result.messages.length} messages for room ${roomId}`);
+          // Processing messages
           
           // Process messages in parallel batches for faster decryption
           const BATCH_SIZE = 20; // Process 20 messages at a time
@@ -345,7 +327,7 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
             const batchResults = await Promise.all(batchPromises);
             history.push(...batchResults);
           }
-          console.log(`Setting ${history.length} messages in state`);
+          // Messages loaded
           
           // Set messages directly (they're already sorted chronologically from server)
           // This is faster than merging and sorting
@@ -353,16 +335,7 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
           messagesLoadedRef.current = true;
           return;
         } else {
-          // No messages or error - log but don't clear existing messages
-          console.warn('No messages loaded from server action:', {
-            success: result.success,
-            error: result.error,
-            messageCount: result.messages?.length || 0,
-            roomId,
-            currentMessagesCount: messages.length
-          });
-          // Don't clear messages - keep existing ones if any
-          // Only set empty if we truly have no messages
+          // No messages or error - don't clear existing messages
           if (messages.length === 0) {
             setMessages([]);
           }
@@ -454,7 +427,7 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
     const result = await getMessages(roomId);
     
     if (result.success && result.messages) {
-      console.log(`Reloading ${result.messages.length} messages for room ${roomId}`);
+      // Reloading messages
       
       // Process messages in parallel batches
       const BATCH_SIZE = 20;

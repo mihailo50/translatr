@@ -23,6 +23,48 @@ interface MessageBubbleProps {
   isTranslationEnabled?: boolean;
 }
 
+const ImageViewerModal = ({ src, onClose }: { src: string, onClose: () => void }) => {
+    const [imageError, setImageError] = useState(false);
+    const isBlobUrl = src?.startsWith('blob:');
+    
+    if (typeof document === 'undefined') return null;
+    
+    return createPortal(
+        <div 
+            className="fixed inset-0 z-[10000] bg-black/95 flex items-center justify-center animate-in fade-in duration-200 backdrop-blur-sm" 
+            onClick={onClose}
+        >
+            <div className="absolute top-4 right-4 z-10">
+                <button 
+                    onClick={onClose}
+                    className="p-2.5 rounded-full bg-white/10 text-white hover:bg-white/20 transition-colors shadow-lg"
+                >
+                    <X size={24} />
+                </button>
+            </div>
+
+            <div className="relative max-w-[95vw] max-h-[95vh] p-4 flex items-center justify-center">
+                {imageError || isBlobUrl ? (
+                    <div className="min-w-[300px] min-h-[300px] flex flex-col items-center justify-center bg-black/40 text-white/40 p-8 rounded-lg border border-white/10">
+                        <X size={48} className="mb-4 opacity-50" />
+                        <p className="text-lg text-center">Image unavailable</p>
+                        <p className="text-sm text-center mt-2 text-white/30">The image link has expired</p>
+                    </div>
+                ) : (
+                    <img 
+                        src={src} 
+                        alt="Full size preview"
+                        className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl" 
+                        onClick={e => e.stopPropagation()}
+                        onError={() => setImageError(true)}
+                    />
+                )}
+            </div>
+        </div>,
+        document.body
+    );
+};
+
 const ViewOnceModal = ({ src, onClose }: { src: string, onClose: () => void }) => {
     const [imageError, setImageError] = useState(false);
     const isBlobUrl = src?.startsWith('blob:');
@@ -32,7 +74,7 @@ const ViewOnceModal = ({ src, onClose }: { src: string, onClose: () => void }) =
     
     return createPortal(
         <div 
-            className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center animate-in fade-in duration-300 backdrop-blur-sm" 
+            className="fixed inset-0 z-[10000] bg-black/95 flex items-center justify-center animate-in fade-in duration-300 backdrop-blur-sm" 
             onClick={onClose}
         >
             <div className="absolute top-6 right-6">
@@ -76,6 +118,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
   const [imageError, setImageError] = useState(false);
   const [isViewed, setIsViewed] = useState(false);
   const [showViewOnceModal, setShowViewOnceModal] = useState(false);
+  const [showImageViewer, setShowImageViewer] = useState(false);
   const [showFooter, setShowFooter] = useState(false);
 
   // Logic to determine what to display
@@ -117,7 +160,8 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
         {/* Bubble Container */}
         <div 
           className={`
-           relative px-5 py-3 rounded-2xl shadow-lg transition-all duration-300 overflow-hidden cursor-pointer
+           relative rounded-2xl shadow-lg transition-all duration-300 overflow-hidden cursor-pointer
+           ${message.text ? 'px-5 py-3' : 'p-1.5'}
            ${message.isMe 
              ? 'text-white rounded-tr-sm' 
              : 'text-white/90 rounded-tl-sm hover:bg-[#1a1a20]/90'}
@@ -144,7 +188,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
           
           {/* Attachment Rendering */}
           {message.attachment && (
-            <div className="mb-3">
+            <div className={message.text ? "mb-2" : "m-1"}>
                 {message.attachment.type === 'image' ? (
                     isViewOnce ? (
                          /* View Once UI */
@@ -192,20 +236,24 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
                          </div>
                     ) : (
                         /* Standard Image */
-                        <div className="rounded-lg overflow-hidden border border-white/10 bg-black/10">
+                        <div className="rounded-lg overflow-hidden border border-white/10 bg-black/10 w-[180px] max-w-full">
                             {imageError || message.attachment.url?.startsWith('blob:') ? (
-                                <div className="w-full min-h-[200px] flex flex-col items-center justify-center bg-black/20 text-white/40 p-4">
-                                    <X size={24} className="mb-2 opacity-50" />
+                                <div className="w-full min-h-[140px] flex flex-col items-center justify-center bg-black/20 text-white/40 p-3">
+                                    <X size={20} className="mb-2 opacity-50" />
                                     <p className="text-xs text-center">Image unavailable</p>
-                                    <p className="text-[10px] text-center mt-1 text-white/30">The image link has expired</p>
+                                    <p className="text-[10px] text-center mt-1 text-white/30">Link expired</p>
                                 </div>
                             ) : (
                                 <img 
                                     src={message.attachment.url} 
-                                    alt="Attachment" 
-                                    className="w-full h-auto max-h-[400px] object-contain" 
+                                    alt="Shared image" 
+                                    className="w-full h-auto max-h-[220px] object-cover cursor-pointer hover:opacity-90 transition-opacity" 
                                     loading="lazy"
                                     onError={() => setImageError(true)}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setShowImageViewer(true);
+                                    }}
                                 />
                             )}
                         </div>
@@ -216,16 +264,16 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
                         href={message.attachment.url} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="flex items-center gap-3 p-3 rounded-lg bg-black/20 hover:bg-black/30 transition-colors border border-white/10"
+                        className="flex items-center gap-2 p-2.5 rounded-lg bg-black/20 hover:bg-black/30 transition-colors border border-white/5 group w-[180px] max-w-full"
                     >
-                        <div className="p-2 bg-white/10 rounded-lg">
-                            <FileText size={20} className="text-white" />
+                        <div className="p-2 bg-aurora-indigo/20 text-aurora-indigo rounded-lg group-hover:bg-aurora-indigo/30 transition-colors flex-shrink-0">
+                            <FileText size={18} />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-white truncate">{message.attachment.name || 'Attachment'}</p>
-                            <p className="text-[10px] text-white/50 uppercase">File</p>
+                            <p className="text-xs font-medium text-white truncate">{message.attachment.name || 'Attachment'}</p>
+                            <p className="text-[10px] text-white/50">File</p>
                         </div>
-                        <Download size={16} className="text-white/50" />
+                        <Download size={16} className="text-white/40 group-hover:text-white/60 transition-colors flex-shrink-0" />
                     </a>
                 )}
             </div>
@@ -257,9 +305,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
                         )}
                     </>
                 )}
-                {!message.text && message.attachment && (
-                     <span className="text-[10px] uppercase tracking-wider font-semibold text-white/40">Media</span>
-                )}
              </div>
 
              {/* Toggle Button (Only if translation exists, it's not my own message, AND global translation is enabled) */}
@@ -288,6 +333,11 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
       {/* View Once Modal */}
       {showViewOnceModal && message.attachment?.url && (
           <ViewOnceModal src={message.attachment.url} onClose={handleCloseViewOnce} />
+      )}
+
+      {/* Image Viewer Modal */}
+      {showImageViewer && message.attachment?.url && message.attachment?.type === 'image' && (
+          <ImageViewerModal src={message.attachment.url} onClose={() => setShowImageViewer(false)} />
       )}
     </div>
   );

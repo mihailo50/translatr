@@ -140,7 +140,6 @@ export default function GlobalCallHandler() {
           const isInChatroom = currentRoomId === callRoomId || pathname === `/chat/${callRoomId}`;
           
             if (isInChatroom) {
-                console.log('⏭️ User is in chatroom, skipping existing call banner (ChatRoom will handle it)');
                 // Don't mark as read here - let ChatRoom handle it
                 // This prevents race condition where notification is marked read before ChatRoom can display it
                 return; // Don't show banner if user is in the chatroom
@@ -180,14 +179,11 @@ export default function GlobalCallHandler() {
               
               processedCallIdsRef.current.add(callNotif.id);
               
-              console.log('📞 New call notification received:', callNotif);
-              
               // Check if user is currently in the chatroom for this call
               const callRoomId = callNotif.content.room_id;
               const isInChatroom = currentRoomId === callRoomId || pathname === `/chat/${callRoomId}`;
               
               if (isInChatroom) {
-                console.log('⏭️ User is in chatroom, skipping banner (ChatRoom will handle it)');
                 // Don't mark as read here - let ChatRoom handle it
                 // This prevents race condition where notification is marked read before ChatRoom can display it
                 return; // Don't show banner if user is in the chatroom
@@ -320,7 +316,6 @@ export default function GlobalCallHandler() {
           const isInChatroom = currentRoomId === callRoomId || pathname === `/chat/${callRoomId}`;
           
           if (isInChatroom) {
-            console.log('⏭️ Polling: User is in chatroom, skipping banner');
             processedCallIdsRef.current.add(latestCall.id);
             return;
           }

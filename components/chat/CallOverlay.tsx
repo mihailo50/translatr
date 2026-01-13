@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { LiveKitRoom, useTracks, VideoTrack, useLocalParticipant, useRemoteParticipants, useRoomContext } from '@livekit/components-react';
-import { Track, ExternalE2EEKeyProvider, RoomOptions, RoomEvent } from 'livekit-client';
+import { Track, ExternalE2EEKeyProvider, RoomOptions, RoomEvent, RemoteParticipant } from 'livekit-client';
 import { ShieldCheck, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
 
 interface CallOverlayProps {
@@ -26,7 +26,7 @@ const FloatingLocalVideo = () => {
     if (!localTrack) return null;
 
     return (
-        <div className="fixed top-4 right-4 md:top-6 md:right-6 w-32 md:w-48 aspect-video rounded-2xl border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-50 bg-black/40 transition-all">
+        <div className="fixed top-12 right-4 md:top-16 md:right-6 w-32 md:w-48 aspect-video rounded-2xl border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-50 bg-black/40 transition-all" style={{ top: 'max(3rem, env(safe-area-inset-top, 1rem))' }}>
             <VideoTrack trackRef={localTrack} className="w-full h-full object-cover mirror-mode" />
             <div className="absolute bottom-1 left-2 text-[10px] font-light tracking-wide text-white/90 z-20">You</div>
         </div>
@@ -39,34 +39,55 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     const room = useRoomContext();
     const participantJoinedRef = useRef(false);
     
-    // Listen for DataChannel messages from call room (for call_accepted signals)
+    // Track if we've already notified about call acceptance
+    const callAcceptedNotifiedRef = useRef(false);
+    
+    // Listen for DataChannel messages AND participant joins for instant call acceptance detection
     useEffect(() => {
         if (!room || room.state !== 'connected') return;
         
+        const notifyCallAccepted = () => {
+            if (!callAcceptedNotifiedRef.current && onCallAccepted) {
+                callAcceptedNotifiedRef.current = true;
+                onCallAccepted();
+            }
+        };
+        
+        // Method 1: Listen for DataChannel messages (signal from acceptor)
         const handleDataReceived = (payload: Uint8Array, participant?: any) => {
             const decoder = new TextDecoder();
             try {
                 const data = JSON.parse(decoder.decode(payload));
-                console.log('CallOverlay: Received DataChannel message:', data.type, 'from:', participant?.identity);
                 
                 // Handle call_accepted signal from call room
                 if (data.type === 'call_accepted' && participant && participant.identity !== userId) {
-                    console.log('CallOverlay: Call accepted signal received via call room DataChannel');
-                    if (onCallAccepted) {
-                        onCallAccepted(data.callId);
-                    }
+                    notifyCallAccepted();
                 }
             } catch (error) {
-                console.warn('CallOverlay: Failed to parse DataChannel message:', error);
+                // Silently handle parse errors
+            }
+        };
+        
+        // Method 2: Listen for participant joins (instant detection - more reliable)
+        const handleParticipantConnected = (participant: RemoteParticipant) => {
+            if (participant.identity !== userId) {
+                notifyCallAccepted();
             }
         };
         
         room.on(RoomEvent.DataReceived, handleDataReceived);
+        room.on(RoomEvent.ParticipantConnected, handleParticipantConnected);
+        
+        // Check if participant is already in the room
+        if (remoteParticipants.length > 0) {
+            notifyCallAccepted();
+        }
         
         return () => {
             room.off(RoomEvent.DataReceived, handleDataReceived);
+            room.off(RoomEvent.ParticipantConnected, handleParticipantConnected);
         };
-    }, [room, userId, onCallAccepted]);
+    }, [room, userId, onCallAccepted, remoteParticipants]);
     
     // Notify parent when participant joins (for call acceptance detection)
     useEffect(() => {
@@ -83,31 +104,35 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                     onParticipantJoined();
                 }
                 
-                // Send call_accepted signal via call room DataChannel as backup
-                // Wait a bit for DataChannel to be ready
-                setTimeout(() => {
-                    try {
-                        const payload = JSON.stringify({
-                            type: 'call_accepted',
-                            senderId: userId || localParticipant.identity,
-                            timestamp: Date.now()
+                // Send call_accepted signal via call room DataChannel immediately
+                try {
+                    const payload = JSON.stringify({
+                        type: 'call_accepted',
+                        senderId: userId || localParticipant.identity,
+                        timestamp: Date.now()
+                    });
+                    const encoder = new TextEncoder();
+                    const encodedPayload = encoder.encode(payload);
+                    
+                    // Send immediately
+                    localParticipant.publishData(encodedPayload, { reliable: true })
+                        .catch(() => {
+                            // Try lossy as fallback
+                            localParticipant.publishData(encodedPayload, { reliable: false })
+                                .catch(() => {});
                         });
-                        const encoder = new TextEncoder();
-                        const encodedPayload = encoder.encode(payload);
-                        
-                        localParticipant.publishData(encodedPayload, { reliable: true })
-                            .then(() => console.log('✅ Sent call_accepted via call room DataChannel'))
-                            .catch(err => {
-                                console.warn('Failed to send call_accepted via call room (reliable):', err);
-                                // Try lossy as fallback
-                                localParticipant.publishData(encodedPayload, { reliable: false })
-                                    .then(() => console.log('✅ Sent call_accepted via call room DataChannel (lossy)'))
-                                    .catch(() => console.warn('Failed to send call_accepted via call room (both reliable and lossy failed)'));
-                            });
-                    } catch (error) {
-                        console.warn('Error sending call_accepted via call room:', error);
-                    }
-                }, 500); // Wait 500ms for DataChannel to be ready
+                    
+                    // Also send backup signals to ensure delivery
+                    setTimeout(() => {
+                        localParticipant.publishData(encodedPayload, { reliable: true }).catch(() => {});
+                    }, 100);
+                    
+                    setTimeout(() => {
+                        localParticipant.publishData(encodedPayload, { reliable: true }).catch(() => {});
+                    }, 300);
+                } catch (error) {
+                    // Silently handle send errors
+                }
             }
         };
         
@@ -126,7 +151,8 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     
     // Always listen for camera tracks so users can enable video mid-call
     const videoTracks = useTracks([Track.Source.Camera]);
-    const audioTracks = useTracks(callType === 'audio' ? [Track.Source.Microphone] : []);
+    // ALWAYS listen for audio tracks (both audio and video calls need audio)
+    const audioTracks = useTracks([Track.Source.Microphone]);
     
     // Filter remote tracks
     const remoteVideoTracks = videoTracks.filter(t => t.participant.identity !== localParticipant.identity);
@@ -175,15 +201,12 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
             try {
                 // Check if microphone is already enabled (for local tracks, check if published)
                 const micPublication = localParticipant.getTrackPublication(Track.Source.Microphone);
+                
                 if (!micPublication || micPublication.isMuted) {
-                    console.log('CallOverlay: Enabling microphone...');
                     await localParticipant.setMicrophoneEnabled(true);
-                    console.log('CallOverlay: Microphone enabled');
-                } else {
-                    console.log('CallOverlay: Microphone already enabled');
                 }
             } catch (error) {
-                console.error('CallOverlay: Failed to enable microphone:', error);
+                console.error('❌ CallOverlay: Failed to enable microphone:', error);
             }
         };
 
@@ -205,13 +228,13 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
     
     useEffect(() => {
-        if (callType !== 'audio' || !room) return;
+        // Audio is needed for BOTH audio and video calls
+        if (!room) return;
         
         // Ensure we subscribe to remote audio tracks
         remoteParticipants.forEach(participant => {
             const audioPublication = participant.getTrackPublication(Track.Source.Microphone);
             if (audioPublication && !audioPublication.isSubscribed) {
-                console.log(`CallOverlay: Subscribing to audio track for ${participant.identity}`);
                 audioPublication.setSubscribed(true);
             }
         });
@@ -220,10 +243,15 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
         remoteAudioTracks.forEach(trackRef => {
             const participantId = trackRef.participant.identity;
             const publication = trackRef.publication;
-            const track = publication?.track;
+            const livekitTrack = publication?.track;
             
-            if (!track || !publication?.isSubscribed) {
-                console.log(`CallOverlay: Audio track not available or not subscribed for ${participantId}`);
+            if (!livekitTrack || !publication?.isSubscribed) {
+                return;
+            }
+            
+            // Get the underlying MediaStreamTrack from LiveKit Track
+            const mediaStreamTrack = livekitTrack.mediaStreamTrack;
+            if (!mediaStreamTrack) {
                 return;
             }
             
@@ -233,24 +261,25 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                 audioElement = document.createElement('audio');
                 audioElement.autoplay = true;
                 audioElement.playsInline = true;
+                audioElement.volume = 1.0;
+                audioElement.muted = false;
                 audioElement.style.display = 'none';
                 document.body.appendChild(audioElement);
                 audioRefs.current.set(participantId, audioElement);
-                console.log(`CallOverlay: Created audio element for ${participantId}`);
             }
             
             // Attach track to audio element
-            if (track instanceof MediaStreamTrack) {
-                const stream = new MediaStream([track]);
-                // Only update if the stream has changed
-                if (audioElement.srcObject !== stream) {
-                    audioElement.srcObject = stream;
-                    audioElement.play().then(() => {
-                        console.log(`CallOverlay: Audio playing for ${participantId}`);
-                    }).catch(err => {
-                        console.warn(`CallOverlay: Failed to play audio for ${participantId}:`, err);
-                    });
-                }
+            const stream = new MediaStream([mediaStreamTrack]);
+            
+            // Only update if the stream has changed
+            if (audioElement.srcObject !== stream) {
+                audioElement.srcObject = stream;
+                audioElement.volume = 1.0;
+                audioElement.muted = false;
+                
+                audioElement.play().catch(() => {
+                    // Silently handle autoplay failures
+                });
             }
         });
         
@@ -258,25 +287,11 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
         const activeParticipantIds = new Set(remoteAudioTracks.map(t => t.participant.identity));
         audioRefs.current.forEach((audioElement, participantId) => {
             if (!activeParticipantIds.has(participantId)) {
-                console.log(`CallOverlay: Cleaning up audio element for ${participantId}`);
                 audioElement.pause();
                 audioElement.srcObject = null;
                 audioElement.remove();
                 audioRefs.current.delete(participantId);
             }
-        });
-        
-        // Log audio tracks for debugging
-        console.log('CallOverlay: Audio tracks status:', {
-            remoteAudioTracks: remoteAudioTracks.length,
-            remoteParticipants: remoteParticipants.length,
-            tracks: remoteAudioTracks.map(t => ({
-                participant: t.participant.identity,
-                track: t.publication?.trackSid,
-                subscribed: t.publication?.isSubscribed,
-                trackType: t.publication?.track?.kind,
-                muted: t.publication?.isMuted
-            }))
         });
         
         return () => {
@@ -288,14 +303,13 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
             });
             audioRefs.current.clear();
         };
-    }, [remoteAudioTracks, remoteParticipants, callType, room]);
+    }, [remoteAudioTracks, remoteParticipants, room]);
 
     // Listen for room disconnection events and data channel messages
     useEffect(() => {
         if (!room) return;
         
-        const handleDisconnected = (reason?: any) => {
-            console.log('CallOverlay: Room disconnected', reason);
+        const handleDisconnected = () => {
             onDisconnect(false);
         };
         
@@ -304,11 +318,10 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
             try {
                 const data = JSON.parse(decoder.decode(payload));
                 if (data.type === 'call_ended') {
-                    console.log('CallOverlay: Received call_ended signal');
                     onDisconnect(false);
                 }
             } catch (e) {
-                console.error('CallOverlay: Error parsing data:', e);
+                // Ignore parse errors
             }
         };
         
@@ -344,9 +357,8 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                 });
                 const encoder = new TextEncoder();
                 await room.localParticipant.publishData(encoder.encode(payload), { reliable: true });
-                console.log('CallOverlay: Call end signal sent via call room');
             } catch (error) {
-                console.warn('CallOverlay: Failed to send call end signal:', error);
+                // Silently handle send errors
             }
         }
         // Disconnect (this will clear state in ChatRoom)
@@ -354,7 +366,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     };
 
     return (
-        <div className="relative h-full w-full flex flex-col bg-[#020205]">
+        <div className="relative h-dvh w-full flex flex-col bg-[#020205]">
             {/* Inline styles for radar/pulse animations to match modal visuals */}
             <style dangerouslySetInnerHTML={{ __html: `
               @keyframes radar-ripple {
@@ -464,7 +476,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
             {!isVideoOff && <FloatingLocalVideo />}
 
             {/* Floating Control Capsule */}
-            <div className="fixed bottom-6 md:bottom-8 left-1/2 -translate-x-1/2 w-fit px-6 py-3 rounded-full bg-white/[0.03] border border-white/10 backdrop-blur-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-4 md:gap-8 z-[100]">
+            <div className="fixed bottom-8 md:bottom-12 left-1/2 -translate-x-1/2 w-fit px-6 py-3 rounded-full bg-white/[0.03] border border-white/10 backdrop-blur-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-4 md:gap-8 z-[100]" style={{ bottom: 'max(2rem, calc(env(safe-area-inset-bottom, 0px) + 1.5rem))' }}>
                 {/* Mute Button */}
                 <button 
                     onClick={toggleMute} 
@@ -492,7 +504,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                 {/* End Call Button */}
                 <button 
                     onClick={handleHangup}
-                    className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.3)] text-white transition-all hover:scale-110 animate-float"
+                    className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.3)] text-white transition-all hover:scale-110"
                 >
                     <PhoneOff size={18} />
                 </button>
@@ -527,7 +539,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
   }, []);
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-[#020205] text-white animate-in fade-in duration-300">
+    <div className="fixed inset-0 z-[9999] bg-[#020205] text-white animate-in fade-in duration-300 h-dvh">
         {/* Aurora Cosmos Background Layer */}
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
             {/* Top-Left Nebula Blob */}

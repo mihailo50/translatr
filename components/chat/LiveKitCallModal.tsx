@@ -119,9 +119,9 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
         }
       `}} />
 
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#020205]/90 backdrop-blur-md animate-in fade-in duration-300">
-        {/* Content Container - No Border */}
-        <div className="w-full max-w-sm flex flex-col items-center relative">
+      <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-[#020205]/90 backdrop-blur-md animate-in fade-in duration-300 px-4">
+        {/* Content Container - No Border, with padding to keep centered */}
+        <div className="w-full max-w-sm flex flex-col items-center relative py-8">
           
           {/* Ambient Background Glow */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/20 rounded-full blur-[80px] pointer-events-none caller-glow" />
@@ -171,17 +171,17 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
 
           {/* Controls */}
           {isSender ? (
-            /* Sender View - Only End Button at Bottom */
-            <div className="w-full mt-8 flex justify-center">
+            /* Sender View - Only End Button at Bottom - Fixed position */
+            <div className="w-full mt-12 flex justify-center">
               <button 
                 onClick={onDecline}
-                className="w-12 h-12 rounded-full bg-red-500/80 hover:bg-red-500 text-white transition-all flex items-center justify-center hover:scale-110"
+                className="w-12 h-12 rounded-full bg-red-500/80 hover:bg-red-500 text-white transition-colors flex items-center justify-center"
               >
                 <PhoneOff size={20} />
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-4 z-10 w-full justify-center flex-wrap mt-8">
+            <div className="flex items-center gap-4 z-10 w-full justify-center flex-wrap mt-12">
               {!isCallActive ? (
                 <>
                   {/* Decline */}

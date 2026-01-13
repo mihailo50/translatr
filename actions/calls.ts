@@ -3,6 +3,7 @@
 import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '../utils/supabase/server';
+import { callLogger } from '../utils/callLogger';
 
 export async function initiateCall(roomId: string, userId: string, userName: string, type: 'audio' | 'video') {
   try {
@@ -37,6 +38,7 @@ export async function initiateCall(roomId: string, userId: string, userName: str
       : jwtResult;
 
     const callId = `call_${Date.now()}`;
+    let recipientIds: string[] = []; // Declare outside try-catch for logging
 
     // 2. Create call notification in database for recipient(s)
     // This ensures users receive call notifications even when not in the chat room
@@ -53,9 +55,6 @@ export async function initiateCall(roomId: string, userId: string, userName: str
             : await createServerClient();
         
         // Get recipient(s) from room_members (for direct rooms, extract from room ID)
-        let recipientIds: string[] = [];
-        
-        console.log(`📞 Initiating call - roomId: ${roomId}, userId: ${userId}, type: ${type}`);
         
         if (roomId.startsWith('direct_')) {
           // Extract user IDs from direct room ID format: direct_userId1_userId2
@@ -72,26 +71,18 @@ export async function initiateCall(roomId: string, userId: string, userName: str
             const userId1 = parts[0];
             const userId2 = parts.slice(1).join('_'); // In case userId2 had underscores (shouldn't happen but be safe)
             
-            console.log(`📞 Parsed direct room - userId1: ${userId1}, userId2: ${userId2}`);
             recipientIds = [userId1, userId2].filter(id => id !== userId && id.length > 0);
-            console.log(`📞 Recipient IDs after filtering caller: ${JSON.stringify(recipientIds)}`);
-          } else {
-            console.error(`📞 Failed to parse direct room ID: ${roomId}, parts: ${JSON.stringify(parts)}`);
           }
           
           // Fallback: If parsing failed, query room_members
           if (recipientIds.length === 0) {
-            console.log('📞 Fallback: querying room_members for direct room');
             const { data: members, error: membersError } = await supabaseDb
               .from('room_members')
               .select('profile_id')
               .eq('room_id', roomId);
             
-            if (membersError) {
-              console.error('📞 Failed to fetch room members:', membersError);
-            } else if (members) {
+            if (members && !membersError) {
               recipientIds = members.map(m => m.profile_id).filter(id => id !== userId);
-              console.log(`📞 Got recipients from room_members: ${JSON.stringify(recipientIds)}`);
             }
           }
         } else {
@@ -101,17 +92,12 @@ export async function initiateCall(roomId: string, userId: string, userName: str
             .select('profile_id')
             .eq('room_id', roomId);
           
-          if (membersError) {
-            console.error('Failed to fetch room members for call notifications:', membersError);
-          }
-          if (members) {
+          if (members && !membersError) {
             recipientIds = members
               .map(m => m.profile_id)
               .filter(id => id !== userId);
           }
         }
-        
-        console.log(`📞 Final recipient IDs: ${JSON.stringify(recipientIds)}`);
         
         // Create notifications for all recipients
         if (recipientIds.length > 0) {
@@ -127,24 +113,13 @@ export async function initiateCall(roomId: string, userId: string, userName: str
             related_id: roomId,
           }));
           
-          const { error: insertError } = await supabaseDb
+          await supabaseDb
             .from('notifications')
             .insert(notifications);
-          
-          if (insertError) {
-            console.error('Failed to insert call notifications:', insertError);
-          } else {
-            console.log(`✅ Created ${notifications.length} call notification(s) for room ${roomId}, recipients: ${JSON.stringify(recipientIds)}`);
-          }
-        } else {
-          console.warn(`📞 No recipients found for call in room ${roomId}. Notification not created.`);
         }
-      } else {
-        console.error('Missing NEXT_PUBLIC_SUPABASE_URL; cannot create call notifications.');
       }
     } catch (notifError) {
-      console.error('Failed to create call notifications:', notifError);
-      // Continue - LiveKit data channel will still work for users in the room
+      // Silently continue - LiveKit data channel will still work
     }
 
     // 3. Broadcast 'call_started' system message via LiveKit Data Channel
@@ -170,14 +145,30 @@ export async function initiateCall(roomId: string, userId: string, userName: str
             { reliable: true }
         );
     } catch (e) {
-        console.error("Failed to broadcast call invite:", e);
-        // Continue, as the caller can still join the room
+        // Silently continue - caller can still join
     }
+
+    // Log successful call initiation
+    callLogger.callInitiated({
+      callId,
+      roomId,
+      initiatorId: userId,
+      initiatorName: userName,
+      receiverId: recipientIds.length > 0 ? recipientIds[0] : undefined,
+      callType: type
+    });
 
     return { success: true, token, serverUrl: wsUrl, callId };
 
   } catch (error) {
-    console.error('Initiate Call Error:', error);
-    return { success: false, error: 'Failed to start call' };
+    const errorMessage = error instanceof Error ? error.message : 'Failed to start call';
+    callLogger.callError('Call initiation failed', {
+      roomId,
+      initiatorId: userId,
+      initiatorName: userName,
+      callType: type,
+      reason: errorMessage
+    });
+    return { success: false, error: errorMessage };
   }
 }

@@ -20,6 +20,7 @@ import { createCallRecord, updateCallRecord, updateCallRecordByCallId, getCallRe
 import { blockUserInRoom, unblockUserInRoom, getBlockStatus } from '../../actions/contacts';
 import { RoomEvent, ConnectionState } from 'livekit-client';
 import { toast } from 'sonner';
+import { callLogger } from '../../utils/callLogger';
 
 export interface Participant {
     id: string;
@@ -84,12 +85,10 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           .eq('is_read', false);
 
         if (error) {
-          console.error('Error marking room notifications as read:', error);
-        } else {
-          console.log('✅ Marked all unread notifications for room as read:', roomId);
+          // Silently handle error
         }
       } catch (err) {
-        console.error('Error in markRoomNotificationsAsRead:', err);
+        // Silently handle error
       }
     };
 
@@ -102,10 +101,9 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         const result = await getCallRecords(roomId);
         if (result.success && result.records) {
           setCallRecords(result.records);
-          console.log(`✅ Loaded ${result.records.length} call records for room ${roomId}`);
         }
       } catch (err) {
-        console.error('Error loading call records:', err);
+        // Silently handle error
       }
     };
     
@@ -129,8 +127,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           // Check if this is a call status update that should close the incoming call UI
           const record = payload.new as any;
           if (record && (record.status === 'missed' || record.status === 'ended' || record.status === 'declined')) {
-            console.log(`📞 ChatRoom: Call record status changed to ${record.status}, clearing call UI`);
-            
             // Stop ringtone if playing
             if (ringtoneRef.current) {
               ringtoneRef.current.pause();
@@ -213,8 +209,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           // Mark as processed to prevent re-handling
           processedCallNotifIdsRef.current.add(latestCall.id);
           
-          console.log('📞 ChatRoom: Found unread call notification via polling:', latestCall);
-          
           // Extract call details from notification
           const content = latestCall.content as any;
           const callerId = content?.sender_name || 'Unknown';
@@ -244,7 +238,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
             .eq('id', latestCall.id);
         }
       } catch (error) {
-        console.error('Error checking for call notifications:', error);
+        // Silently handle error
       }
     };
     
@@ -257,16 +251,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     };
   }, [userId, roomId, supabase]);
   
-  // Debug logging
-  useEffect(() => {
-    console.log('ChatRoom - roomDetails:', {
-      name: roomDetails?.name,
-      room_type: roomDetails?.room_type,
-      participants: roomDetails?.participants,
-      participantsLength: roomDetails?.participants?.length,
-      firstParticipant: roomDetails?.participants?.[0]
-    });
-  }, [roomDetails]);
+  // Room details validation (no logging)
 
   if (!roomDetails) {
       return <div className="flex h-full items-center justify-center text-white/50">Loading room...</div>;
@@ -319,7 +304,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           try { await ringbackRef.current.play(); } catch {}
         }
       } catch (e) {
-        console.log('Audio unlock:', e);
+        // Silently handle
       }
     };
     
@@ -365,9 +350,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       try {
         ringtoneRef.current.currentTime = 0;
         await ringtoneRef.current.play();
-        console.log('✅ Ringtone playing');
       } catch (err: any) {
-        console.log('Could not play ringtone:', err);
         // Queue pending play until audio is unlocked via user interaction
         pendingRingtoneRef.current = true;
       }
@@ -387,9 +370,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       try {
         ringbackRef.current.currentTime = 0;
         await ringbackRef.current.play();
-        console.log('✅ Ringback playing');
       } catch (err: any) {
-        console.log('Could not play ringback:', err);
         // Queue pending play until audio is unlocked via user interaction
         pendingRingbackRef.current = true;
       }
@@ -415,7 +396,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       if (lastMessage) {
         lastMessageIdRef.current = lastMessage.id;
         messagesInitializedRef.current = true;
-        console.log('🔇 Initialized message tracking with last message ID:', lastMessage.id);
       }
     } else if (messages.length === 0) {
       // Reset when messages are cleared (room change)
@@ -435,7 +415,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     
     // Only play sound for messages from other users that we haven't seen yet
     if (lastMessage && !lastMessage.isMe && lastMessage.id !== lastMessageIdRef.current) {
-      console.log('🔔 New message detected, playing sound:', lastMessage.id);
       lastMessageIdRef.current = lastMessage.id;
       
       // Play sound for new message
@@ -522,22 +501,9 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
               .single();
           if (!error && data?.status) {
               const dbStatus = data.status as UserStatus;
-              console.log(`📊 Fetched partner status from DB: ${dbStatus} for user ${directPartnerId}`);
-              
-              // Always update state, even if it's the same, to trigger re-render
-              setPartnerProfileStatus(prev => {
-                  if (prev !== dbStatus) {
-                      console.log(`📊 Partner status changed: ${prev} → ${dbStatus}`);
-                  }
-                  return dbStatus;
-              });
-          } else if (error) {
-              console.error('❌ Error fetching partner status:', error);
-              // If we can't fetch, assume offline to be safe
-              setPartnerProfileStatus('offline');
+              setPartnerProfileStatus(dbStatus);
           } else {
-              // No data returned, assume offline
-              console.warn(`⚠️ No status data returned for partner ${directPartnerId}, assuming offline`);
+              // If we can't fetch, assume offline to be safe
               setPartnerProfileStatus('offline');
           }
       };
@@ -547,7 +513,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       
       // Periodic refresh every 10 seconds to catch offline status changes faster
       const refreshInterval = setInterval(() => {
-          console.log(`🔄 Refreshing partner status from DB for ${directPartnerId}`);
           fetchStatus();
       }, 10000);
       
@@ -565,7 +530,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
               (payload) => {
                   const updatedProfile = payload.new as any;
                   if (updatedProfile.status) {
-                      console.log(`📊 Partner status updated via real-time: ${updatedProfile.status}`);
                       setPartnerProfileStatus(updatedProfile.status as UserStatus);
                   }
               }
@@ -586,33 +550,24 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       
       // CRITICAL: If presence explicitly says offline, ALWAYS trust it (most real-time)
       if (presenceStatus === 'offline') {
-          console.log(`🔴 Partner ${directPartnerId} is OFFLINE (from presence)`);
           return 'offline';
       }
       
       // If presence exists and is not offline, use it (most real-time)
-      // This includes 'online', 'invisible', 'busy', 'dnd', 'in-call', etc.
       if (presenceStatus && presenceStatus !== 'offline') {
-          console.log(`✅ Partner ${directPartnerId} status from presence: ${presenceStatus}`);
           return presenceStatus;
       }
       
-      // If presence has NO data (undefined/null), fall back to database status
-      // This handles cases where presence hasn't synced yet or user just came online
+      // If presence has NO data, fall back to database status
       if (!presenceStatus) {
           if (partnerProfileStatus) {
-              // Use database status as fallback (could be 'online', 'invisible', 'offline', etc.)
-              console.log(`📊 Partner ${directPartnerId} status from DB (no presence): ${partnerProfileStatus}`);
               return partnerProfileStatus;
           }
-          // If both presence and DB are missing, default to offline
-          console.log(`⚠️ No status data for partner ${directPartnerId}, defaulting to OFFLINE`);
           return 'offline';
       }
       
-      // If database says offline, trust it (user closed app, presence may not have updated yet)
+      // If database says offline, trust it
       if (partnerProfileStatus === 'offline') {
-          console.log(`🔴 Partner ${directPartnerId} is OFFLINE (from DB) - presence says: ${presenceStatus}`);
           return 'offline';
       }
       
@@ -621,8 +576,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           return partnerProfileStatus;
       }
       
-      // If we have no data at all, default to offline (more accurate than optimistic online)
-      console.log(`⚠️ No status data for partner ${directPartnerId}, defaulting to OFFLINE`);
+      // If we have no data at all, default to offline
       return 'offline';
   }, [directPartnerId, onlineUsers, partnerProfileStatus]);
 
@@ -690,25 +644,18 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 
   useEffect(() => {
     if (!liveKitChatRoom) {
-      console.log('ChatRoom: liveKitChatRoom is not available');
       return;
     }
-    
-    console.log('ChatRoom: Setting up data channel listener, room state:', liveKitChatRoom.state, 'room name:', liveKitChatRoom.name);
     
     const handleData = async (payload: Uint8Array, participant?: any) => {
         const decoder = new TextDecoder();
         try {
             const data = JSON.parse(decoder.decode(payload));
-            console.log('ChatRoom: Received data:', data.type, 'from:', data.senderId, 'my userId:', userId, 'participant:', participant?.identity, 'data:', data);
             
             // Handle Incoming Call
             if (data.type === 'call_invite' && data.senderId !== userId) {
-                console.log('ChatRoom: Incoming call detected!', data);
-                
                 // Ignore if we already have an active call token (we're already in a call)
                 if (activeCallTokenRef.current) {
-                    console.log('ChatRoom: Ignoring call invite - already in a call');
                     return;
                 }
                 
@@ -743,7 +690,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
             
             // Handle Call Accepted (receiver joined the call)
             if (data.type === 'call_accepted' && data.senderId !== userId) {
-                console.log('ChatRoom: Call accepted by receiver');
                 stopRingback(); // Stop ringback when call is accepted
                 if (callTimeoutRef.current) {
                     clearTimeout(callTimeoutRef.current);
@@ -765,7 +711,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
             
             // Handle Call Declined
             if (data.type === 'call_declined' && data.senderId !== userId) {
-                console.log('ChatRoom: Call declined by receiver');
                 stopRingback(); // Stop ringback when call is declined
                 if (callTimeoutRef.current) {
                     clearTimeout(callTimeoutRef.current);
@@ -847,33 +792,28 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                 }
             }
         } catch (e) {
-            console.error('ChatRoom: Error parsing data:', e, 'payload:', payload);
+            // Silently handle malformed data
         }
     };
     
     // Set up listener - handle both immediate connection and waiting for connection
     const onConnected = () => {
-      console.log('ChatRoom: Room connected event, setting up data channel listener');
       liveKitChatRoom.on(RoomEvent.DataReceived, handleData);
     };
     
     // If already connected, set up listener immediately
     if (liveKitChatRoom.state === ConnectionState.Connected) {
-      console.log('ChatRoom: Room already connected, setting up data channel listener immediately');
       liveKitChatRoom.on(RoomEvent.DataReceived, handleData);
     } else {
       // Wait for connection event
-      console.log('ChatRoom: Room not connected yet, waiting for connection event...', liveKitChatRoom.state);
       liveKitChatRoom.on(RoomEvent.Connected, onConnected);
       
       // Also poll in case the event doesn't fire
       const checkConnection = setInterval(() => {
         if (liveKitChatRoom.state === ConnectionState.Connected) {
-          console.log('ChatRoom: Room connected via polling, setting up listener');
           liveKitChatRoom.on(RoomEvent.DataReceived, handleData);
           clearInterval(checkConnection);
         } else if (liveKitChatRoom.state === ConnectionState.Disconnected) {
-          console.log('ChatRoom: Room disconnected, stopping connection check');
           clearInterval(checkConnection);
         }
       }, 200);
@@ -883,7 +823,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     }
     
     return () => { 
-        console.log('ChatRoom: Cleaning up data channel listener');
         liveKitChatRoom.off(RoomEvent.DataReceived, handleData);
         liveKitChatRoom.off(RoomEvent.Connected, onConnected);
     };
@@ -938,9 +877,20 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           
           // Set call timeout (60 seconds)
           callTimeoutRef.current = setTimeout(async () => {
-              console.log('⏱️ Call timeout - no answer after 60 seconds');
               stopRingback();
               toast.error('Call timed out - no answer');
+              
+              // Log timeout
+              callLogger.callTimeout({
+                  callId: callRecordIdRef.current || undefined,
+                  roomId,
+                  initiatorId: userId,
+                  initiatorName: userName,
+                  receiverId: roomDetails.participants?.[0]?.id,
+                  receiverName: roomDetails.participants?.[0]?.name,
+                  callType: type,
+                  reason: 'No answer after 60 seconds'
+              });
               
               // Update call record to missed
               if (callRecordIdRef.current) {
@@ -953,6 +903,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
               }
               
               // Send call_ended signal to receiver so they know call timed out
+              // Only send if room is still connected (avoid "Room disconnected" errors)
               if (liveKitChatRoom && liveKitChatRoom.state === ConnectionState.Connected && liveKitChatRoom.localParticipant) {
                   try {
                       const payload = JSON.stringify({
@@ -965,7 +916,12 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                       await liveKitChatRoom.localParticipant.publishData(encoder.encode(payload), { reliable: true });
                       console.log('✅ Sent call_ended signal for timeout');
                   } catch (error) {
-                      console.warn('Failed to send call_ended signal on timeout:', error);
+                      // Silently handle errors - room might have disconnected during timeout
+                      if (error instanceof Error && error.message.includes('Room disconnected')) {
+                          console.log('⚠️ Cannot send call_ended - room already disconnected');
+                      } else {
+                          console.warn('Failed to send call_ended signal on timeout:', error);
+                      }
                   }
               }
               
@@ -976,7 +932,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           // Wait for room to be connected, then send call invite
           const waitForConnectionAndSend = async () => {
               if (!liveKitChatRoom) {
-                  console.warn('LiveKit chat room not available for call invite');
                   return;
               }
               
@@ -1111,6 +1066,17 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       updateUserStatus('in-call');
       setShowCallBanner(false);
       
+      // Log call acceptance
+      callLogger.callAccepted({
+          callId: incomingCallId || undefined,
+          roomId,
+          initiatorId: roomDetails.participants?.[0]?.id || 'unknown',
+          initiatorName: incomingCaller,
+          receiverId: userId,
+          receiverName: userName,
+          callType
+      });
+      
       // Update call record to accepted (if we have the callId from the invite)
       if (incomingCallId) {
           await updateCallRecordByCallId(incomingCallId, 'accepted');
@@ -1121,93 +1087,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       // Send call_accepted signal to caller (so they can stop ringback)
       // Wait for chat room to be connected before sending
       const sendCallAcceptedSignal = async () => {
-          if (!liveKitChatRoom || !incomingCallId) return;
-          
-          // Wait for room to be connected
-          const waitForConnection = async (): Promise<boolean> => {
-              if (liveKitChatRoom.state === ConnectionState.Connected && liveKitChatRoom.localParticipant) {
-                  return true;
-              }
-              
-              return new Promise((resolve) => {
-                  const timeout = setTimeout(() => resolve(false), 3000);
-                  
-                  const onConnected = () => {
-                      clearTimeout(timeout);
-                      liveKitChatRoom.off(RoomEvent.Connected, onConnected);
-                      // Wait a bit for localParticipant to be ready
-                      setTimeout(() => resolve(liveKitChatRoom.localParticipant !== null), 500);
-                  };
-                  
-                  liveKitChatRoom.on(RoomEvent.Connected, onConnected);
-                  
-                  // Also poll
-                  const pollInterval = setInterval(() => {
-                      if (liveKitChatRoom.state === ConnectionState.Connected && liveKitChatRoom.localParticipant) {
-                          clearTimeout(timeout);
-                          clearInterval(pollInterval);
-                          liveKitChatRoom.off(RoomEvent.Connected, onConnected);
-                          resolve(true);
-                      }
-                  }, 200);
-                  
-                  setTimeout(() => {
-                      clearInterval(pollInterval);
-                      liveKitChatRoom.off(RoomEvent.Connected, onConnected);
-                  }, 3000);
-              });
-          };
-          
-          const isConnected = await waitForConnection();
-          if (!isConnected) {
-              console.warn('Chat room not connected, skipping call_accepted signal');
-              return;
-          }
-          
-          const payload = JSON.stringify({
-              type: 'call_accepted',
-              callId: incomingCallId,
-              senderId: userId,
-              timestamp: Date.now()
-          });
-          const encoder = new TextEncoder();
-          const encodedPayload = encoder.encode(payload);
-          
-          // Send primary signal
-          try {
-              await liveKitChatRoom.localParticipant.publishData(encodedPayload, { reliable: true });
-              console.log('✅ Sent call_accepted signal');
-          } catch (error) {
-              console.warn('Failed to send call accepted signal:', error);
-              // Try with lossy as fallback
-              try {
-                  await liveKitChatRoom.localParticipant.publishData(encodedPayload, { reliable: false });
-                  console.log('✅ Sent call_accepted signal (lossy fallback)');
-              } catch (fallbackError) {
-                  console.error('Failed to send call accepted signal (both reliable and lossy failed):', fallbackError);
-              }
-          }
-          
-          // Send backup signals for reliability (especially on mobile)
-          setTimeout(() => {
-              liveKitChatRoom.localParticipant?.publishData(encodedPayload, { reliable: true })
-                  .then(() => console.log('✅ Backup call_accepted #1 sent'))
-                  .catch(err => {
-                      console.warn('Backup call_accepted #1 failed, trying lossy:', err);
-                      liveKitChatRoom.localParticipant?.publishData(encodedPayload, { reliable: false })
-                          .catch(() => {});
-                  });
-          }, 500);
-          
-          setTimeout(() => {
-              liveKitChatRoom.localParticipant?.publishData(encodedPayload, { reliable: true })
-                  .then(() => console.log('✅ Backup call_accepted #2 sent'))
-                  .catch(err => {
-                      console.warn('Backup call_accepted #2 failed, trying lossy:', err);
-                      liveKitChatRoom.localParticipant?.publishData(encodedPayload, { reliable: false })
-                          .catch(() => {});
-                  });
-          }, 1500);
+          // CallOverlay handles sending call_accepted via the call room DataChannel
+          // No need to send from chat room as well
       };
       
       // Send signal (fire and forget)
@@ -1217,39 +1098,78 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       const targetRoomId = incomingCallRoomId || roomId;
       if (targetRoomId !== roomId) {
           // Navigate to the correct chat room
+          console.log('📞 Call from different room, navigating to:', targetRoomId);
           router.push(`/chat/${targetRoomId}`);
           // Wait a bit for navigation, then initiate call
           setTimeout(async () => {
+              console.log('📞 Navigation complete, initiating call...');
               const res = await initiateCall(targetRoomId, userId, userName, callType);
+              console.log('📞 initiateCall response (cross-room):', { success: res.success, hasToken: !!res.token, hasServerUrl: !!res.serverUrl, error: res.error });
+              
               if (res.success && res.token && res.serverUrl) {
-                  setIsCallModalOpen(false);
                   const token = typeof res.token === 'string' ? res.token : await res.token;
+                  console.log('📞 Cross-room call successful, setting up overlay...');
+                  
+                  // Set call state FIRST
                   setActiveCallToken(token);
                   setActiveCallUrl(res.serverUrl);
                   setActiveCallType(callType);
+                  
+                  // Then close modal
+                  setTimeout(() => {
+                      setIsCallModalOpen(false);
+                      console.log('✅ Cross-room call overlay state set, modal closed');
+                  }, 100);
               } else {
+                  console.error('❌ Failed to join cross-room call:', res.error);
                   updateUserStatus('online');
-                  toast.error("Failed to join call");
+                  toast.error(res.error || "Failed to join call");
               }
           }, 500);
       } else {
           // Call is from current room, proceed normally
+          console.log('📞 Answering call - calling initiateCall...', { roomId, userId, callType });
           const res = await initiateCall(roomId, userId, userName, callType);
+          console.log('📞 initiateCall response:', { success: res.success, hasToken: !!res.token, hasServerUrl: !!res.serverUrl, error: res.error });
+          
           if (res.success && res.token && res.serverUrl) {
-              setIsCallModalOpen(false);
+              console.log('📞 Call join successful, setting up call overlay...');
               const token = typeof res.token === 'string' ? res.token : await res.token;
+              console.log('📞 Setting state - token length:', token.length, 'serverUrl:', res.serverUrl, 'callType:', callType);
+              
+              // Set call state FIRST, then close modal
+              // This ensures CallOverlay mounts before modal unmounts
               setActiveCallToken(token);
               setActiveCallUrl(res.serverUrl);
               setActiveCallType(callType);
+              
+              // Use setTimeout to ensure state has updated before closing modal
+              setTimeout(() => {
+                  setIsCallModalOpen(false);
+                  console.log('✅ Call overlay state set successfully, modal closed');
+              }, 100);
           } else {
+              console.error('❌ Failed to join call:', res.error || 'Unknown error');
               updateUserStatus('online');
-              toast.error("Failed to join call");
+              toast.error(res.error || "Failed to join call");
           }
       }
   };
 
   const handleDeclineCall = async () => {
       stopRingtone(); // Stop ringtone when call is declined
+      
+      // Log call decline
+      callLogger.callDeclined({
+          callId: incomingCallId || undefined,
+          roomId,
+          initiatorId: roomDetails.participants?.[0]?.id || 'unknown',
+          initiatorName: incomingCaller,
+          receiverId: userId,
+          receiverName: userName,
+          callType,
+          reason: 'User declined'
+      });
       
       // Update call record to declined
       if (incomingCallId) {
@@ -1336,9 +1256,23 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       
       // Calculate call duration and update call record
       let durationSeconds: number | undefined = undefined;
+      let durationMs: number | undefined = undefined;
       if (callStartTimeRef.current) {
-          durationSeconds = Math.floor((Date.now() - callStartTimeRef.current) / 1000);
+          durationMs = Date.now() - callStartTimeRef.current;
+          durationSeconds = Math.floor(durationMs / 1000);
       }
+      
+      // Log call end
+      callLogger.callEnded({
+          callId: callRecordIdRef.current || incomingCallId || undefined,
+          roomId,
+          initiatorId: isCaller ? userId : (roomDetails.participants?.[0]?.id || 'unknown'),
+          initiatorName: isCaller ? userName : incomingCaller,
+          receiverId: isCaller ? (roomDetails.participants?.[0]?.id || undefined) : userId,
+          receiverName: isCaller ? (roomDetails.participants?.[0]?.name || undefined) : userName,
+          callType: activeCallType,
+          duration: durationMs
+      });
       
       // Update call record to ended
       if (callRecordIdRef.current) {
@@ -1511,10 +1445,12 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     chatRoomRef.current.style.setProperty('--mouse-y', `${y}`);
   };
 
+  // Call overlay state tracking (no logging)
+
   return (
     <div 
       ref={chatRoomRef}
-      className="relative w-full h-full flex flex-col overflow-hidden rounded-3xl border border-white/5 bg-transparent"
+      className="relative w-full h-full flex flex-col overflow-hidden rounded-3xl border border-white/5 bg-[#03030b] isolate z-0"
       onMouseMove={handleMouseMove}
       style={{
         '--mouse-x': '50',
@@ -1890,7 +1826,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         isSender={isCaller}
       />
       
-      {activeCallToken && activeCallUrl && (
+      {activeCallToken && activeCallUrl && !isCallModalOpen && (
           <CallOverlay 
             token={activeCallToken} 
             serverUrl={activeCallUrl} 
@@ -1923,7 +1859,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
             onCallAccepted={(callId?: string) => {
               // Handle call_accepted signal received from call room DataChannel
               if (isCaller) {
-                console.log('📞 Call accepted signal received from call room DataChannel');
                 stopRingback();
                 if (callTimeoutRef.current) {
                   clearTimeout(callTimeoutRef.current);

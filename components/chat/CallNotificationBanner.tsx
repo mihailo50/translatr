@@ -71,32 +71,32 @@ const CallNotificationBanner: React.FC<CallNotificationBannerProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-3 gap-3">
             {/* Decline */}
             <button
               onClick={onDecline}
-              className="flex-1 px-4 py-3 bg-red-500/5 hover:bg-red-500/10 border border-red-500/20 text-red-400 hover:text-red-300 rounded-xl transition-all text-sm font-medium flex items-center justify-center gap-2"
+              className="h-12 px-4 bg-red-500/5 hover:bg-red-500/10 border border-red-500/20 text-red-400 hover:text-red-300 rounded-xl transition-all text-sm font-medium flex items-center justify-center gap-2"
             >
               <PhoneOff size={18} />
-              <span>Decline</span>
+              <span className="whitespace-nowrap">Decline</span>
             </button>
 
             {/* Decline with Message */}
             <button
               onClick={onDeclineWithMessage}
-              className="flex-1 px-4 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white rounded-xl transition-all text-sm font-medium flex items-center justify-center gap-2"
+              className="h-12 px-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white rounded-xl transition-all text-sm font-medium flex items-center justify-center gap-2"
             >
               <MessageSquare size={18} />
-              <span>Message</span>
+              <span className="whitespace-nowrap">Message</span>
             </button>
 
             {/* Accept */}
             <button
               onClick={onAccept}
-              className="flex-1 px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl transition-all text-sm font-medium shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2"
+              className="h-12 px-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl transition-all text-sm font-medium shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2"
             >
               {callType === 'video' ? <Video size={18} /> : <Phone size={18} />}
-              <span>Accept</span>
+              <span className="whitespace-nowrap">Accept</span>
             </button>
           </div>
         </div>
