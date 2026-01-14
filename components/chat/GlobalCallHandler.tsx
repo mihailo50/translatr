@@ -119,11 +119,15 @@ export default function GlobalCallHandler() {
   useEffect(() => {
     const setupCallListener = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user || !mountedRef.current) return;
+      if (!user || !mountedRef.current) {
+        console.log('📞 [GlobalCallHandler] Setup skipped:', { hasUser: !!user, mounted: mountedRef.current });
+        return;
+      }
       userIdRef.current = user.id;
+      console.log('📞 [GlobalCallHandler] Setting up call listener for user:', user.id);
 
       // Fetch initial unread call notifications
-      const { data: existingCalls } = await supabase
+      const { data: existingCalls, error: fetchError } = await supabase
         .from('notifications')
         .select('*')
         .eq('recipient_id', user.id)
@@ -132,14 +136,27 @@ export default function GlobalCallHandler() {
         .order('created_at', { ascending: false })
         .limit(1);
 
+      console.log('📞 [GlobalCallHandler] Fetched existing calls:', { existingCalls, fetchError, userId: user.id });
+
       if (existingCalls && existingCalls.length > 0 && mountedRef.current) {
         const latestCall = existingCalls[0] as CallNotification;
+        console.log('📞 [GlobalCallHandler] Processing existing call:', {
+          callId: latestCall.id,
+          alreadyProcessed: processedCallIdsRef.current.has(latestCall.id),
+          currentRoomId,
+          callRoomId: latestCall.content.room_id,
+          pathname
+        });
+        
         if (!processedCallIdsRef.current.has(latestCall.id)) {
           // Check if user is currently in the chatroom for this call
           const callRoomId = latestCall.content.room_id;
           const isInChatroom = currentRoomId === callRoomId || pathname === `/chat/${callRoomId}`;
           
+          console.log('📞 [GlobalCallHandler] isInChatroom check:', { isInChatroom, currentRoomId, callRoomId, pathname });
+          
             if (isInChatroom) {
+                console.log('📞 [GlobalCallHandler] User is in chatroom, skipping banner (ChatRoom will handle)');
                 // Don't mark as read here - let ChatRoom handle it
                 // This prevents race condition where notification is marked read before ChatRoom can display it
                 return; // Don't show banner if user is in the chatroom
@@ -149,13 +166,15 @@ export default function GlobalCallHandler() {
           setIncomingCall(latestCall);
           setShowBanner(true);
           playRingtone();
-          console.log('📞 Found existing call notification:', latestCall);
+          console.log('📞 [GlobalCallHandler] Showing banner for existing call:', latestCall);
         }
       }
 
-      // Subscribe to new call notifications
+      // Subscribe to new call notifications with unique channel name to avoid conflicts
+      const channelName = `global-call-notifications-${user.id}-${Date.now()}`;
+      console.log('📞 [GlobalCallHandler] Subscribing to notifications for user:', user.id, 'channel:', channelName);
       const channel = supabase
-        .channel('global-call-notifications')
+        .channel(channelName)
         .on(
           'postgres_changes',
           {
@@ -169,11 +188,24 @@ export default function GlobalCallHandler() {
             
             const notification = payload.new as any;
             
+            console.log('📞 [GlobalCallHandler] Realtime notification received:', notification);
+            
             if (notification.type === 'call' && !notification.is_read) {
               const callNotif = notification as CallNotification;
               
+              console.log('📞 [GlobalCallHandler] Processing new call notification:', {
+                callId: callNotif.id,
+                sender: callNotif.content.sender_name,
+                callType: callNotif.content.call_type,
+                roomId: callNotif.content.room_id,
+                alreadyProcessed: processedCallIdsRef.current.has(callNotif.id),
+                currentRoomId,
+                pathname
+              });
+              
               // Avoid processing the same call twice
               if (processedCallIdsRef.current.has(callNotif.id)) {
+                console.log('📞 [GlobalCallHandler] Call already processed, skipping');
                 return;
               }
               
@@ -183,12 +215,16 @@ export default function GlobalCallHandler() {
               const callRoomId = callNotif.content.room_id;
               const isInChatroom = currentRoomId === callRoomId || pathname === `/chat/${callRoomId}`;
               
+              console.log('📞 [GlobalCallHandler] isInChatroom check:', { isInChatroom, currentRoomId, callRoomId, pathname });
+              
               if (isInChatroom) {
+                console.log('📞 [GlobalCallHandler] User is in chatroom, skipping banner (ChatRoom will handle)');
                 // Don't mark as read here - let ChatRoom handle it
                 // This prevents race condition where notification is marked read before ChatRoom can display it
                 return; // Don't show banner if user is in the chatroom
               }
               
+              console.log('📞 [GlobalCallHandler] User NOT in chatroom, showing banner');
               setIncomingCall(callNotif);
               setShowBanner(true);
               
@@ -199,11 +235,14 @@ export default function GlobalCallHandler() {
             }
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          console.log('📞 [GlobalCallHandler] Notification channel subscription status:', status);
+        });
 
       // Subscribe to notification updates/deletes so the banner closes if the call is ended elsewhere
+      const notifUpdatesChannelName = `global-call-notification-updates-${user.id}-${Date.now()}`;
       const notifUpdatesChannel = supabase
-        .channel('global-call-notification-updates')
+        .channel(notifUpdatesChannelName)
         .on(
           'postgres_changes',
           {
@@ -240,8 +279,9 @@ export default function GlobalCallHandler() {
         .subscribe();
 
       // Also subscribe to call record updates to detect when calls end/timeout
+      const callRecordsChannelName = `global-call-records-${user.id}-${Date.now()}`;
       const callRecordsChannel = supabase
-        .channel('global-call-records')
+        .channel(callRecordsChannelName)
         .on(
           'postgres_changes',
           {
@@ -274,6 +314,10 @@ export default function GlobalCallHandler() {
         .subscribe();
 
       return () => {
+        console.log('📞 [GlobalCallHandler] Cleaning up subscriptions');
+        channel.unsubscribe();
+        notifUpdatesChannel.unsubscribe();
+        callRecordsChannel.unsubscribe();
         supabase.removeChannel(channel);
         supabase.removeChannel(notifUpdatesChannel);
         supabase.removeChannel(callRecordsChannel);
@@ -285,7 +329,8 @@ export default function GlobalCallHandler() {
     return () => {
       cleanup.then(cleanupFn => cleanupFn?.());
     };
-  }, [supabase, currentRoomId, pathname, incomingCall]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, currentRoomId, pathname]);
 
   // Polling fallback: Check for new call notifications every 2 seconds
   // This handles cases where Realtime subscriptions fail or are delayed

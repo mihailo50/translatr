@@ -1,22 +1,12 @@
 'use client';
 
 import React from 'react';
+import { useRouter } from 'next/navigation';
 import AuroraBackground from '../../../components/ui/AuroraBackground';
 import { AlertTriangle, ArrowLeft } from 'lucide-react';
 
 export default function AuthErrorPage() {
-  const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
-    e.preventDefault();
-    try {
-        if (window.location.pathname !== href) {
-            window.history.pushState({}, '', href);
-        }
-    } catch (err) {
-        console.warn('Navigation suppressed', err);
-    }
-    const navEvent = new CustomEvent('app-navigate', { detail: href });
-    window.dispatchEvent(navEvent);
-  };
+  const router = useRouter();
 
   return (
     <AuroraBackground showOrbs={true}>
@@ -34,7 +24,10 @@ export default function AuthErrorPage() {
 
           <a 
             href="/auth/login"
-            onClick={(e) => handleNavigation(e, '/auth/login')}
+            onClick={(e) => {
+              e.preventDefault();
+              router.push('/auth/login');
+            }}
             className="inline-flex items-center gap-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/20 px-6 py-3 rounded-xl transition-all"
           >
             <ArrowLeft size={16} /> Back to Login

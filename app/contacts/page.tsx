@@ -9,7 +9,8 @@ import {
   Check, 
   X, 
   Loader2,
-  Clock
+  Clock,
+  Plus
 } from 'lucide-react';
 import { 
   getContactsData, 
@@ -24,6 +25,7 @@ import { createClient } from '../../utils/supabase/client';
 import { useUserStatus, UserStatus } from '../../hooks/useUserStatus';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import CreateGroupModal from '../../components/chat/CreateGroupModal';
 
 export default function ContactsPage() {
   const router = useRouter();
@@ -40,23 +42,16 @@ export default function ContactsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const { onlineUsers } = useUserStatus(currentUserId ? { id: currentUserId } : null);
 
   const resolvePresenceStatus = useCallback((userId: string, fallback?: UserStatus): UserStatus => {
     const presence = onlineUsers[userId];
     
-    // Priority: 1. Presence (most real-time), 2. No presence = offline, 3. Database status (fallback only if presence exists)
+    // Priority: 1. Presence (most real-time), 2. Database status (fallback), 3. Offline (default)
     
     // If presence explicitly says offline, ALWAYS trust it (most real-time)
     if (presence === 'offline') {
-      return 'offline';
-    }
-    
-    // If presence has NO data (undefined/null), this means user is not in presence system = OFFLINE
-    // This is more reliable than trusting stale database status
-    if (!presence) {
-      // No presence data = user is offline (not connected to presence system)
-      // Don't trust fallback database status if user is not in presence
       return 'offline';
     }
     
@@ -67,7 +62,16 @@ export default function ContactsPage() {
       return presence;
     }
     
-    // Fallback to offline (shouldn't reach here, but safety net)
+    // If presence has NO data (undefined/null), use database fallback status
+    // This handles cases where presence hasn't synced yet but user is actually online
+    if (!presence && fallback) {
+      // Map database status to display status
+      if (fallback === 'invisible') return 'offline';
+      if (fallback === 'away') return 'online'; // Map away to online for display
+      return fallback;
+    }
+    
+    // Final fallback to offline
     return 'offline';
   }, [onlineUsers]);
 
@@ -157,7 +161,10 @@ export default function ContactsPage() {
               if (newRecord.status === 'pending' && newRecord.contact_id === user.id) {
                 toast.info('New contact request received!');
               }
-              refreshData();
+              // Refresh immediately for faster UI update
+              setTimeout(() => {
+                refreshData();
+              }, 0);
               // Refresh search results if user is searching
               if (activeTabRef.current === 'search' && searchQueryRef.current.trim().length >= 2) {
                 searchUsers(searchQueryRef.current).then(setSearchResults);
@@ -171,18 +178,82 @@ export default function ContactsPage() {
                 // If current user is the sender (user_id), show notification
                 if (updatedRecord.user_id === user.id) {
                   toast.success('Your contact request was accepted!');
+                  
+                  // Current user sent the request, so contact_id is the person who accepted
+                  // Fetch their profile and add to friends immediately
+                  const recipientId = updatedRecord.contact_id;
+                  
+                  supabase
+                    .from('profiles')
+                    .select('id, display_name, email, avatar_url, status')
+                    .eq('id', recipientId)
+                    .single()
+                    .then(({ data: recipientProfile }) => {
+                      if (recipientProfile) {
+                        setFriends(currentFriends => {
+                          // Check if already in friends to avoid duplicates
+                          if (currentFriends.some(f => f.id === recipientProfile.id)) {
+                            return currentFriends;
+                          }
+                          // Add the recipient to friends immediately
+                          return [{
+                            id: recipientProfile.id,
+                            display_name: recipientProfile.display_name,
+                            email: recipientProfile.email,
+                            avatar_url: recipientProfile.avatar_url,
+                            status: 'friends' as const,
+                            profile_status: recipientProfile.status as UserStatus,
+                            relationship_id: updatedRecord.id
+                          }, ...currentFriends];
+                        });
+                      }
+                    });
+                } else if (updatedRecord.contact_id === user.id) {
+                  // Current user accepted a request - remove from requests list immediately
+                  setRequests(prev => prev.filter(req => req.relationship_id !== updatedRecord.id));
+                  
+                  // Fetch the sender's profile to add them to friends
+                  supabase
+                    .from('profiles')
+                    .select('id, display_name, email, avatar_url, status')
+                    .eq('id', updatedRecord.user_id)
+                    .single()
+                    .then(({ data: senderProfile }) => {
+                      if (senderProfile) {
+                        setFriends(currentFriends => {
+                          // Check if already in friends to avoid duplicates
+                          if (currentFriends.some(f => f.id === senderProfile.id)) {
+                            return currentFriends;
+                          }
+                          // Add the sender to friends
+                          return [{
+                            id: senderProfile.id,
+                            display_name: senderProfile.display_name,
+                            email: senderProfile.email,
+                            avatar_url: senderProfile.avatar_url,
+                            status: 'friends' as const,
+                            profile_status: senderProfile.status as UserStatus,
+                            relationship_id: updatedRecord.id
+                          }, ...currentFriends];
+                        });
+                      }
+                    });
                 }
               }
               
-              // Request status changed (accepted/declined)
+              // Request status changed (accepted/declined) - refresh immediately for accurate data
+              // Refresh in parallel with optimistic updates for fastest possible update
               refreshData();
+              
               // Refresh search results if user is searching
               if (activeTabRef.current === 'search' && searchQueryRef.current.trim().length >= 2) {
                 searchUsers(searchQueryRef.current).then(setSearchResults);
               }
             } else if (payload.eventType === 'DELETE') {
-              // Request was declined/removed
-              refreshData();
+              // Request was declined/removed - refresh immediately
+              setTimeout(() => {
+                refreshData();
+              }, 0);
               // Refresh search results if user is searching
               if (activeTabRef.current === 'search' && searchQueryRef.current.trim().length >= 2) {
                 searchUsers(searchQueryRef.current).then(setSearchResults);
@@ -274,76 +345,91 @@ export default function ContactsPage() {
   };
 
   return (
+      <>
       <div className="h-full w-full flex flex-col bg-transparent max-w-6xl mx-auto">
         
         {/* Header with Glass Container */}
-        <div className="p-6 sticky top-0 z-40 backdrop-blur-xl border-b border-white/5">
-          <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/70 tracking-tight mb-1">
-            Contacts
-          </h1>
-          <p className="text-white/50 text-sm">Manage your circle.</p>
+        <div className="p-4 md:p-6 sticky top-0 z-40 backdrop-blur-xl border-b border-white/5 bg-[#03030b]/80">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/70 tracking-tight mb-1">
+                Contacts
+              </h1>
+              <p className="text-white/50 text-sm">Manage your circle.</p>
+            </div>
+            <button
+              onClick={() => setIsCreateGroupOpen(true)}
+              className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:shadow-[0_0_30px_rgba(99,102,241,0.6)] rounded-xl px-4 py-2 flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
+            >
+              <Users size={18} />
+              <Plus size={14} className="bg-white/20 rounded-full p-0.5" />
+              <span className="hidden sm:inline">Create Group</span>
+            </button>
+          </div>
         </div>
 
         {/* Glass Pill Tabs - Segmented Control */}
-        <div className="px-6 pt-6">
-          <div className="bg-white/5 p-1 rounded-full border border-white/10 flex gap-1 mb-6 backdrop-blur-md">
+        <div className="px-4 md:px-6 pt-4 md:pt-6">
+          <div className="bg-white/5 p-1 rounded-full border border-white/10 grid grid-cols-3 gap-1 md:flex md:w-fit mb-6 backdrop-blur-md">
             <button
               onClick={() => setActiveTab('friends')}
-              className={`flex-1 px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
+              className={`px-3 md:px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
                 activeTab === 'friends' 
                   ? 'bg-indigo-500/20 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)] border border-indigo-500/30' 
                   : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'
               }`}
             >
-              My Contacts
+              <span className="truncate">My Contacts</span>
             </button>
             <button
               onClick={() => setActiveTab('requests')}
-              className={`flex-1 px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
+              className={`px-3 md:px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
                 activeTab === 'requests' 
                   ? 'bg-indigo-500/20 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)] border border-indigo-500/30' 
                   : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'
               }`}
             >
-              Requests
+              <span className="truncate">Requests</span>
               {requests.length > 0 && (
-                <span className="bg-aurora-pink text-white text-[10px] px-1.5 py-0.5 rounded-full shadow-sm">
+                <span className="bg-aurora-pink text-white text-[10px] px-1.5 py-0.5 rounded-full shadow-sm flex-shrink-0">
                   {requests.length}
                 </span>
               )}
             </button>
             <button
               onClick={() => setActiveTab('search')}
-              className={`flex-1 px-4 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
+              className={`px-3 md:px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
                 activeTab === 'search' 
                   ? 'bg-indigo-500/20 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)] border border-indigo-500/30' 
                   : 'text-white/50 hover:text-white hover:bg-white/5 border border-transparent'
               }`}
             >
-              <UserPlus size={16} /> Add Contact
+              <UserPlus size={14} className="md:w-4 md:h-4 flex-shrink-0" />
+              <span className="truncate hidden sm:inline">Add Contact</span>
+              <span className="truncate sm:hidden">Add</span>
             </button>
           </div>
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 overflow-y-auto px-6 pb-6">
+        <div className="flex-1 overflow-y-auto px-4 md:px-6 pb-24 md:pb-6">
 
           {/* --- VIEW: SEARCH --- */}
           {activeTab === 'search' && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Search Input - Liquid Glass */}
             <div className="relative group max-w-3xl mx-auto w-full">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-indigo-400 group-focus-within:scale-110 transition-all duration-300" size={20} />
+              <Search className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-indigo-400 group-focus-within:scale-110 transition-all duration-300" size={18} />
               <input 
                 type="text"
                 placeholder="Search by display name or email..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3.5 bg-white/[0.03] border border-white/5 rounded-2xl text-white placeholder-white/30 transition-all duration-300 focus:bg-white/[0.07] focus:border-indigo-500/40 focus:shadow-[0_0_20px_rgba(99,102,241,0.15)] focus:ring-0 focus:outline-none"
+                className="w-full pl-10 md:pl-12 pr-4 py-3 md:py-3.5 bg-white/[0.03] border border-white/5 rounded-2xl text-white placeholder-white/30 transition-all duration-300 focus:bg-white/[0.07] focus:border-indigo-500/40 focus:shadow-[0_0_20px_rgba(99,102,241,0.15)] focus:ring-0 focus:outline-none text-sm md:text-base"
                 autoFocus
               />
               {isPending && (
-                <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 text-indigo-400 animate-spin" size={20} />
+                <Loader2 className="absolute right-3 md:right-4 top-1/2 -translate-y-1/2 text-indigo-400 animate-spin" size={18} />
               )}
             </div>
 
@@ -520,5 +606,13 @@ export default function ContactsPage() {
           )}
         </div>
       </div>
+
+      {/* Create Group Modal */}
+      <CreateGroupModal
+        isOpen={isCreateGroupOpen}
+        onClose={() => setIsCreateGroupOpen(false)}
+        friends={friends}
+      />
+      </>
   );
 }

@@ -5,6 +5,117 @@ import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js
 import { createClient as createServerClient } from '../utils/supabase/server';
 import { callLogger } from '../utils/callLogger';
 
+// Cancel a call and clean up all notifications for all recipients
+export async function cancelCall(roomId: string, callerId: string) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const apiKey = process.env.LIVEKIT_API_KEY;
+    const apiSecret = process.env.LIVEKIT_API_SECRET;
+    const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
+    const livekitHost = wsUrl?.replace('wss://', 'https://');
+
+    if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
+      return { success: false, error: 'Supabase not configured' };
+    }
+
+    const supabaseDb = supabaseServiceKey && supabaseServiceKey !== 'placeholder-key'
+      ? createSupabaseAdminClient(supabaseUrl, supabaseServiceKey)
+      : await createServerClient();
+
+    // Mark all unread call notifications for this room as read
+    await supabaseDb
+      .from('notifications')
+      .update({ is_read: true, read_at: new Date().toISOString() })
+      .eq('related_id', roomId)
+      .eq('type', 'call')
+      .eq('is_read', false);
+
+    // Send call_ended signal via LiveKit server-side to ensure all users receive it
+    if (apiKey && apiSecret && livekitHost) {
+      try {
+        const roomService = new RoomServiceClient(livekitHost, apiKey, apiSecret);
+        
+        const dataPacket = JSON.stringify({
+          type: 'call_ended',
+          callId: `cancel_${Date.now()}`,
+          senderId: callerId,
+          roomId: roomId,
+          timestamp: Date.now()
+        });
+        
+        const encoder = new TextEncoder();
+        await roomService.sendData(
+          roomId,
+          encoder.encode(dataPacket),
+          [],
+          { reliable: true }
+        );
+      } catch (e) {
+        // Silently continue - notifications are already marked as read
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error cancelling call:', error);
+    return { success: false, error: 'Failed to cancel call' };
+  }
+}
+
+// Check if there's an active call in a room (for "Join Call" button)
+// IMPORTANT: This checks for actual CALLS (with audio/video tracks), not just chat participants
+export async function checkActiveCall(roomId: string): Promise<{ hasActiveCall: boolean; callType?: 'audio' | 'video'; participantCount?: number }> {
+  try {
+    const apiKey = process.env.LIVEKIT_API_KEY;
+    const apiSecret = process.env.LIVEKIT_API_SECRET;
+    const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
+    const livekitHost = wsUrl?.replace('wss://', 'https://');
+
+    if (!apiKey || !apiSecret || !livekitHost) {
+      return { hasActiveCall: false };
+    }
+
+    const roomService = new RoomServiceClient(livekitHost, apiKey, apiSecret);
+    
+    try {
+      const rooms = await roomService.listRooms([roomId]);
+      if (rooms && rooms.length > 0) {
+        const room = rooms[0];
+        // Room exists and has participants
+        if (room.numParticipants && room.numParticipants > 0) {
+          // Get participants and check if ANY of them have AUDIO or VIDEO tracks published
+          // Chat-only participants don't publish media tracks, only call participants do
+          const participants = await roomService.listParticipants(roomId);
+          
+          // Check if any participant has audio OR video tracks (indicates a real call)
+          const hasAudioTracks = participants.some(p => 
+            p.tracks?.some(t => t.type === 0) // AUDIO track type
+          );
+          const hasVideoTracks = participants.some(p => 
+            p.tracks?.some(t => t.type === 1) // VIDEO track type
+          );
+          
+          // Only consider it an active call if someone is publishing audio or video
+          if (hasAudioTracks || hasVideoTracks) {
+            return { 
+              hasActiveCall: true, 
+              callType: hasVideoTracks ? 'video' : 'audio',
+              participantCount: room.numParticipants
+            };
+          }
+        }
+      }
+    } catch (e) {
+      // Room doesn't exist = no active call
+    }
+
+    return { hasActiveCall: false };
+  } catch (error) {
+    return { hasActiveCall: false };
+  }
+}
+
 export async function initiateCall(roomId: string, userId: string, userName: string, type: 'audio' | 'video') {
   try {
     const apiKey = process.env.LIVEKIT_API_KEY;

@@ -525,7 +525,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
     onParticipantJoined,
     onCallAccepted
 }) => {
-  // Setup E2EE for Video
+  // Setup E2EE for Video with Enhanced Quality Settings
   const roomOptions = useMemo<RoomOptions>(() => {
      const keyProvider = new ExternalE2EEKeyProvider();
      keyProvider.setKey("translatr-secure-salt-v1");
@@ -534,7 +534,67 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
          e2ee: {
              keyProvider,
              worker: new Worker(new URL('livekit-client/e2ee-worker', import.meta.url))
-         }
+         },
+         // Adaptive streaming for better quality
+         adaptiveStream: true,
+         dynacast: true,
+         
+         // Video capture defaults - higher quality
+         videoCaptureDefaults: {
+             resolution: {
+                 width: 1280,
+                 height: 720,
+                 frameRate: 30,
+             },
+             facingMode: 'user',
+         },
+         
+         // Publishing defaults with simulcast for adaptive quality
+         publishDefaults: {
+             videoSimulcastLayers: [
+                 // High quality layer (720p)
+                 {
+                     resolution: {
+                         width: 1280,
+                         height: 720,
+                         frameRate: 30,
+                     },
+                     encoding: {
+                         maxBitrate: 3_000_000, // 3 Mbps
+                         maxFramerate: 30,
+                     },
+                 },
+                 // Medium quality layer (360p)
+                 {
+                     resolution: {
+                         width: 640,
+                         height: 360,
+                         frameRate: 20,
+                     },
+                     encoding: {
+                         maxBitrate: 800_000, // 800 Kbps
+                         maxFramerate: 20,
+                     },
+                 },
+                 // Low quality layer (180p) - fallback for poor connections
+                 {
+                     resolution: {
+                         width: 320,
+                         height: 180,
+                         frameRate: 15,
+                     },
+                     encoding: {
+                         maxBitrate: 200_000, // 200 Kbps
+                         maxFramerate: 15,
+                     },
+                 },
+             ],
+             // Audio quality settings
+             audioBitrate: 64_000, // 64 Kbps for clear audio
+             dtx: true, // Discontinuous Transmission - saves bandwidth when silent
+             red: true, // Redundant encoding for audio packet loss protection
+             videoCodec: 'vp8', // VP8 is well-supported and efficient
+         },
      };
   }, []);
 

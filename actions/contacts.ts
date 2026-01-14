@@ -1,6 +1,7 @@
 'use server';
 
 import { createClient } from '../utils/supabase/server';
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
 
 export type ContactPresenceStatus = 'online' | 'busy' | 'dnd' | 'invisible' | 'in-call' | 'offline';
@@ -153,6 +154,46 @@ export async function sendContactRequest(targetUserId: string) {
     });
 
   if (error) return { error: error.message };
+
+  // Create notification for the recipient
+  try {
+    // Get sender's profile info for the notification
+    const { data: senderProfile } = await supabase
+      .from('profiles')
+      .select('display_name, avatar_url')
+      .eq('id', user.id)
+      .single();
+
+    // Use service role to create notification (bypasses RLS)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (supabaseUrl && supabaseServiceKey && supabaseServiceKey !== 'placeholder-key') {
+      const supabaseService = createSupabaseClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      });
+
+      await supabaseService
+        .from('notifications')
+        .insert({
+          recipient_id: targetUserId,
+          type: 'contact_request',
+          content: {
+            sender_name: senderProfile?.display_name || 'Someone',
+            preview: 'wants to connect with you',
+            avatar_url: senderProfile?.avatar_url || undefined,
+          },
+          related_id: user.id // Store sender ID in related_id for easy reference
+        });
+    }
+  } catch (notifError) {
+    // Don't fail contact request if notification creation fails
+    console.error('Failed to create contact request notification:', notifError);
+  }
+
   try { revalidatePath('/contacts'); } catch(e) {}
   return { success: true };
 }

@@ -86,17 +86,25 @@ export default function RootLayout({
                 /* Aurora theme glass effects */
                 body.theme-aurora .glass-strong {
                     @apply backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl;
+                    -webkit-transform: translate3d(0,0,0);
+                    transform: translate3d(0,0,0);
                 }
                 body.theme-aurora .glass {
                     @apply backdrop-blur-md bg-white/5 border border-white/5;
+                    -webkit-transform: translate3d(0,0,0);
+                    transform: translate3d(0,0,0);
                 }
                 
                 /* Midnight theme glass effects (darker) */
                 body.theme-midnight .glass-strong {
                     @apply backdrop-blur-xl bg-white/3 border border-white/5 shadow-2xl;
+                    -webkit-transform: translate3d(0,0,0);
+                    transform: translate3d(0,0,0);
                 }
                 body.theme-midnight .glass {
                     @apply backdrop-blur-md bg-white/3 border border-white/3;
+                    -webkit-transform: translate3d(0,0,0);
+                    transform: translate3d(0,0,0);
                 }
                 
                 .scrollbar-thin::-webkit-scrollbar {

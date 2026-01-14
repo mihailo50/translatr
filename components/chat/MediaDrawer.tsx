@@ -26,7 +26,7 @@ const MediaDrawer: React.FC<MediaDrawerProps> = ({ isOpen, onClose, messages, ro
     <>
       {/* Backdrop */}
       <div 
-        className={`absolute inset-0 bg-black/50 backdrop-blur-sm z-40 transition-opacity duration-300 ${
+        className={`absolute inset-0 bg-[#020205]/60 backdrop-blur-xl z-40 transition-opacity duration-300 ${
           isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
         onClick={onClose}
@@ -34,7 +34,7 @@ const MediaDrawer: React.FC<MediaDrawerProps> = ({ isOpen, onClose, messages, ro
 
       {/* Drawer */}
       <div 
-        className={`absolute inset-y-0 right-0 z-50 w-80 glass-strong border-l border-white/10 transform transition-transform duration-300 ease-out flex flex-col ${
+        className={`absolute inset-y-0 right-0 z-50 w-80 bg-[#050510]/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transform transition-transform duration-300 ease-out flex flex-col ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >

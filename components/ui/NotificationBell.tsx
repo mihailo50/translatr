@@ -170,13 +170,43 @@ export default function NotificationBell() {
           .not('read_at', 'is', null)
           .lt('read_at', sevenDaysAgo.toISOString());
         
+        // Only log errors if they have meaningful information
+        // Supabase sometimes returns empty error objects {} for successful operations
+        // or error objects with all null/undefined/empty properties
         if (deleteError) {
-          console.error('Error cleaning up old notifications:', deleteError);
-        } else {
-          // Cleaned up old notifications
+          // First check if it's a completely empty object
+          const errorKeys = Object.keys(deleteError);
+          if (errorKeys.length === 0) {
+            // Empty object {} - ignore silently
+            return;
+          }
+          
+          const errorMessage = (deleteError as any).message;
+          const errorCode = (deleteError as any).code;
+          const errorDetails = (deleteError as any).details;
+          const errorHint = (deleteError as any).hint;
+          
+          // Check if error has any meaningful content (not just empty strings or null/undefined)
+          const hasMeaningfulError = 
+            (errorMessage && typeof errorMessage === 'string' && errorMessage.trim().length > 0) ||
+            (errorCode && typeof errorCode === 'string' && errorCode.trim().length > 0) ||
+            (errorDetails && typeof errorDetails === 'string' && errorDetails.trim().length > 0) ||
+            (errorHint && typeof errorHint === 'string' && errorHint.trim().length > 0);
+          
+          // Only log if at least one meaningful property exists
+          if (hasMeaningfulError) {
+            console.error('Error cleaning up old notifications:', {
+              message: errorMessage,
+              code: errorCode,
+              details: errorDetails,
+              hint: errorHint
+            });
+          }
+          // Silently ignore empty error objects - they indicate successful operations
         }
+        // If no error or empty error object, cleanup was successful
       } catch (err) {
-        console.error('Error during notification cleanup:', err);
+        console.error('Error during notification cleanup:', err instanceof Error ? err.message : err);
       }
 
       const { data } = await supabase
@@ -311,8 +341,29 @@ export default function NotificationBell() {
         return; // Don't show notification or play sound - ChatRoom handles it
       }
       
+      // Check if notifications are muted for this room
+      // Only apply mute check to message/call notifications (not contact requests)
+      const checkIfMuted = () => {
+        // Contact requests should never be muted
+        if (newNotification.type === 'contact_request') {
+          return false;
+        }
+        if (newNotification.related_id) {
+          const mutedStatus = localStorage.getItem(`mute_notifications_${newNotification.related_id}`);
+          return mutedStatus === 'true';
+        }
+        return false;
+      };
+      
+      const isMuted = checkIfMuted();
+      
       // Play sound function
       const playSound = () => {
+        // Don't play sound if notifications are muted for this room
+        if (isMuted) {
+          console.log('🔇 Notification sound muted for this room');
+          return;
+        }
         
         // If audio is not unlocked, queue it and try to unlock
         if (!audioUnlockedRef.current) {
@@ -408,8 +459,25 @@ export default function NotificationBell() {
         }
       };
       
-      // Play sound for notification
+      // Play sound for notification (only if not muted)
       playSound();
+      
+      // If notifications are muted for this room, don't add to notification list
+      if (isMuted) {
+        console.log('🔇 Notification muted for this room, not showing banner');
+        // Mark as read immediately so it doesn't show up later
+        void (async () => {
+          try {
+            await supabase
+              .from('notifications')
+              .update({ is_read: true, read_at: new Date().toISOString() })
+              .eq('id', newNotification.id);
+          } catch (err) {
+            console.error('Error marking muted notification as read:', err);
+          }
+        })();
+        return; // Don't add to notification list
+      }
       
       // Update state
       setNotifications((prev) => {

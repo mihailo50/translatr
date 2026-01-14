@@ -18,9 +18,11 @@ interface MessageBubbleProps {
         name?: string;
         viewOnce?: boolean;
     };
+    senderAvatar?: string; // Optional avatar URL for group chats
   };
   userPreferredLanguage: string; // e.g., 'es', 'fr', 'en'
   isTranslationEnabled?: boolean;
+  isGroup?: boolean; // Whether this is a group chat
 }
 
 const ImageViewerModal = ({ src, onClose }: { src: string, onClose: () => void }) => {
@@ -113,7 +115,7 @@ const ViewOnceModal = ({ src, onClose }: { src: string, onClose: () => void }) =
     );
 };
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLanguage, isTranslationEnabled = true }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLanguage, isTranslationEnabled = true, isGroup = false }) => {
   const [showOriginal, setShowOriginal] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [isViewed, setIsViewed] = useState(false);
@@ -148,10 +150,21 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
   return (
     <div className={`flex items-end gap-3 ${message.isMe ? 'flex-row-reverse' : 'flex-row'} animate-in zoom-in-95 slide-in-from-bottom-2 duration-300`}>
       
-      {/* Avatar (for others) */}
-      {!message.isMe && (
+      {/* Avatar (for others) - Standard avatar for direct chats */}
+      {!message.isMe && !isGroup && (
         <div className="w-8 h-8 rounded-full bg-slate-700/50 flex-shrink-0 flex items-center justify-center text-xs font-bold border border-white/10 uppercase">
           {message.senderName.charAt(0)}
+        </div>
+      )}
+
+      {/* Group Chat Avatar (24px, next to bubble) */}
+      {!message.isMe && isGroup && (
+        <div className="w-6 h-6 rounded-full border border-white/10 mr-2 self-end mb-1 flex-shrink-0 flex items-center justify-center overflow-hidden bg-slate-700/50">
+          {message.senderAvatar ? (
+            <img src={message.senderAvatar} alt={message.senderName} className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-[10px] font-bold text-white uppercase">{message.senderName.charAt(0)}</span>
+          )}
         </div>
       )}
 
@@ -277,6 +290,13 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
                     </a>
                 )}
             </div>
+          )}
+
+          {/* Sender Name for Group Chats (incoming messages only) */}
+          {isGroup && !message.isMe && message.senderName && (
+            <span className="text-[10px] font-bold text-indigo-400 mb-1 ml-0.5 block tracking-wide w-fit">
+              {message.senderName}
+            </span>
           )}
 
           {message.text && (

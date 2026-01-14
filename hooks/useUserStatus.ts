@@ -73,8 +73,8 @@ export const useUserStatus = (user: any) => {
   useEffect(() => {
     if (!user?.id) return;
 
-    // We use a global channel for app-wide presence
-    const channel = supabase.channel(`global_presence_${Date.now()}`, {
+    // We use a global channel for app-wide presence - shared channel name so all users can see each other
+    const channel = supabase.channel('global_presence', {
         config: {
             presence: {
                 key: user.id,
@@ -107,6 +107,26 @@ export const useUserStatus = (user: any) => {
         setLastSeenMap(prev => ({ ...prev, ...seenMap }));
       })
       .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        const userMap: Record<string, UserStatus> = {};
+        const seenMap: Record<string, number> = {};
+        const now = Date.now();
+        
+        newPresences.forEach((presence: any) => {
+          if (presence.status) {
+            userMap[presence.user_id] = presence.status;
+            // Track last seen timestamp
+            if (presence.last_seen) {
+                seenMap[presence.user_id] = new Date(presence.last_seen).getTime();
+            } else {
+                seenMap[presence.user_id] = now;
+            }
+          }
+        });
+        setOnlineUsers(prev => ({ ...prev, ...userMap }));
+        setLastSeenMap(prev => ({ ...prev, ...seenMap }));
+      })
+      .on('presence', { event: 'update' }, ({ key, newPresences }) => {
+        // Handle status updates (when a user changes their status)
         const userMap: Record<string, UserStatus> = {};
         const seenMap: Record<string, number> = {};
         const now = Date.now();
@@ -177,10 +197,11 @@ export const useUserStatus = (user: any) => {
       }
     }, 30000); // Every 30 seconds
 
-    // Check for stale presence: Mark users as offline if no update in 90 seconds
+    // Check for stale presence: Mark users as offline if no update in 2 minutes
+    // Increased threshold to prevent false offline detection due to network delays
     const staleCheckInterval = setInterval(() => {
       const now = Date.now();
-      const STALE_THRESHOLD = 90000; // 90 seconds (reduced from 2 minutes for faster detection)
+      const STALE_THRESHOLD = 120000; // 2 minutes - more lenient to prevent false offline
       
       setLastSeenMap(prev => {
         setOnlineUsers(currentUsers => {
@@ -189,7 +210,13 @@ export const useUserStatus = (user: any) => {
           
           Object.keys(prev).forEach(userId => {
             const lastSeen = prev[userId];
-            if (now - lastSeen > STALE_THRESHOLD && updated[userId] !== 'offline') {
+            // Only mark as offline if:
+            // 1. Last seen is beyond threshold
+            // 2. Current status is not already offline
+            // 3. Current status is not invisible (invisible users might not send heartbeats)
+            if (now - lastSeen > STALE_THRESHOLD && 
+                updated[userId] !== 'offline' && 
+                updated[userId] !== 'invisible') {
               updated[userId] = 'offline';
               hasChanges = true;
               
@@ -211,7 +238,7 @@ export const useUserStatus = (user: any) => {
         });
         return prev;
       });
-    }, 15000); // Check every 15 seconds (more frequent checks)
+    }, 30000); // Check every 30 seconds (less frequent to reduce overhead)
 
     // Handle page unload - set status to offline
     const handleBeforeUnload = () => {
@@ -294,8 +321,9 @@ export const useUserStatus = (user: any) => {
   useEffect(() => {
     if (!user?.id) return;
 
+    // Use a shared channel name so all users can see status updates
     const profilesChannel = supabase
-      .channel(`profiles_status_${Date.now()}`)
+      .channel('profiles_status_global')
       .on(
         'postgres_changes',
         {
@@ -306,18 +334,48 @@ export const useUserStatus = (user: any) => {
         },
         (payload) => {
           const updatedUser = payload.new as any;
-          if (updatedUser.id && updatedUser.status) {
+          const oldUser = payload.old as any;
+          
+          // Only update if status actually changed
+          if (updatedUser.id && updatedUser.status && updatedUser.status !== oldUser?.status) {
             const dbStatus = updatedUser.status as string;
             // Map DB status to UserStatus
-            let mappedStatus: UserStatus = dbStatus as UserStatus;
+            // Note: DB stores 'away' for busy/dnd/in-call, but we need to check presence for actual status
+            // If user is in presence with busy/dnd/in-call, presence takes priority
+            // Otherwise, map DB status
+            let mappedStatus: UserStatus;
+            
             if (dbStatus === 'away') {
-              mappedStatus = 'online'; // Map away to online for UI
+              // Check if we have a more specific status from presence
+              setOnlineUsers(prev => {
+                const currentPresenceStatus = prev[updatedUser.id];
+                // If presence has a specific status (busy/dnd/in-call), use it
+                // Otherwise, map away to online for display
+                if (currentPresenceStatus && ['busy', 'dnd', 'in-call'].includes(currentPresenceStatus)) {
+                  return prev; // Keep presence status
+                }
+                // Map away to online for display
+                return {
+                  ...prev,
+                  [updatedUser.id]: 'online'
+                };
+              });
+              return; // Don't override presence status
+            } else {
+              mappedStatus = dbStatus as UserStatus;
             }
             
-            setOnlineUsers(prev => ({
-              ...prev,
-              [updatedUser.id]: mappedStatus
-            }));
+            setOnlineUsers(prev => {
+              // Only update if we don't have a more specific presence status
+              const currentPresenceStatus = prev[updatedUser.id];
+              if (currentPresenceStatus && ['busy', 'dnd', 'in-call'].includes(currentPresenceStatus)) {
+                return prev; // Keep presence status, it's more specific
+              }
+              return {
+                ...prev,
+                [updatedUser.id]: mappedStatus
+              };
+            });
           }
         }
       )

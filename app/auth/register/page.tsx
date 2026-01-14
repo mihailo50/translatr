@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import AuroraBackground from '../../../components/ui/AuroraBackground';
+import GoogleAuthButton from '../../../components/ui/GoogleAuthButton';
 import { signup } from '../actions';
 import { Mail, Lock, ShieldCheck, Loader2, ArrowRight, Globe, Eye, EyeOff } from 'lucide-react';
+import { createClient } from '../../../utils/supabase/client';
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -22,6 +24,7 @@ const LANGUAGES = [
 export default function RegisterPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -117,6 +120,31 @@ export default function RegisterPage() {
         setError('An unexpected error occurred');
     } finally {
         setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignUp = async () => {
+    setIsGoogleLoading(true);
+    setError(null);
+    
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) {
+        setError(error.message);
+        setIsGoogleLoading(false);
+      }
+      // User will be redirected to Google, no need to set loading to false
+    } catch (e) {
+      console.error(e);
+      setError('Failed to initiate Google sign-up');
+      setIsGoogleLoading(false);
     }
   };
 
@@ -237,6 +265,24 @@ export default function RegisterPage() {
                 </>
               )}
             </button>
+
+            {/* Divider */}
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-white/10"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="backdrop-blur-xl px-2 text-white/40">Or continue with</span>
+              </div>
+            </div>
+
+            {/* Google Sign-Up Button */}
+            <GoogleAuthButton
+              onClick={handleGoogleSignUp}
+              isLoading={isGoogleLoading}
+              disabled={isLoading}
+              text="Continue with Google"
+            />
 
             <div className="text-center mt-6">
               <p className="text-sm text-white/50">

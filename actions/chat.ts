@@ -375,9 +375,10 @@ export async function getMessages(roomId: string) {
     // Load messages directly (removed unnecessary count query)
     // Order by created_at descending and limit to 500 for performance
     // We'll reverse the array client-side if needed
+    // Join with profiles to get sender display names
     const { data, error } = await serviceSupabase
       .from('messages')
-      .select('id, sender_id, original_text, original_language, translations, metadata, created_at')
+      .select('id, sender_id, original_text, original_language, translations, metadata, created_at, sender:profiles!messages_sender_id_fkey(display_name, avatar_url)')
       .eq('room_id', roomId)
       .order('created_at', { ascending: false })
       .limit(500);

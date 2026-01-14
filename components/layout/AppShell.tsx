@@ -7,6 +7,7 @@ import AuroraBackground from '../ui/AuroraBackground';
 import NotificationBell from '../ui/NotificationBell';
 import GlobalSearch from './GlobalSearch';
 import GlobalCallHandler from '../chat/GlobalCallHandler';
+import GlobalContactRequestHandler from '../ui/GlobalContactRequestHandler';
 import { Menu } from 'lucide-react';
 import { Toaster } from 'sonner';
 
@@ -65,7 +66,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           </header>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto scrollbar-thin p-4 md:p-8">
+          <div className="flex-1 overflow-y-auto scrollbar-none md:scrollbar-thin p-4 md:p-8">
             <div className="max-w-7xl mx-auto h-full">
                 {children}
             </div>
@@ -73,6 +74,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
         </main>
       </div>
       <GlobalCallHandler />
+      <GlobalContactRequestHandler />
       <Toaster position="top-right" theme="dark" />
     </AuroraBackground>
   );

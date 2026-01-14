@@ -31,6 +31,7 @@ interface MessageListProps {
   userPreferredLanguage: string;
   isTranslationEnabled: boolean;
   isNotificationsOpen?: boolean;
+  isGroup?: boolean; // Whether this is a group chat
 }
 
 const MessageList: React.FC<MessageListProps> = ({ 
@@ -39,7 +40,8 @@ const MessageList: React.FC<MessageListProps> = ({
   currentUserId = '',
   userPreferredLanguage, 
   isTranslationEnabled, 
-  isNotificationsOpen = false 
+  isNotificationsOpen = false,
+  isGroup = false
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isMounted, setIsMounted] = useState(false);
@@ -120,6 +122,28 @@ const MessageList: React.FC<MessageListProps> = ({
                 );
               } else {
                 const msg = item.data as ChatMessage;
+                
+                // Check if this is a system message
+                const isSystemMessage = 
+                  msg.senderId === 'system' || 
+                  (msg as any).type === 'SYSTEM_MESSAGE' ||
+                  (msg.text && (
+                    msg.text.toLowerCase().includes('created the group') ||
+                    msg.text.toLowerCase().includes('joined the group') ||
+                    msg.text.toLowerCase().includes('left the group')
+                  ));
+                
+                if (isSystemMessage) {
+                  // Render as centered glass pill
+                  return (
+                    <div key={msg.id} className="mx-auto my-4 px-3 py-1 rounded-full bg-white/5 border border-white/5 backdrop-blur-md w-fit">
+                      <span className="text-[10px] text-white/50 font-medium tracking-wide uppercase">
+                        {msg.text}
+                      </span>
+                    </div>
+                  );
+                }
+                
                 return (
                   <MessageBubble 
                     key={msg.id}
@@ -129,6 +153,7 @@ const MessageList: React.FC<MessageListProps> = ({
                     }}
                     userPreferredLanguage={userPreferredLanguage}
                     isTranslationEnabled={isTranslationEnabled}
+                    isGroup={isGroup}
                   />
                 );
               }

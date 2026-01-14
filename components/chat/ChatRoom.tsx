@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
-import { Phone, Video, MoreVertical, Ban, Trash2, X, Unlock, Search, Users, Circle, Bell, Image as ImageIcon, Languages, ArrowLeft, ChevronDown, ShieldCheck } from 'lucide-react';
+import { Phone, Video, MoreVertical, Ban, Trash2, X, Unlock, Search, Users, Circle, Bell, BellOff, Image as ImageIcon, Languages, ArrowLeft, ChevronDown, ShieldCheck } from 'lucide-react';
 import { useLiveKitChat } from '../../hooks/useLiveKitChat';
 import { useUserStatus, UserStatus } from '../../hooks/useUserStatus';
 import { createClient } from '../../utils/supabase/client';
@@ -15,7 +15,7 @@ import CallOverlay from './CallOverlay';
 import MediaDrawer from './MediaDrawer';
 import CallNotificationBanner from './CallNotificationBanner';
 import ConfirmModal from '../ui/ConfirmModal';
-import { initiateCall } from '../../actions/calls';
+import { initiateCall, cancelCall, checkActiveCall } from '../../actions/calls';
 import { createCallRecord, updateCallRecord, updateCallRecordByCallId, getCallRecords } from '../../actions/callRecords';
 import { blockUserInRoom, unblockUserInRoom, getBlockStatus } from '../../actions/contacts';
 import { RoomEvent, ConnectionState } from 'livekit-client';
@@ -246,8 +246,33 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     checkForCallNotifications();
     const pollInterval = setInterval(checkForCallNotifications, 2000);
     
+    // Also poll for active calls (for "Join Call" button)
+    const checkForActiveCalls = async () => {
+      // Skip if we're already in a call or have an incoming call
+      if (activeCallTokenRef.current || isCallModalOpenRef.current || showCallBannerRef.current) {
+        return;
+      }
+      
+      try {
+        const result = await checkActiveCall(roomId);
+        if (result.hasActiveCall && result.callType) {
+          setHasActiveCallToJoin(true);
+          setActiveCallTypeToJoin(result.callType);
+        } else {
+          setHasActiveCallToJoin(false);
+          setActiveCallTypeToJoin(null);
+        }
+      } catch (error) {
+        // Silently handle error
+      }
+    };
+    
+    checkForActiveCalls();
+    const activeCallPollInterval = setInterval(checkForActiveCalls, 5000);
+    
     return () => {
       clearInterval(pollInterval);
+      clearInterval(activeCallPollInterval);
     };
   }, [userId, roomId, supabase]);
   
@@ -259,6 +284,15 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 
   const { isConnected, messages, error, room: liveKitChatRoom, sendRealtimeMessage, reloadMessages } = useLiveKitChat(roomId, userId, userName);
   const [callRecords, setCallRecords] = useState<any[]>([]);
+  
+  // Notification mute state - load from localStorage per room
+  const [isNotificationsMuted, setIsNotificationsMuted] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(`mute_notifications_${roomId}`);
+      return saved === 'true';
+    }
+    return false;
+  });
   
   // Sound ref for playing notification sound when message arrives
   const messageSoundRef = useRef<HTMLAudioElement | null>(null);
@@ -405,11 +439,21 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   }, [messages.length]); // Only depend on length to avoid re-running on every message update
   
   // Play sound when a new message arrives from another user
+  // Save mute status to localStorage when it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(`mute_notifications_${roomId}`, isNotificationsMuted.toString());
+    }
+  }, [isNotificationsMuted, roomId]);
+
   useEffect(() => {
     if (messages.length === 0) return;
     
     // Don't play sound on initial load - wait until messages are initialized
     if (!messagesInitializedRef.current) return;
+    
+    // Don't play sound if notifications are muted for this room
+    if (isNotificationsMuted) return;
     
     const lastMessage = messages[messages.length - 1];
     
@@ -430,7 +474,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       
       playSound();
     }
-  }, [messages]); 
+  }, [messages, isNotificationsMuted]); 
   
   // Presence Hook
   const { onlineUsers, updateUserStatus } = useUserStatus({ id: userId });
@@ -448,6 +492,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   const [callRecordId, setCallRecordId] = useState<string | null>(null);
   const [callStartTime, setCallStartTime] = useState<number | null>(null);
   const [isCaller, setIsCaller] = useState(false);
+  const [hasActiveCallToJoin, setHasActiveCallToJoin] = useState(false);
+  const [activeCallTypeToJoin, setActiveCallTypeToJoin] = useState<'audio' | 'video' | null>(null);
   
   // Refs to access current call state without adding to dependency array
   const activeCallTokenRef = useRef<string | null>(null);
@@ -590,6 +636,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 
   // --- Call State Handling ---
   const handleCallDisconnect = (shouldSignalTerminate: boolean) => {
+      stopRingback(); // Stop ringback if caller cancels/disconnects
+      stopRingtone(); // Stop ringtone if receiver disconnects
       updateUserStatus('online'); // Revert status
       handleEndCall(shouldSignalTerminate);
   };
@@ -654,13 +702,26 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
             
             // Handle Incoming Call
             if (data.type === 'call_invite' && data.senderId !== userId) {
+                console.log('📞 [ChatRoom] Received call_invite via DataChannel:', {
+                    callId: data.callId,
+                    sender: data.senderName,
+                    senderId: data.senderId,
+                    callType: data.callType,
+                    roomId: data.roomId,
+                    currentRoomId: roomId,
+                    hasActiveCall: !!activeCallTokenRef.current
+                });
+                
                 // Ignore if we already have an active call token (we're already in a call)
                 if (activeCallTokenRef.current) {
+                    console.log('📞 [ChatRoom] Already in a call, ignoring call_invite');
                     return;
                 }
                 
                 const callRoomId = data.roomId;
                 const isCallFromCurrentRoom = callRoomId === roomId;
+                
+                console.log('📞 [ChatRoom] Call room match:', { isCallFromCurrentRoom, callRoomId, currentRoomId: roomId });
                 
                 // Clear any previous call state first
                 setShowCallBanner(false);
@@ -678,24 +739,33 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                 // If call is from current room, show modal only (user is in chat with caller)
                 // If call is from different room, show banner only (user is not in chat with caller)
                 if (isCallFromCurrentRoom) {
+                    console.log('📞 [ChatRoom] Showing call modal (call from current room)');
                     setShowCallBanner(false);
                     setIsCallModalOpen(true);
-                    toast.info(`Incoming ${data.callType} call from ${data.senderName || 'Unknown'}`);
+                    // Note: Calls always show UI, but muted notifications suppress toast only
+                    if (!isNotificationsMuted) {
+                        toast.info(`Incoming ${data.callType} call from ${data.senderName || 'Unknown'}`);
+                    }
                 } else {
+                    console.log('📞 [ChatRoom] Showing call banner (call from different room)');
                     setShowCallBanner(true);
                     setIsCallModalOpen(false);
-                    toast.info(`Incoming ${data.callType} call from ${data.senderName || 'Unknown'}`);
+                    if (!isNotificationsMuted) {
+                        toast.info(`Incoming ${data.callType} call from ${data.senderName || 'Unknown'}`);
+                    }
                 }
             }
             
             // Handle Call Accepted (receiver joined the call)
-            if (data.type === 'call_accepted' && data.senderId !== userId) {
+            // IMPORTANT: Only close modal if user is the CALLER (isCaller === true)
+            // For group calls, other receivers should keep their call screen open
+            if (data.type === 'call_accepted' && data.senderId !== userId && isCaller) {
                 stopRingback(); // Stop ringback when call is accepted
                 if (callTimeoutRef.current) {
                     clearTimeout(callTimeoutRef.current);
                     callTimeoutRef.current = null;
                 }
-                // Close caller modal and reset caller flag
+                // Close caller modal and reset caller flag (only for the caller)
                 setIsCallModalOpen(false);
                 setIsCaller(false);
                 
@@ -745,51 +815,54 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
             
             // Handle Call Termination (for both direct and group calls)
             if (data.type === 'call_ended' && data.senderId !== userId) {
-                // Handle for both direct and group calls
-                if (activeCallTokenRef.current || isCallModalOpenRef.current || showCallBannerRef.current || incomingCallId) {
-                    stopRingtone(); // Stop ringtone when call ends
-                    stopRingback(); // Stop ringback when call ends
-                    if (callTimeoutRef.current) {
-                        clearTimeout(callTimeoutRef.current);
-                        callTimeoutRef.current = null;
-                    }
-                    toast.info("Call ended");
-                    
-                    // Calculate duration if call was active
-                    let durationSeconds: number | undefined = undefined;
-                    if (callStartTimeRef.current) {
-                        durationSeconds = Math.floor((Date.now() - callStartTimeRef.current) / 1000);
-                    }
-                    
-                    // Update call record to ended
-                    if (callRecordIdRef.current) {
-                        await updateCallRecord(callRecordIdRef.current, 'ended', durationSeconds);
-                    } else if (data.callId) {
-                        await updateCallRecordByCallId(data.callId, 'ended', durationSeconds);
-                    }
-                    
-                    // Reload call records
-                    const reloadResult = await getCallRecords(roomId);
-                    if (reloadResult.success && reloadResult.records) {
-                        setCallRecords(reloadResult.records);
-                    }
-                    
-                    // Force disconnect by clearing call state
-                    setActiveCallToken(null);
-                    setActiveCallUrl(null);
-                    setActiveCallType('audio');
-                    setIsCallModalOpen(false);
-                    setShowCallBanner(false);
-                    setIncomingCaller('');
-                    setIncomingCallId(null);
-                    setIncomingCallRoomId(null);
-                    setCallRecordId(null);
-                    callRecordIdRef.current = null;
-                    setCallStartTime(null);
-                    callStartTimeRef.current = null;
-                    updateUserStatus('online');
-                    setIsCaller(false);
+                // Handle for both direct and group calls - stop ringtone/ringback for ALL users
+                stopRingtone(); // Stop ringtone when call ends (for receivers)
+                stopRingback(); // Stop ringback when call ends (for callers)
+                if (callTimeoutRef.current) {
+                    clearTimeout(callTimeoutRef.current);
+                    callTimeoutRef.current = null;
                 }
+                
+                // Show toast only if user was involved in the call (had UI showing)
+                if (activeCallTokenRef.current || isCallModalOpenRef.current || showCallBannerRef.current || incomingCallId) {
+                    toast.info("Call ended");
+                }
+                
+                // Calculate duration if call was active
+                let durationSeconds: number | undefined = undefined;
+                if (callStartTimeRef.current) {
+                    durationSeconds = Math.floor((Date.now() - callStartTimeRef.current) / 1000);
+                }
+                
+                // Update call record to ended
+                if (callRecordIdRef.current) {
+                    await updateCallRecord(callRecordIdRef.current, 'ended', durationSeconds);
+                } else if (data.callId) {
+                    await updateCallRecordByCallId(data.callId, 'ended', durationSeconds);
+                }
+                
+                // Reload call records
+                const reloadResult = await getCallRecords(roomId);
+                if (reloadResult.success && reloadResult.records) {
+                    setCallRecords(reloadResult.records);
+                }
+                
+                // Force disconnect by clearing ALL call state for EVERYONE
+                // This ensures call UI is dismissed for all users when caller cancels
+                setActiveCallToken(null);
+                setActiveCallUrl(null);
+                setActiveCallType('audio');
+                setIsCallModalOpen(false);
+                setShowCallBanner(false);
+                setIncomingCaller('');
+                setIncomingCallId(null);
+                setIncomingCallRoomId(null);
+                setCallRecordId(null);
+                callRecordIdRef.current = null;
+                setCallStartTime(null);
+                callStartTimeRef.current = null;
+                updateUserStatus('online');
+                setIsCaller(false);
             }
         } catch (e) {
             // Silently handle malformed data
@@ -967,7 +1040,10 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                               clearTimeout(timeout);
                               clearInterval(pollInterval);
                               liveKitChatRoom.off(RoomEvent.Connected, onConnected);
-                              reject(new Error('Room disconnected'));
+                              // Resolve silently instead of rejecting - disconnection is a valid state
+                              // This prevents "Room disconnected" error from appearing in console
+                              // The calling code will check room state before proceeding
+                              resolve();
                           }
                       }, 200);
                       
@@ -980,6 +1056,13 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                   // Wait for connection
                   console.log('Waiting for LiveKit room connection...', liveKitChatRoom.state);
                   await waitForConnection();
+                  
+                  // Check if room is still connected before proceeding (prevents errors if room disconnected during wait)
+                  if (liveKitChatRoom.state !== ConnectionState.Connected) {
+                      console.log('⚠️ Room disconnected during wait, aborting call invite');
+                      return;
+                  }
+                  
                   console.log('✅ Room connected, proceeding with call invite');
                   
                   // Wait a bit more for local participant to be ready
@@ -1066,15 +1149,18 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       updateUserStatus('in-call');
       setShowCallBanner(false);
       
+      // Determine call type: use incoming call type if available, otherwise use activeCallTypeToJoin for join scenario
+      const effectiveCallType = incomingCallId ? callType : (activeCallTypeToJoin || callType);
+      
       // Log call acceptance
       callLogger.callAccepted({
           callId: incomingCallId || undefined,
           roomId,
           initiatorId: roomDetails.participants?.[0]?.id || 'unknown',
-          initiatorName: incomingCaller,
+          initiatorName: incomingCaller || 'Unknown',
           receiverId: userId,
           receiverName: userName,
-          callType
+          callType: effectiveCallType
       });
       
       // Update call record to accepted (if we have the callId from the invite)
@@ -1128,20 +1214,26 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           }, 500);
       } else {
           // Call is from current room, proceed normally
-          console.log('📞 Answering call - calling initiateCall...', { roomId, userId, callType });
-          const res = await initiateCall(roomId, userId, userName, callType);
+          console.log('📞 Answering/Joining call - calling initiateCall...', { roomId, userId, effectiveCallType });
+          const res = await initiateCall(roomId, userId, userName, effectiveCallType);
           console.log('📞 initiateCall response:', { success: res.success, hasToken: !!res.token, hasServerUrl: !!res.serverUrl, error: res.error });
           
           if (res.success && res.token && res.serverUrl) {
               console.log('📞 Call join successful, setting up call overlay...');
               const token = typeof res.token === 'string' ? res.token : await res.token;
-              console.log('📞 Setting state - token length:', token.length, 'serverUrl:', res.serverUrl, 'callType:', callType);
+              console.log('📞 Setting state - token length:', token.length, 'serverUrl:', res.serverUrl, 'effectiveCallType:', effectiveCallType);
               
               // Set call state FIRST, then close modal
               // This ensures CallOverlay mounts before modal unmounts
               setActiveCallToken(token);
               setActiveCallUrl(res.serverUrl);
-              setActiveCallType(callType);
+              setActiveCallType(effectiveCallType);
+              setCallStartTime(Date.now());
+              callStartTimeRef.current = Date.now();
+              
+              // Clear the "Join Call" state since we're now in the call
+              setHasActiveCallToJoin(false);
+              setActiveCallTypeToJoin(null);
               
               // Use setTimeout to ensure state has updated before closing modal
               setTimeout(() => {
@@ -1251,8 +1343,11 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   };
 
   const handleEndCall = async (shouldSignalTerminate: boolean) => {
-      // Stop ringback if it's playing
+      // Stop ringback if it's playing (CRITICAL: Must stop before cleanup)
       stopRingback();
+      stopRingtone(); // Also stop ringtone in case user was receiving a call
+      
+      const wasCallActive = callStartTimeRef.current !== null;
       
       // Calculate call duration and update call record
       let durationSeconds: number | undefined = undefined;
@@ -1260,6 +1355,12 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       if (callStartTimeRef.current) {
           durationMs = Date.now() - callStartTimeRef.current;
           durationSeconds = Math.floor(durationMs / 1000);
+      }
+      
+      // If caller is cancelling before anyone accepted, use server-side cancel to notify ALL users
+      if (isCaller && !wasCallActive) {
+          // Call was cancelled before anyone accepted - clean up all notifications server-side
+          await cancelCall(roomId, userId);
       }
       
       // Log call end
@@ -1551,8 +1652,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                   </button>
                   <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                     {roomDetails.room_type === 'group' ? (
-                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-aurora-purple/80 to-aurora-pink/80 flex items-center justify-center text-white shadow-lg border border-white/10 shrink-0">
-                        <Users size={18} className="sm:w-[22px] sm:h-[22px]" />
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] shrink-0">
+                        <Users size={18} className="sm:w-5 sm:h-5" />
                       </div>
                     ) : (
                       <div className="relative shrink-0">
@@ -1600,11 +1701,13 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                           <div className="relative" ref={groupListRef}>
                             <button 
                               onClick={() => setIsGroupMembersOpen(!isGroupMembersOpen)}
-                              className="flex items-center gap-1 hover:text-white transition-colors"
+                              className="flex items-center gap-1.5 hover:text-white transition-colors"
                             >
-                              <span className="bg-aurora-purple/20 border border-aurora-purple/30 text-aurora-purple px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">Group</span>
-                              <span>• {roomDetails.members_count} members ({onlineGroupMembers.length} online)</span>
-                              <ChevronDown size={10} />
+                              <span className="text-xs font-medium text-indigo-400 flex items-center gap-1.5">
+                                <span className="w-1 h-1 bg-indigo-400 rounded-full"></span>
+                                {roomDetails.members_count} members ({onlineGroupMembers.length} online)
+                              </span>
+                              <ChevronDown size={10} className="text-indigo-400" />
                             </button>
                             {isGroupMembersOpen && (
                               <div className="absolute top-full left-0 mt-2 w-56 glass-strong rounded-xl border border-white/10 shadow-2xl overflow-hidden z-[60] animate-in fade-in zoom-in-95 duration-200">
@@ -1645,16 +1748,32 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                  <button onClick={() => setIsSearchOpen(true)} className="p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 transition-colors"><Search size={18} className="sm:w-5 sm:h-5" /></button>
                   {!isBlocked && (
                     <>
-                      <button onClick={() => handleStartCall('audio')} className="p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-green-400 transition-colors">
-                        <Phone size={18} className="sm:w-5 sm:h-5" />
-                      </button>
-                      <button onClick={() => handleStartCall('video')} className="p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-indigo-400 transition-colors">
-                        <Video size={18} className="sm:w-5 sm:h-5" />
-                      </button>
+                      {hasActiveCallToJoin && activeCallTypeToJoin ? (
+                        <button 
+                          onClick={() => handleAnswerCall()} 
+                          className="px-3 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all flex items-center gap-2 shadow-lg shadow-green-500/20 hover:shadow-green-500/40 animate-pulse"
+                        >
+                          <Phone size={16} className="sm:w-4 sm:h-4" />
+                          <span className="text-xs sm:text-sm font-medium">Join Call</span>
+                        </button>
+                      ) : (
+                        <>
+                          <button onClick={() => handleStartCall('audio')} className="p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-green-400 transition-colors">
+                            <Phone size={18} className="sm:w-5 sm:h-5" />
+                          </button>
+                          <button onClick={() => handleStartCall('video')} className="p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-indigo-400 transition-colors">
+                            <Video size={18} className="sm:w-5 sm:h-5" />
+                          </button>
+                        </>
+                      )}
                     </>
+                  )}
+                  {isNotificationsMuted && (
+                    <div className="p-1.5 sm:p-2 rounded-lg text-red-400" title="Notifications muted for this chat">
+                      <BellOff size={18} className="sm:w-5 sm:h-5" />
+                    </div>
                   )}
                   <button 
                     ref={menuRef}
@@ -1676,8 +1795,21 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                         boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
                       }}
                     >
-                      <button className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-white/80 hover:text-white text-sm flex items-center gap-3">
-                        <Bell size={16} /> Mute Notifications
+                      <button onClick={() => { setIsSearchOpen(true); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-white/80 hover:text-white text-sm flex items-center gap-3">
+                        <Search size={16} /> Search Messages
+                      </button>
+                      <button onClick={() => { setIsNotificationsMuted(!isNotificationsMuted); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-white/80 hover:text-white text-sm flex items-center gap-3">
+                        {isNotificationsMuted ? (
+                          <>
+                            <Bell size={16} className="text-green-400" />
+                            <span className="text-green-400">Unmute Notifications</span>
+                          </>
+                        ) : (
+                          <>
+                            <BellOff size={16} />
+                            <span>Mute Notifications</span>
+                          </>
+                        )}
                       </button>
                       <button onClick={() => { setIsTranslationEnabled(!isTranslationEnabled); setIsMenuOpen(false); }} className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-white/80 hover:text-white text-sm flex items-center gap-3">
                         <Languages size={16} className={isTranslationEnabled ? "text-aurora-indigo" : "text-white/50"} />
@@ -1689,6 +1821,18 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                       {roomDetails.room_type === 'direct' && (
                         <button onClick={handleBlockToggle} className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-white/80 hover:text-white text-sm flex items-center gap-3" disabled={isBlocked && !blockedByMe}>
                           {isBlocked && blockedByMe ? <><Unlock size={16} className="text-green-400" /><span className="text-green-400">Unblock User</span></> : <><Ban size={16} className={isBlocked && !blockedByMe ? "text-white/30" : "text-red-400"} /><span className={isBlocked && !blockedByMe ? "text-white/30" : "text-red-400"}>{isBlocked && !blockedByMe ? 'Blocked by User' : 'Block User'}</span></>}
+                        </button>
+                      )}
+                      {roomDetails.room_type === 'group' && (
+                        <button 
+                          onClick={() => { 
+                            setIsGroupMembersOpen(true); 
+                            setIsMenuOpen(false); 
+                          }} 
+                          className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-white/80 hover:text-white text-sm flex items-center gap-3"
+                        >
+                          <Users size={16} className="text-indigo-400" />
+                          <span className="text-indigo-400">Group Info</span>
                         </button>
                       )}
                       <div className="h-px bg-white/10 my-1 mx-2" />
@@ -1791,6 +1935,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         userPreferredLanguage={userPreferredLanguage} 
         isTranslationEnabled={isTranslationEnabled}
         isNotificationsOpen={isNotificationsOpen}
+        isGroup={roomDetails.room_type === 'group'}
       />
       
       {/* Input with Fast P2P Send */}

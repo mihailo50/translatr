@@ -6,12 +6,16 @@ import { toast } from 'sonner';
 import { signOutAction, getProfile } from '../../actions/settings';
 import { useTheme } from '../contexts/ThemeContext';
 import UserProfileModal from '../profile/UserProfileModal';
+import { useUserStatus, UserStatus } from '../../hooks/useUserStatus';
 
 export default function UserFooter() {
   const { theme } = useTheme();
   const [user, setUser] = useState<any>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [loading, setLoading] = useState(true);
+  
+  // Get current user's status
+  const { status } = useUserStatus(user ? { id: user.id } : null);
 
   useEffect(() => {
     async function fetchUser() {
@@ -79,8 +83,23 @@ export default function UserFooter() {
                     <span className="text-sm">{user?.name?.[0]?.toUpperCase() || 'U'}</span>
                 )}
              </div>
-             {/* Online Indicator */}
-             <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-aurora-slate shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
+             {/* Status Indicator */}
+             {(() => {
+               const getStatusColor = (s: UserStatus) => {
+                 switch(s) {
+                   case 'online': return 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]';
+                   case 'busy':
+                   case 'dnd': return 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]';
+                   case 'in-call': return 'bg-aurora-purple shadow-[0_0_8px_rgba(144,97,249,0.6)]';
+                   case 'invisible':
+                   case 'offline':
+                   default: return 'bg-slate-500';
+                 }
+               };
+               return (
+                 <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-aurora-slate ${getStatusColor(status || 'offline')}`}></div>
+               );
+             })()}
           </div>
           
           <div className="flex-1 text-left min-w-0">

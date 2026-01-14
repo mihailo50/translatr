@@ -96,3 +96,24 @@ export async function signup(prevState: any, formData: FormData) {
   }
   return { success: true, redirect: '/auth/verify-email' };
 }
+
+export async function resetPassword(prevState: any, formData: FormData) {
+  const email = formData.get('email') as string;
+
+  // Validate email
+  const validation = z.string().email('Invalid email address').safeParse(email);
+  if (!validation.success) {
+    return { error: 'Please enter a valid email address' };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/reset-password`,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { success: true, message: 'Password reset link sent! Check your email.' };
+}

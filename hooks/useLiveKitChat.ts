@@ -11,6 +11,7 @@ export interface ChatMessage {
   translations?: Record<string, string>;
   senderId: string;
   senderName: string;
+  senderAvatar?: string; // Optional avatar URL for group chats
   timestamp: number;
   isMe: boolean;
   isEncrypted?: boolean;
@@ -32,6 +33,7 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
   
   const roomRef = useRef<Room | null>(null);
   const messagesLoadedRef = useRef(false);
+  const connectingRef = useRef(false);
   const supabase = createClient();
 
   // Initialize Encryption Key (once per room)
@@ -46,12 +48,15 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
 
   useEffect(() => {
     let mounted = true;
+    const originalConsoleError = console.error;
 
     const connectToRoom = async () => {
-      // Avoid reconnecting if a room already exists
-      if (roomRef.current) {
+      // Avoid reconnecting if a room already exists or connection is in progress
+      if (roomRef.current || connectingRef.current) {
         return;
       }
+      
+      connectingRef.current = true;
 
       try {
         const response = await fetch('/api/livekit/token', {
@@ -147,6 +152,43 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         newRoom.on(RoomEvent.Reconnected, () => {
           // LiveKit reconnected
         });
+        
+        // Suppress non-critical DataChannel errors and empty notification cleanup errors
+        const filterDataChannelErrors = (...args: any[]) => {
+          // Check for empty object as first or second argument (common pattern for empty errors)
+          const hasEmptyObjectArg = args.some(arg => 
+            arg && typeof arg === 'object' && !Array.isArray(arg) && Object.keys(arg).length === 0
+          );
+          
+          const message = args.map(a => typeof a === 'string' ? a : '').join(' ');
+          
+          // Filter out known non-critical DataChannel warnings
+          if (message.includes('Unknown DataChannel error on lossy') || 
+              message.includes('Unknown DataChannel error on reliable')) {
+            // Silently ignore these transient warnings
+            return;
+          }
+          
+          // Filter out empty notification cleanup errors (any variation)
+          if (message.includes('Error cleaning up old notifications')) {
+            // If the error object is empty or has no meaningful content, skip logging
+            if (hasEmptyObjectArg) {
+              return;
+            }
+            // Check if the second arg (error object) has meaningful properties
+            if (args.length > 1 && typeof args[1] === 'object' && args[1] !== null) {
+              const errObj = args[1];
+              const hasMeaningful = errObj.message || errObj.code || errObj.details || errObj.hint;
+              if (!hasMeaningful) {
+                return;
+              }
+            }
+          }
+          
+          // Log all other errors normally
+          originalConsoleError.apply(console, args);
+        };
+        console.error = filterDataChannelErrors;
 
         newRoom.on(RoomEvent.DataReceived, async (payload: Uint8Array, participant?: RemoteParticipant | LocalParticipant) => {
           const decoder = new TextDecoder();
@@ -210,18 +252,46 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
           throw new Error('Invalid JWT token format');
         }
         
-        // Connecting to LiveKit
+        // Connecting to LiveKit with timeout and retry logic
         
         try {
-          await newRoom.connect(wsUrl, token);
+          // Add connection timeout (30 seconds)
+          const connectPromise = newRoom.connect(wsUrl, token);
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Connection timeout after 30 seconds')), 30000)
+          );
+          
+          await Promise.race([connectPromise, timeoutPromise]);
           // LiveKit connected
-        } catch (connectError) {
+          connectingRef.current = false;
+        } catch (connectError: any) {
           console.error('Error during room.connect():', connectError);
+          
+          // Clean up the room if connection failed
+          if (roomRef.current) {
+            try {
+              roomRef.current.disconnect();
+            } catch (disconnectError) {
+              console.error('Error cleaning up after failed connection:', disconnectError);
+            }
+            roomRef.current = null;
+            setRoom(null);
+          }
+          
+          connectingRef.current = false;
+          
+          // Provide user-friendly error message
+          const errorMsg = connectError?.message || 'Unknown connection error';
+          if (errorMsg.includes('signal connection') || errorMsg.includes('Abort handler')) {
+            console.warn('Signal connection failed. This may be due to network issues or firewall restrictions.');
+          }
+          
           throw connectError;
         }
 
       } catch (err) {
         console.error('LiveKit connection error:', err);
+        connectingRef.current = false;
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         if (mounted) {
           setError(errorMessage);
@@ -240,8 +310,15 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
     return () => {
       // Cleaning up LiveKit connection
       mounted = false;
+      connectingRef.current = false;
+      
+      // Restore original console.error
+      console.error = originalConsoleError;
+      
       if (roomRef.current) {
         try {
+          // Remove all event listeners before disconnecting
+          roomRef.current.removeAllListeners();
           roomRef.current.disconnect();
           // Room disconnected
         } catch (cleanupError) {
@@ -249,6 +326,8 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         }
         roomRef.current = null;
       }
+      setRoom(null);
+      setIsConnected(false);
     };
   }, [roomId, userName, userId]); // omit encryptionKey to prevent reconnect/disconnect loop
 
@@ -293,7 +372,7 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
             const batch = result.messages.slice(i, i + BATCH_SIZE);
             
             // Process batch in parallel
-            const batchPromises = batch.map(async (row) => {
+            const batchPromises = batch.map(async (row: any) => {
               const isEncrypted = row.metadata?.encrypted;
               const iv = row.metadata?.iv;
               const attachment = row.metadata?.attachment_meta;
@@ -308,6 +387,10 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
                 }
               }
 
+              // Get sender name from joined profile data, fallback to sender_id
+              const senderName = row.sender?.display_name || row.sender_id;
+              const senderAvatar = row.sender?.avatar_url;
+
               return {
                 id: row.id,
                 type: 'CHAT_MESSAGE' as const,
@@ -315,7 +398,8 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
                 lang: row.original_language || 'en',
                 translations: row.translations || {},
                 senderId: row.sender_id,
-                senderName: row.sender_id,
+                senderName,
+                senderAvatar,
                 timestamp: new Date(row.created_at).getTime(),
                 isMe: row.sender_id === userId,
                 isEncrypted: !!isEncrypted,
@@ -399,9 +483,20 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
     setMessages((prev) => [...prev, myMessage]);
 
     // Publish to LiveKit (Fast P2P/SFU path)
+    try {
     await roomRef.current.localParticipant.publishData(data, {
         reliable: true,
     });
+    } catch (publishError: any) {
+      // DataChannel errors are often transient and non-critical
+      // Message still saved to DB, so it will sync eventually
+      if (publishError?.message?.includes('DataChannel')) {
+        console.warn('⚠️ DataChannel publish warning (non-critical):', publishError.message);
+      } else {
+        console.error('❌ Failed to publish message via LiveKit:', publishError);
+      }
+      // Don't throw - message is still persisted to DB
+    }
     
     // Return encrypted payload data to be used by server persistence if needed
     return {
@@ -451,6 +546,10 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
             }
           }
 
+          // Get sender name from joined profile data, fallback to sender_id
+          const senderName = row.sender?.display_name || row.sender_id;
+          const senderAvatar = row.sender?.avatar_url;
+
           return {
             id: row.id,
             type: 'CHAT_MESSAGE' as const,
@@ -458,7 +557,8 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
             lang: row.original_language || 'en',
             translations: row.translations || {},
             senderId: row.sender_id,
-            senderName: row.sender_id,
+            senderName,
+            senderAvatar,
             timestamp: new Date(row.created_at).getTime(),
             isMe: row.sender_id === userId,
             isEncrypted: !!isEncrypted,

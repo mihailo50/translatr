@@ -3,12 +3,15 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import AuroraBackground from '../../../components/ui/AuroraBackground';
+import GoogleAuthButton from '../../../components/ui/GoogleAuthButton';
 import { login } from '../actions';
 import { Mail, Lock, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react';
+import { createClient } from '../../../utils/supabase/client';
 
 export default function LoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -33,6 +36,31 @@ export default function LoginPage() {
         setError('An unexpected error occurred');
     } finally {
         setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsGoogleLoading(true);
+    setError(null);
+    
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) {
+        setError(error.message);
+        setIsGoogleLoading(false);
+      }
+      // User will be redirected to Google, no need to set loading to false
+    } catch (e) {
+      console.error(e);
+      setError('Failed to initiate Google sign-in');
+      setIsGoogleLoading(false);
     }
   };
 
@@ -92,6 +120,20 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Forgot Password Link */}
+            <div className="text-right">
+              <a 
+                href="/auth/forgot-password" 
+                onClick={(e) => {
+                  e.preventDefault();
+                  router.push('/auth/forgot-password');
+                }}
+                className="text-sm text-aurora-indigo hover:text-aurora-pink transition-colors font-medium cursor-pointer"
+              >
+                Forgot password?
+              </a>
+            </div>
+
             {error && (
               <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-200 text-sm text-center">
                 {error}
@@ -111,6 +153,24 @@ export default function LoginPage() {
                 </>
               )}
             </button>
+
+            {/* Divider */}
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-white/10"></div>
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="backdrop-blur-xl px-2 text-white/40">Or continue with</span>
+              </div>
+            </div>
+
+            {/* Google Sign-In Button */}
+            <GoogleAuthButton
+              onClick={handleGoogleSignIn}
+              isLoading={isGoogleLoading}
+              disabled={isLoading}
+              text="Continue with Google"
+            />
 
             <div className="text-center mt-6">
               <p className="text-sm text-white/50">
