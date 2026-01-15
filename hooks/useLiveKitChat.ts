@@ -155,33 +155,76 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         
         // Suppress non-critical DataChannel errors and empty notification cleanup errors
         const filterDataChannelErrors = (...args: any[]) => {
-          // Check for empty object as first or second argument (common pattern for empty errors)
-          const hasEmptyObjectArg = args.some(arg => 
-            arg && typeof arg === 'object' && !Array.isArray(arg) && Object.keys(arg).length === 0
-          );
-          
           const message = args.map(a => typeof a === 'string' ? a : '').join(' ');
           
           // Filter out known non-critical DataChannel warnings
           if (message.includes('Unknown DataChannel error on lossy') || 
               message.includes('Unknown DataChannel error on reliable')) {
-            // Silently ignore these transient warnings
             return;
           }
           
-          // Filter out empty notification cleanup errors (any variation)
-          if (message.includes('Error cleaning up old notifications')) {
-            // If the error object is empty or has no meaningful content, skip logging
-            if (hasEmptyObjectArg) {
-              return;
+          // Filter out empty signaling errors (LiveKit internal)
+          if (message.includes('error sending signal message')) {
+            // Check if the error object is empty
+            const hasEmptyErrorObj = args.some(arg => 
+              arg && typeof arg === 'object' && !Array.isArray(arg) && Object.keys(arg).length === 0
+            );
+            if (hasEmptyErrorObj) {
+              return; // Suppress empty signal errors
             }
-            // Check if the second arg (error object) has meaningful properties
-            if (args.length > 1 && typeof args[1] === 'object' && args[1] !== null) {
-              const errObj = args[1];
-              const hasMeaningful = errObj.message || errObj.code || errObj.details || errObj.hint;
-              if (!hasMeaningful) {
-                return;
+          }
+          
+          // Filter out empty notification cleanup errors (any variation)
+          // This catches: "Error cleaning up old notifications: {}" and similar
+          if (message.includes('Error cleaning up old notifications')) {
+            // Filter specific known non-critical error messages
+            const firstArg = args[0];
+            if (typeof firstArg === 'string') {
+              // Check for specific error messages we want to suppress
+              if (firstArg.includes('Error cleaning up old notifications')) {
+                return; // Suppress this specific error - it's a false positive from Supabase
               }
+              if (firstArg.includes('error sending signal message')) {
+                return; // Suppress LiveKit signaling errors with empty objects
+              }
+              if (firstArg === 'Failed to fetch') {
+                return; // Suppress generic network errors - these are transient and non-critical
+              }
+            }
+            
+            // Also check if the error is a TypeError with "Failed to fetch" message
+            if (firstArg instanceof TypeError && firstArg.message === 'Failed to fetch') {
+              return; // Suppress - this is a transient network error
+            }
+            
+            // Check all args for empty or meaningless error objects
+            const hasOnlyEmptyErrors = args.every(arg => {
+              if (typeof arg === 'string') return true; // String args are fine
+              if (arg === null || arg === undefined) return true;
+              if (typeof arg !== 'object') return true;
+              if (Array.isArray(arg)) return true;
+              
+              // Check if object has any meaningful error properties
+              const keys = Object.keys(arg);
+              if (keys.length === 0) return true; // Empty object {}
+              
+              // Check common error properties
+              const msg = arg.message;
+              const code = arg.code;
+              const details = arg.details;
+              const hint = arg.hint;
+              
+              const hasMeaningful = 
+                (msg && typeof msg === 'string' && msg.trim().length > 0) ||
+                (code && typeof code === 'string' && code.trim().length > 0) ||
+                (details && typeof details === 'string' && details.trim().length > 0) ||
+                (hint && typeof hint === 'string' && hint.trim().length > 0);
+              
+              return !hasMeaningful; // Return true if NO meaningful content (should be filtered)
+            });
+            
+            if (hasOnlyEmptyErrors) {
+              return; // All error objects are empty/meaningless, suppress the log
             }
           }
           

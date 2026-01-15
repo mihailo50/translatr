@@ -170,41 +170,40 @@ export default function NotificationBell() {
           .not('read_at', 'is', null)
           .lt('read_at', sevenDaysAgo.toISOString());
         
-        // Only log errors if they have meaningful information
-        // Supabase sometimes returns empty error objects {} for successful operations
-        // or error objects with all null/undefined/empty properties
+        // Supabase sometimes returns error objects for successful delete operations
+        // These are false positives - only log if there's actual error content
         if (deleteError) {
-          // First check if it's a completely empty object
+          // First check: is this an empty object {}?
           const errorKeys = Object.keys(deleteError);
           if (errorKeys.length === 0) {
-            // Empty object {} - ignore silently
-            return;
+            // Empty object - this is a Supabase quirk, not a real error
+            // Silently ignore
+          } else {
+            const errorMessage = (deleteError as any).message;
+            const errorCode = (deleteError as any).code;
+            const errorDetails = (deleteError as any).details;
+            const errorHint = (deleteError as any).hint;
+            
+            // Check if ANY property has meaningful content
+            const hasMessage = errorMessage && typeof errorMessage === 'string' && errorMessage.trim().length > 0;
+            const hasCode = errorCode && typeof errorCode === 'string' && errorCode.trim().length > 0;
+            const hasDetails = errorDetails && typeof errorDetails === 'string' && errorDetails.trim().length > 0;
+            const hasHint = errorHint && typeof errorHint === 'string' && errorHint.trim().length > 0;
+            
+            // Only log if we have actual error information
+            if (hasMessage || hasCode || hasDetails || hasHint) {
+              // Build error object with only non-empty properties
+              const errorInfo: Record<string, string> = {};
+              if (hasMessage) errorInfo.message = errorMessage;
+              if (hasCode) errorInfo.code = errorCode;
+              if (hasDetails) errorInfo.details = errorDetails;
+              if (hasHint) errorInfo.hint = errorHint;
+              
+              console.error('Error cleaning up old notifications:', errorInfo);
+            }
+            // Otherwise silently ignore - these are false positive errors
           }
-          
-          const errorMessage = (deleteError as any).message;
-          const errorCode = (deleteError as any).code;
-          const errorDetails = (deleteError as any).details;
-          const errorHint = (deleteError as any).hint;
-          
-          // Check if error has any meaningful content (not just empty strings or null/undefined)
-          const hasMeaningfulError = 
-            (errorMessage && typeof errorMessage === 'string' && errorMessage.trim().length > 0) ||
-            (errorCode && typeof errorCode === 'string' && errorCode.trim().length > 0) ||
-            (errorDetails && typeof errorDetails === 'string' && errorDetails.trim().length > 0) ||
-            (errorHint && typeof errorHint === 'string' && errorHint.trim().length > 0);
-          
-          // Only log if at least one meaningful property exists
-          if (hasMeaningfulError) {
-            console.error('Error cleaning up old notifications:', {
-              message: errorMessage,
-              code: errorCode,
-              details: errorDetails,
-              hint: errorHint
-            });
-          }
-          // Silently ignore empty error objects - they indicate successful operations
         }
-        // If no error or empty error object, cleanup was successful
       } catch (err) {
         console.error('Error during notification cleanup:', err instanceof Error ? err.message : err);
       }
@@ -305,9 +304,31 @@ export default function NotificationBell() {
         const notificationTime = new Date(newNotification.created_at).getTime();
         
         // If user entered the room before this notification was created, it's an old notification
-        // Don't process it - just delete it silently
+        // Don't process it - just delete it silently (except for calls - ChatRoom watches those)
         if (roomEntryTime && notificationTime < roomEntryTime) {
-          // Delete the old notification since user is in the room
+          // Only delete MESSAGE notifications - NOT call notifications
+          // ChatRoom watches call notifications for cancellation detection
+          if (newNotification.type === 'message') {
+            void (async () => {
+              try {
+                await supabase
+                  .from('notifications')
+                  .delete()
+                  .eq('id', newNotification.id)
+                  .select();
+              } catch (err) {
+                console.error('Error deleting notification:', err);
+              }
+            })();
+          }
+          
+          return; // Don't process this notification further
+        }
+        
+        // User is in the chatroom and this is a NEW notification (created after they entered)
+        // For MESSAGE notifications: Delete immediately since they're already viewing it
+        // For CALL notifications: Don't delete - ChatRoom watches for updates/deletes to detect cancellation
+        if (newNotification.type === 'message') {
           void (async () => {
             try {
               await supabase
@@ -319,24 +340,7 @@ export default function NotificationBell() {
               console.error('Error deleting notification:', err);
             }
           })();
-          
-          return; // Don't process this notification further
         }
-        
-        // User is in the chatroom and this is a NEW notification (created after they entered)
-        // Delete the notification immediately since they're already viewing it
-        // The ChatRoom component will handle the call modal/sound
-        void (async () => {
-          try {
-            await supabase
-              .from('notifications')
-              .delete()
-              .eq('id', newNotification.id)
-              .select();
-          } catch (err) {
-            console.error('Error deleting notification:', err);
-          }
-        })();
         
         return; // Don't show notification or play sound - ChatRoom handles it
       }
@@ -489,19 +493,49 @@ export default function NotificationBell() {
       });
       setUnreadCount((prev) => prev + 1);
 
-      // Show Toast notification
+      // Show Toast notification - make it clickable
+      const handleToastClick = async () => {
+        // Mark notification as read
+        try {
+          await supabase
+            .from('notifications')
+            .update({ 
+              is_read: true,
+              read_at: new Date().toISOString()
+            })
+            .eq('id', newNotification.id);
+          
+          // Optimistic update
+          setNotifications(prev => prev.map(n => n.id === newNotification.id ? { ...n, is_read: true } : n));
+          setUnreadCount(prev => Math.max(0, prev - 1));
+        } catch (err) {
+          console.error('Error marking notification as read:', err);
+        }
+        
+        // Navigate based on notification type
+        if (newNotification.type === 'message' && newNotification.related_id) {
+          window.location.href = `/chat/${newNotification.related_id}`;
+        } else if (newNotification.type === 'contact_request') {
+          window.location.href = '/contacts';
+        }
+      };
+      
       toast(
-          <div className="flex items-center gap-3">
+          <div 
+            className="flex items-center gap-3 cursor-pointer w-full"
+            onClick={handleToastClick}
+          >
               <div className="p-2 bg-white/10 rounded-full">
                   {getIcon(newNotification.type)}
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-white">{newNotification.content.sender_name || 'System'}</p>
                   <p className="text-xs text-white/60 line-clamp-1">{newNotification.content.preview || 'New notification'}</p>
               </div>
           </div>,
           {
-              style: { background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: 'white' }
+              style: { background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: 'white', cursor: 'pointer' },
+              duration: 5000, // 5 seconds to give user time to click
           }
       );
     };

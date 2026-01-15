@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import CallNotificationBanner from './CallNotificationBanner';
 import { useNotification } from '../contexts/NotificationContext';
 import { toast } from 'sonner';
+import { callLogger } from '@/utils/callLogger';
 
 interface CallNotification {
   id: string;
@@ -27,8 +28,15 @@ export default function GlobalCallHandler() {
   const pathname = usePathname();
   const { currentRoomId } = useNotification();
   const [incomingCall, setIncomingCall] = useState<CallNotification | null>(null);
+  const incomingCallRef = useRef<CallNotification | null>(null);
   const [showBanner, setShowBanner] = useState(false);
   const processedCallIdsRef = useRef<Set<string>>(new Set());
+
+  // Sync ref with state
+  useEffect(() => {
+    incomingCallRef.current = incomingCall;
+  }, [incomingCall]);
+
   const mountedRef = useRef(true);
   const ringtoneRef = useRef<HTMLAudioElement | null>(null);
   const ringtoneIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -111,6 +119,25 @@ export default function GlobalCallHandler() {
 
   const clearIncomingCallUI = async (reason: string) => {
     console.log(`📞 Clearing incoming call UI: ${reason}`);
+    
+    if (incomingCallRef.current) {
+        callLogger.callUIHidden({
+            callId: incomingCallRef.current.content.call_id,
+            roomId: incomingCallRef.current.content.room_id,
+            reason,
+            deviceInfo: 'GlobalCallHandler'
+        });
+        
+        if (reason.includes('read') || reason.includes('deleted')) {
+            callLogger.callCancelled({
+                callId: incomingCallRef.current.content.call_id,
+                roomId: incomingCallRef.current.content.room_id,
+                reason,
+                deviceInfo: 'GlobalCallHandler'
+            });
+        }
+    }
+
     stopRingtone();
     setShowBanner(false);
     setIncomingCall(null);
@@ -231,6 +258,21 @@ export default function GlobalCallHandler() {
               // Play ringtone continuously
               playRingtone();
               
+              callLogger.callUIShown({
+                  callId: callNotif.content.call_id,
+                  roomId: callNotif.content.room_id,
+                  initiatorName: callNotif.content.sender_name,
+                  receiverId: user.id,
+                  callType: callNotif.content.call_type,
+                  deviceInfo: 'GlobalCallHandler'
+              });
+              
+              callLogger.callRinging({
+                  callId: callNotif.content.call_id,
+                  roomId: callNotif.content.room_id,
+                  deviceInfo: 'GlobalCallHandler'
+              });
+              
               toast.info(`Incoming ${callNotif.content.call_type} call from ${callNotif.content.sender_name}`);
             }
           }
@@ -255,7 +297,8 @@ export default function GlobalCallHandler() {
             if (!mountedRef.current) return;
             const updated = payload.new as any;
             // If the current incoming call notification was marked read, close banner
-            if (incomingCall && updated?.id === incomingCall.id && updated?.is_read) {
+            const currentCall = incomingCallRef.current;
+            if (currentCall && updated?.id === currentCall.id && updated?.is_read) {
               await clearIncomingCallUI('notification marked read');
             }
           }
@@ -271,7 +314,8 @@ export default function GlobalCallHandler() {
           async (payload) => {
             if (!mountedRef.current) return;
             const deleted = payload.old as any;
-            if (incomingCall && deleted?.id === incomingCall.id) {
+            const currentCall = incomingCallRef.current;
+            if (currentCall && deleted?.id === currentCall.id) {
               await clearIncomingCallUI('notification deleted');
             }
           }

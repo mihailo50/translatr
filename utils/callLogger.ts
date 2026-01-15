@@ -3,18 +3,19 @@
  * Provides clean, structured logging for call lifecycle events
  */
 
-type CallLogLevel = 'INIT' | 'ACCEPT' | 'DECLINE' | 'END' | 'ERROR' | 'TIMEOUT';
+type CallLogLevel = 'INIT' | 'ACCEPT' | 'DECLINE' | 'END' | 'ERROR' | 'TIMEOUT' | 'RINGING' | 'UI_SHOWN' | 'UI_HIDDEN' | 'CANCELLED';
 
 interface CallLogData {
   callId?: string;
   roomId: string;
-  initiatorId: string;
-  initiatorName: string;
+  initiatorId?: string;
+  initiatorName?: string;
   receiverId?: string;
   receiverName?: string;
   callType: 'audio' | 'video';
   duration?: number;
   reason?: string;
+  deviceInfo?: string; // e.g. "GlobalCallHandler" or "ChatRoom"
 }
 
 class CallLogger {
@@ -35,7 +36,11 @@ class CallLogger {
       DECLINE: '❌',
       END: '📴',
       ERROR: '🔴',
-      TIMEOUT: '⏱️'
+      TIMEOUT: '⏱️',
+      RINGING: '🔔',
+      UI_SHOWN: '📱',
+      UI_HIDDEN: '🙈',
+      CANCELLED: '🚫'
     }[level];
 
     let logMessage = `${icon} [CALL ${level}] ${timestamp} - ${message}`;
@@ -47,6 +52,7 @@ class CallLogger {
       if (data.initiatorName) details.push(`Initiator: ${data.initiatorName}`);
       if (data.receiverName) details.push(`Receiver: ${data.receiverName}`);
       if (data.callType) details.push(`Type: ${data.callType.toUpperCase()}`);
+      if (data.deviceInfo) details.push(`Component: ${data.deviceInfo}`);
       if (data.duration !== undefined) details.push(`Duration: ${this.formatDuration(data.duration)}`);
       if (data.reason) details.push(`Reason: ${data.reason}`);
       
@@ -63,6 +69,22 @@ class CallLogger {
     if (data.callId) {
       this.callStartTimes.set(data.callId, Date.now());
     }
+  }
+
+  callRinging(data: Partial<CallLogData>) {
+    this.log('RINGING', 'Ringtone playing', data);
+  }
+
+  callUIShown(data: Partial<CallLogData>) {
+    this.log('UI_SHOWN', 'Incoming call UI displayed', data);
+  }
+
+  callUIHidden(data: Partial<CallLogData>) {
+    this.log('UI_HIDDEN', 'Incoming call UI hidden/removed', data);
+  }
+
+  callCancelled(data: Partial<CallLogData>) {
+    this.log('CANCELLED', 'Call cancelled', data);
   }
 
   callAccepted(data: CallLogData) {

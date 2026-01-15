@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { LiveKitRoom, useTracks, VideoTrack, useLocalParticipant, useRemoteParticipants, useRoomContext } from '@livekit/components-react';
+import { LiveKitRoom, useTracks, VideoTrack, useLocalParticipant, useRemoteParticipants, useRoomContext, useIsSpeaking } from '@livekit/components-react';
+import type { TrackReferenceOrPlaceholder } from '@livekit/components-react';
 import { Track, ExternalE2EEKeyProvider, RoomOptions, RoomEvent, RemoteParticipant } from 'livekit-client';
 import { ShieldCheck, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
 
@@ -16,21 +17,253 @@ interface CallOverlayProps {
   userId?: string;
   onParticipantJoined?: () => void;
   onCallAccepted?: (callId?: string) => void;
+  hidden?: boolean; // When true, overlay is mounted but invisible (used for caller waiting state)
 }
+
+// Speaking indicator wrapper for video tiles
+const SpeakingVideoTile = ({ trackRef }: { trackRef: TrackReferenceOrPlaceholder }) => {
+    const isSpeaking = useIsSpeaking(trackRef.participant);
+    
+    return (
+        <div 
+            className={`relative rounded-2xl overflow-hidden shadow-xl transition-all duration-300 ${
+                isSpeaking 
+                    ? 'border-2 border-indigo-500/80 shadow-[0_0_30px_rgba(99,102,241,0.3)]' 
+                    : 'border border-white/10 bg-white/5'
+            }`}
+        >
+            <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
+            <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded text-xs text-white/90 font-light tracking-wide flex items-center gap-2">
+                {trackRef.participant.name || trackRef.participant.identity}
+                {isSpeaking && (
+                    <span className="flex gap-0.5">
+                        <span className="w-1 h-3 bg-indigo-400 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1 h-4 bg-indigo-400 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1 h-2 bg-indigo-400 rounded-full animate-pulse" style={{ animationDelay: '300ms' }} />
+                    </span>
+                )}
+            </div>
+        </div>
+    );
+};
 
 const FloatingLocalVideo = () => {
     const { localParticipant } = useLocalParticipant();
     const tracks = useTracks([Track.Source.Camera]);
     const localTrack = tracks.find(t => t.participant.identity === localParticipant.identity);
     
+    // Draggable state
+    const [position, setPosition] = useState({ x: -1, y: -1 }); // -1 means not initialized
+    const [isDragging, setIsDragging] = useState(false);
+    const dragRef = useRef<HTMLDivElement>(null);
+    const offsetRef = useRef({ x: 0, y: 0 });
+    
+    // Video dimensions (responsive)
+    const videoWidth = typeof window !== 'undefined' && window.innerWidth >= 768 ? 192 : 128; // md:w-48 = 192px, w-32 = 128px
+    const videoHeight = videoWidth * (9 / 16); // aspect-video = 16:9
+    
+    // Initialize position to bottom-right on mount
+    useEffect(() => {
+        if (typeof window !== 'undefined' && position.x === -1) {
+            setPosition({
+                x: window.innerWidth - videoWidth - 16, // 16px margin from right
+                y: window.innerHeight - videoHeight - 120 // 120px from bottom (above controls)
+            });
+        }
+    }, [position.x, videoWidth, videoHeight]);
+    
+    // Handle window resize
+    useEffect(() => {
+        const handleResize = () => {
+            setPosition(prev => ({
+                x: Math.min(prev.x, window.innerWidth - videoWidth - 8),
+                y: Math.min(prev.y, window.innerHeight - videoHeight - 8)
+            }));
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, [videoWidth, videoHeight]);
+    
+    // Clamp position to screen boundaries
+    const clampPosition = (x: number, y: number) => {
+        const maxX = window.innerWidth - videoWidth - 8;
+        const maxY = window.innerHeight - videoHeight - 8;
+        return {
+            x: Math.max(8, Math.min(x, maxX)),
+            y: Math.max(8, Math.min(y, maxY))
+        };
+    };
+    
+    // Mouse/Touch event handlers
+    const handleStart = (clientX: number, clientY: number) => {
+        if (!dragRef.current) return;
+        setIsDragging(true);
+        offsetRef.current = {
+            x: clientX - position.x,
+            y: clientY - position.y
+        };
+    };
+    
+    const handleMove = (clientX: number, clientY: number) => {
+        if (!isDragging) return;
+        const newPos = clampPosition(
+            clientX - offsetRef.current.x,
+            clientY - offsetRef.current.y
+        );
+        setPosition(newPos);
+    };
+    
+    const handleEnd = () => {
+        setIsDragging(false);
+    };
+    
+    // Mouse events
+    const handleMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        handleStart(e.clientX, e.clientY);
+    };
+    
+    useEffect(() => {
+        if (!isDragging) return;
+        
+        const handleMouseMove = (e: MouseEvent) => {
+            handleMove(e.clientX, e.clientY);
+        };
+        
+        const handleMouseUp = () => {
+            handleEnd();
+        };
+        
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isDragging]);
+    
+    // Touch events
+    const handleTouchStart = (e: React.TouchEvent) => {
+        if (e.touches.length === 1) {
+            handleStart(e.touches[0].clientX, e.touches[0].clientY);
+        }
+    };
+    
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (e.touches.length === 1) {
+            handleMove(e.touches[0].clientX, e.touches[0].clientY);
+        }
+    };
+    
+    const handleTouchEnd = () => {
+        handleEnd();
+    };
+    
     if (!localTrack) return null;
+    
+    // Don't render until position is initialized
+    if (position.x === -1) return null;
 
     return (
-        <div className="fixed top-12 right-4 md:top-16 md:right-6 w-32 md:w-48 aspect-video rounded-2xl border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-hidden z-50 bg-black/40 transition-all" style={{ top: 'max(3rem, env(safe-area-inset-top, 1rem))' }}>
-            <VideoTrack trackRef={localTrack} className="w-full h-full object-cover mirror-mode" />
-            <div className="absolute bottom-1 left-2 text-[10px] font-light tracking-wide text-white/90 z-20">You</div>
+        <div 
+            ref={dragRef}
+            className={`fixed w-32 md:w-48 aspect-video rounded-2xl border border-white/20 overflow-hidden z-[90] bg-black/40 cursor-move select-none ${
+                isDragging 
+                    ? 'shadow-[0_20px_60px_rgba(99,102,241,0.6)] scale-105 cursor-grabbing' 
+                    : 'shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-shadow transition-transform duration-200'
+            }`}
+            style={{ 
+                left: position.x, 
+                top: position.y,
+                touchAction: 'none' // Prevent scroll on touch
+            }}
+            onMouseDown={handleMouseDown}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+        >
+            <VideoTrack trackRef={localTrack} className="w-full h-full object-cover mirror-mode pointer-events-none" />
+            <div className="absolute bottom-1 left-2 text-[10px] font-light tracking-wide text-white/90 z-20 pointer-events-none">You</div>
         </div>
     );
+};
+
+// Minimal listener component for hidden mode - only listens for participant events
+// Does NOT try to publish any tracks (avoiding the "engine not connected" error)
+// IMPORTANT: Only triggers when someone publishes AUDIO or VIDEO tracks (indicating they joined the CALL)
+// This prevents false triggers when users are just connected for chat (no media tracks)
+const HiddenCallListener = ({ userId, onParticipantJoined, onCallAccepted }: { 
+    userId?: string, 
+    onParticipantJoined?: () => void, 
+    onCallAccepted?: (callId?: string) => void 
+}) => {
+    const remoteParticipants = useRemoteParticipants();
+    const room = useRoomContext();
+    const notifiedRef = useRef(false);
+    
+    // Check if a participant has published audio or video tracks (indicating they're in the call, not just chat)
+    const hasMediaTracks = (participant: RemoteParticipant): boolean => {
+        const tracks = participant.trackPublications;
+        if (!tracks || tracks.size === 0) return false;
+        
+        // Check for audio or video tracks
+        let hasMedia = false;
+        tracks.forEach((publication) => {
+            if (publication.kind === 'audio' || publication.kind === 'video') {
+                hasMedia = true;
+            }
+        });
+        return hasMedia;
+    };
+    
+    useEffect(() => {
+        if (!room || room.state !== 'connected') return;
+        
+        const notifyParticipantJoined = () => {
+            if (!notifiedRef.current) {
+                notifiedRef.current = true;
+                console.log('📞 [HiddenCallListener] Participant with media tracks joined, notifying parent');
+                if (onParticipantJoined) onParticipantJoined();
+                if (onCallAccepted) onCallAccepted();
+            }
+        };
+        
+        // Check if any remote participant has media tracks (call participants)
+        const checkForCallParticipants = () => {
+            const callParticipant = remoteParticipants.find(p => 
+                p.identity !== userId && hasMediaTracks(p)
+            );
+            if (callParticipant) {
+                console.log('📞 [HiddenCallListener] Found participant with media:', callParticipant.identity);
+                notifyParticipantJoined();
+            }
+        };
+        
+        // Listen for track subscription events (when someone publishes audio/video)
+        const handleTrackSubscribed = (track: any, publication: any, participant: RemoteParticipant) => {
+            if (participant.identity !== userId && (publication.kind === 'audio' || publication.kind === 'video')) {
+                console.log('📞 [HiddenCallListener] Track subscribed from:', participant.identity, publication.kind);
+                notifyParticipantJoined();
+            }
+        };
+        
+        room.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+        
+        // Initial check for existing call participants
+        checkForCallParticipants();
+        
+        // Also poll periodically in case events are missed
+        const pollInterval = setInterval(checkForCallParticipants, 1000);
+        
+        return () => {
+            room.off(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+            clearInterval(pollInterval);
+        };
+    }, [room, userId, onParticipantJoined, onCallAccepted, remoteParticipants]);
+    
+    // Render nothing - this is just a listener
+    return null;
 };
 
 const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onParticipantJoined, onCallAccepted }: { roomName: string, roomType: 'direct' | 'group', callType: 'audio' | 'video', onDisconnect: (s: boolean) => void, userId?: string, onParticipantJoined?: () => void, onCallAccepted?: (callId?: string) => void }) => {
@@ -384,7 +617,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
               .radar-ring-3 { animation: radar 2s ease-out infinite 0.8s; }
             `}} />
             {/* Floating Status Bar */}
-            <div className="fixed top-8 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md z-40">
+            <div className="fixed top-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md z-[100] w-auto max-w-[90vw]">
                 <ShieldCheck size={12} className="text-emerald-400" />
                 <span className="text-[10px] tracking-[0.2em] font-bold text-emerald-400/80 uppercase">SECURE E2EE</span>
                 <span className="text-white/50 text-xs">{formatCallDuration(callDuration)}</span>
@@ -403,7 +636,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
             </div>
 
             {/* Main Stage (Remote Participants) */}
-            <div className="relative flex-1 p-4 h-full flex items-center justify-center z-10">
+            <div className="flex-1 w-full max-w-[1800px] mx-auto pt-24 pb-28 px-4 md:px-8 flex items-center justify-center z-10">
                 {(() => {
                     const hasRemoteVideo = remoteVideoTracks.length > 0;
                     if (hasRemoteVideo) {
@@ -411,12 +644,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                         return (
                             <div className={`grid gap-4 w-full h-full ${remoteVideoTracks.length === 1 ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3'}`}>
                                 {remoteVideoTracks.map(track => (
-                                    <div key={track.participant.identity} className="relative rounded-[2rem] border border-white/10 shadow-2xl overflow-hidden bg-black/40">
-                                        <VideoTrack trackRef={track} className="w-full h-full object-cover" />
-                                        <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded text-xs text-white/90 font-light tracking-wide">
-                                            {track.participant.name || track.participant.identity}
-                                        </div>
-                                    </div>
+                                    <SpeakingVideoTile key={track.participant.identity} trackRef={track} />
                                 ))}
                             </div>
                         );
@@ -523,9 +751,10 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
     userPreferredLanguage = 'en',
     userId,
     onParticipantJoined,
-    onCallAccepted
+    onCallAccepted,
+    hidden = false
 }) => {
-  // Setup E2EE for Video with Enhanced Quality Settings
+  // Setup E2EE for Video with Quality Settings
   const roomOptions = useMemo<RoomOptions>(() => {
      const keyProvider = new ExternalE2EEKeyProvider();
      keyProvider.setKey("translatr-secure-salt-v1");
@@ -539,7 +768,7 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
          adaptiveStream: true,
          dynacast: true,
          
-         // Video capture defaults - higher quality
+         // Video capture defaults - 720p
          videoCaptureDefaults: {
              resolution: {
                  width: 1280,
@@ -549,46 +778,10 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
              facingMode: 'user',
          },
          
-         // Publishing defaults with simulcast for adaptive quality
+         // Publishing defaults - let LiveKit handle simulcast automatically
          publishDefaults: {
-             videoSimulcastLayers: [
-                 // High quality layer (720p)
-                 {
-                     resolution: {
-                         width: 1280,
-                         height: 720,
-                         frameRate: 30,
-                     },
-                     encoding: {
-                         maxBitrate: 3_000_000, // 3 Mbps
-                         maxFramerate: 30,
-                     },
-                 },
-                 // Medium quality layer (360p)
-                 {
-                     resolution: {
-                         width: 640,
-                         height: 360,
-                         frameRate: 20,
-                     },
-                     encoding: {
-                         maxBitrate: 800_000, // 800 Kbps
-                         maxFramerate: 20,
-                     },
-                 },
-                 // Low quality layer (180p) - fallback for poor connections
-                 {
-                     resolution: {
-                         width: 320,
-                         height: 180,
-                         frameRate: 15,
-                     },
-                     encoding: {
-                         maxBitrate: 200_000, // 200 Kbps
-                         maxFramerate: 15,
-                     },
-                 },
-             ],
+             // Enable simulcast (LiveKit will create layers automatically)
+             simulcast: true,
              // Audio quality settings
              audioBitrate: 64_000, // 64 Kbps for clear audio
              dtx: true, // Discontinuous Transmission - saves bandwidth when silent
@@ -597,6 +790,38 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
          },
      };
   }, []);
+
+  // When hidden, the overlay is still mounted and connected to LiveKit
+  // but is invisible. This is used for callers waiting for answer -
+  // they need to be in the room to detect when someone joins.
+  // We use a minimal listener component that only watches for participants
+  // without trying to publish any tracks.
+  if (hidden) {
+    return (
+      <div className="sr-only" aria-hidden="true">
+        <LiveKitRoom
+            token={token}
+            serverUrl={serverUrl}
+            connect={true}
+            video={false}
+            audio={false}
+            onDisconnected={() => onDisconnect(false)}
+            options={{
+              // Minimal options for hidden listener - no track publishing
+              adaptiveStream: false,
+              dynacast: false,
+            }}
+            data-lk-theme="default"
+        >
+            <HiddenCallListener 
+              userId={userId} 
+              onParticipantJoined={onParticipantJoined} 
+              onCallAccepted={onCallAccepted} 
+            />
+        </LiveKitRoom>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[9999] bg-[#020205] text-white animate-in fade-in duration-300 h-dvh">

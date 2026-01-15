@@ -29,6 +29,9 @@ export const useUserStatus = (user: any) => {
   }, []);
 
   // 1. Load persisted status from DB on mount
+  // Store the user's preferred status so we can restore it after tab visibility changes
+  const preferredStatusRef = useRef<UserStatus | null>(null);
+  
   useEffect(() => {
     if (!user?.id) return;
     
@@ -45,14 +48,16 @@ export const useUserStatus = (user: any) => {
         // to avoid stale "offline" indicators after server restarts or cold starts.
         if (!currentStatus || currentStatus === 'offline') {
             setStatus('online');
+            preferredStatusRef.current = 'online';
             await supabase
               .from('profiles')
               .update({ status: 'online' })
               .eq('id', user.id);
         } else {
-            // Map DB-only "away" to an online-ish state for UI/presence
-            const effective = currentStatus === 'away' ? 'online' : currentStatus;
+            // Map DB-only "away" to busy for UI (away is used for busy/dnd/in-call in DB)
+            const effective = currentStatus === 'away' ? 'busy' : currentStatus;
             setStatus(effective);
+            preferredStatusRef.current = effective;
         }
     };
     fetchStatus();
@@ -259,12 +264,14 @@ export const useUserStatus = (user: any) => {
     };
 
     // Handle visibility change - set offline when tab is hidden for too long
+    // BUT respect user's preferred status (e.g., invisible should stay invisible)
     let hiddenTimeoutRef: { current: NodeJS.Timeout | null } = { current: null };
     const handleVisibilityChange = () => {
       if (document.hidden) {
         // After 5 minutes of being hidden, mark as offline
+        // UNLESS user has set invisible (they want to appear offline anyway)
         hiddenTimeoutRef.current = setTimeout(() => {
-          if (user?.id && document.hidden) {
+          if (user?.id && document.hidden && preferredStatusRef.current !== 'invisible') {
             const persisted = mapToPersistedStatus('offline');
             setStatus('offline');
             void (async () => {
@@ -280,14 +287,17 @@ export const useUserStatus = (user: any) => {
           }
         }, 300000); // 5 minutes
       } else {
-        // Tab is visible again, mark as online
+        // Tab is visible again
         if (hiddenTimeoutRef.current) {
           clearTimeout(hiddenTimeoutRef.current);
           hiddenTimeoutRef.current = null;
         }
+        // Restore user's preferred status (NOT always online)
         if (user?.id && status === 'offline') {
-          setStatus('online');
-          const persisted = mapToPersistedStatus('online');
+          // Use preferred status, default to online if not set
+          const restoreStatus = preferredStatusRef.current || 'online';
+          setStatus(restoreStatus);
+          const persisted = mapToPersistedStatus(restoreStatus);
           void (async () => {
             try {
               await supabase
@@ -295,7 +305,7 @@ export const useUserStatus = (user: any) => {
                 .update({ status: persisted })
                 .eq('id', user.id);
             } catch (err) {
-              console.error('Failed to update status to online:', err);
+              console.error('Failed to restore status:', err);
             }
           })();
         }
@@ -394,6 +404,9 @@ export const useUserStatus = (user: any) => {
       
       // Update local state immediately
       setStatus(newStatus);
+      
+      // Save as user's preferred status (so it persists across sessions)
+      preferredStatusRef.current = newStatus;
 
       // Immediately update presence tracking (don't wait for useEffect)
       if (presenceChannelRef.current) {
@@ -407,7 +420,7 @@ export const useUserStatus = (user: any) => {
         .update({ status: persisted })
         .eq('id', user.id)
         .then(() => {
-          // Status persisted
+          // Status persisted successfully
         })
         .catch((error) => {
           console.error('❌ Failed to update status in database:', error);

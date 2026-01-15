@@ -151,11 +151,24 @@ export async function initiateCall(roomId: string, userId: string, userName: str
     const callId = `call_${Date.now()}`;
     let recipientIds: string[] = []; // Declare outside try-catch for logging
 
+    console.log('📞 [initiateCall] Starting call:', { 
+      roomId, 
+      userId, 
+      userName, 
+      type,
+      isGroupRoom: !roomId.startsWith('direct_')
+    });
+
     // 2. Create call notification in database for recipient(s)
     // This ensures users receive call notifications even when not in the chat room
     try {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      
+      console.log('📞 [initiateCall] DB config:', { 
+        hasSupabaseUrl: !!supabaseUrl && supabaseUrl !== 'https://placeholder.supabase.co',
+        hasServiceKey: !!supabaseServiceKey && supabaseServiceKey !== 'placeholder-key'
+      });
       
       if (supabaseUrl && supabaseUrl !== 'https://placeholder.supabase.co') {
         // Prefer service role when available; otherwise fall back to authenticated server client.
@@ -203,12 +216,25 @@ export async function initiateCall(roomId: string, userId: string, userName: str
             .select('profile_id')
             .eq('room_id', roomId);
           
+          console.log('📞 [initiateCall] Group room members query:', { 
+            roomId, 
+            members: members?.length, 
+            membersError: membersError?.message,
+            memberIds: members?.map(m => m.profile_id)
+          });
+          
           if (members && !membersError) {
             recipientIds = members
               .map(m => m.profile_id)
               .filter(id => id !== userId);
           }
         }
+        
+        console.log('📞 [initiateCall] Creating notifications for recipients:', { 
+          recipientIds, 
+          count: recipientIds.length,
+          callerId: userId 
+        });
         
         // Create notifications for all recipients
         if (recipientIds.length > 0) {
@@ -224,18 +250,28 @@ export async function initiateCall(roomId: string, userId: string, userName: str
             related_id: roomId,
           }));
           
-          await supabaseDb
+          const { error: insertError } = await supabaseDb
             .from('notifications')
             .insert(notifications);
+          
+          if (insertError) {
+            console.error('📞 [initiateCall] Failed to insert notifications:', insertError);
+          } else {
+            console.log('📞 [initiateCall] Successfully created', notifications.length, 'call notifications');
+          }
+        } else {
+          console.warn('📞 [initiateCall] No recipients found for call notifications!');
         }
       }
     } catch (notifError) {
-      // Silently continue - LiveKit data channel will still work
+      console.error('📞 [initiateCall] Error creating notifications:', notifError);
+      // Continue - LiveKit data channel will still work
     }
 
     // 3. Broadcast 'call_started' system message via LiveKit Data Channel
     // This allows other users in the chat to see an "Incoming Call" modal
     try {
+        console.log('📞 [initiateCall] Broadcasting call_invite via LiveKit server:', { roomId, callId });
         const roomService = new RoomServiceClient(livekitHost!, apiKey, apiSecret);
         
         const dataPacket = JSON.stringify({
@@ -255,8 +291,10 @@ export async function initiateCall(roomId: string, userId: string, userName: str
             [],
             { reliable: true }
         );
+        console.log('📞 [initiateCall] LiveKit server broadcast successful');
     } catch (e) {
-        // Silently continue - caller can still join
+        console.error('📞 [initiateCall] LiveKit server broadcast failed:', e);
+        // Continue - caller can still join
     }
 
     // Log successful call initiation

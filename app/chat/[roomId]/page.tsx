@@ -221,22 +221,26 @@ async function getRoomDetails(roomId: string, currentUserId: string): Promise<Ro
         };
     }
 
-    // Group chat
+    // Group chat - include ALL participants (including current user) for accurate online counts
     const participants = (profiles || [])
-        .filter(p => p.id !== currentUserId)
         .map(profile => ({
             id: profile.id,
             name: profile.display_name || profile.email?.split('@')[0] || 'Unknown',
             avatar: profile.avatar_url || `https://picsum.photos/seed/${profile.id}/50/50`,
             status: 'offline' as const
         }));
+    
+    // For display name, use other participants (not current user)
+    const otherParticipants = participants.filter(p => p.id !== currentUserId);
+    const displayName = otherParticipants.map(p => p.name).slice(0, 2).join(', ') + 
+        (otherParticipants.length > 2 ? ` +${otherParticipants.length - 2}` : '');
 
     return {
         id: roomId,
         room_type: 'group',
-        name: participants.map(p => p.name).slice(0, 2).join(', ') + (participants.length > 2 ? ` +${participants.length - 2}` : ''),
+        name: displayName,
         members_count: members.length,
-        participants
+        participants // All participants including current user
     };
 }
 
