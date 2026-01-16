@@ -4,7 +4,8 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { LiveKitRoom, useTracks, VideoTrack, useLocalParticipant, useRemoteParticipants, useRoomContext, useIsSpeaking } from '@livekit/components-react';
 import type { TrackReferenceOrPlaceholder } from '@livekit/components-react';
 import { Track, ExternalE2EEKeyProvider, RoomOptions, RoomEvent, RemoteParticipant } from 'livekit-client';
-import { ShieldCheck, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
+import { ShieldCheck, Mic, MicOff, Video, VideoOff, PhoneOff, MonitorUp, MonitorOff, XSquare } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface CallOverlayProps {
   token: string;
@@ -21,7 +22,7 @@ interface CallOverlayProps {
 }
 
 // Speaking indicator wrapper for video tiles
-const SpeakingVideoTile = ({ trackRef }: { trackRef: TrackReferenceOrPlaceholder }) => {
+const SpeakingVideoTile = ({ trackRef, isScreenShare = false }: { trackRef: TrackReferenceOrPlaceholder, isScreenShare?: boolean }) => {
     const isSpeaking = useIsSpeaking(trackRef.participant);
     
     return (
@@ -32,10 +33,12 @@ const SpeakingVideoTile = ({ trackRef }: { trackRef: TrackReferenceOrPlaceholder
                     : 'border border-white/10 bg-white/5'
             }`}
         >
-            <VideoTrack trackRef={trackRef} className="w-full h-full object-cover" />
+            <VideoTrack trackRef={trackRef} className={`w-full h-full ${isScreenShare ? 'object-contain' : 'object-cover'}`} />
             <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded text-xs text-white/90 font-light tracking-wide flex items-center gap-2">
+                {isScreenShare && <MonitorUp size={12} className="text-emerald-400" />}
                 {trackRef.participant.name || trackRef.participant.identity}
-                {isSpeaking && (
+                {isScreenShare && <span className="text-emerald-400 text-[10px]">(Screen)</span>}
+                {isSpeaking && !isScreenShare && (
                     <span className="flex gap-0.5">
                         <span className="w-1 h-3 bg-indigo-400 rounded-full animate-pulse" style={{ animationDelay: '0ms' }} />
                         <span className="w-1 h-4 bg-indigo-400 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
@@ -386,15 +389,39 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     const videoTracks = useTracks([Track.Source.Camera]);
     // ALWAYS listen for audio tracks (both audio and video calls need audio)
     const audioTracks = useTracks([Track.Source.Microphone]);
+    // Listen for screen share tracks
+    const screenShareTracks = useTracks([Track.Source.ScreenShare]);
     
     // Filter remote tracks
     const remoteVideoTracks = videoTracks.filter(t => t.participant.identity !== localParticipant.identity);
     const remoteAudioTracks = audioTracks.filter(t => t.participant.identity !== localParticipant.identity);
+    const remoteScreenShareTracks = screenShareTracks.filter(t => t.participant.identity !== localParticipant.identity);
 
     const [isMuted, setIsMuted] = useState(false);
     const [isVideoOff, setIsVideoOff] = useState(callType === 'audio'); // Video off by default for audio calls
     const [callDuration, setCallDuration] = useState(0); // Call duration in seconds
     const callStartTimeRef = useRef<number | null>(null);
+    
+    // Screen share toggle with error handling
+    // Check if screen share is enabled by looking at local screen share tracks
+    const isScreenShareEnabled = screenShareTracks.some(
+        track => track.participant.identity === localParticipant.identity
+    );
+    
+    const toggleScreenShare = async () => {
+        try {
+            if (isScreenShareEnabled) {
+                await localParticipant.setScreenShareEnabled(false);
+            } else {
+                await localParticipant.setScreenShareEnabled(true);
+            }
+        } catch (error) {
+            console.error('Screen share error:', error);
+            toast.error('Failed to share screen', {
+                description: 'Please check your permissions and try again.'
+            });
+        }
+    };
 
     // Call timer effect
     useEffect(() => {
@@ -600,7 +627,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
 
     return (
         <div className="relative h-dvh w-full flex flex-col bg-[#020205]">
-            {/* Inline styles for radar/pulse animations to match modal visuals */}
+            {/* Inline styles for radar/pulse animations and scrollbar */}
             <style dangerouslySetInnerHTML={{ __html: `
               @keyframes radar-ripple {
                 0% { transform: scale(1); opacity: 1; }
@@ -615,12 +642,34 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
               .radar-ring-1 { animation: radar 2s ease-out infinite; }
               .radar-ring-2 { animation: radar 2s ease-out infinite 0.4s; }
               .radar-ring-3 { animation: radar 2s ease-out infinite 0.8s; }
+              
+              /* Custom scrollbar for participant strip */
+              .scrollbar-thin::-webkit-scrollbar {
+                height: 6px;
+              }
+              .scrollbar-thin::-webkit-scrollbar-track {
+                background: transparent;
+              }
+              .scrollbar-thin::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.1);
+                border-radius: 3px;
+              }
+              .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+                background: rgba(255, 255, 255, 0.2);
+              }
             `}} />
             {/* Floating Status Bar */}
             <div className="fixed top-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md z-[100] w-auto max-w-[90vw]">
                 <ShieldCheck size={12} className="text-emerald-400" />
                 <span className="text-[10px] tracking-[0.2em] font-bold text-emerald-400/80 uppercase">SECURE E2EE</span>
                 <span className="text-white/50 text-xs">{formatCallDuration(callDuration)}</span>
+                {screenShareTracks.length > 0 && (
+                    <>
+                        <span className="text-white/30">•</span>
+                        <MonitorUp size={12} className="text-emerald-400 animate-pulse" />
+                        <span className="text-[10px] tracking-[0.2em] font-bold text-emerald-400/80 uppercase">SHARING</span>
+                    </>
+                )}
             </div>
 
             {/* Header */}
@@ -638,7 +687,52 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
             {/* Main Stage (Remote Participants) */}
             <div className="flex-1 w-full max-w-[1800px] mx-auto pt-24 pb-28 px-4 md:px-8 flex items-center justify-center z-10">
                 {(() => {
+                    const hasScreenShare = screenShareTracks.length > 0;
                     const hasRemoteVideo = remoteVideoTracks.length > 0;
+                    
+                    if (hasScreenShare) {
+                        // Screen share is active - prioritize it with focus layout
+                        // Support multiple screen shares (in case multiple people share in group calls)
+                        const primaryScreenShare = screenShareTracks[0];
+                        const additionalScreenShares = screenShareTracks.slice(1);
+                        
+                        // Collect all camera tracks (both remote and local if enabled)
+                        const allCameraTracks = [
+                            ...remoteVideoTracks,
+                            ...((!isVideoOff && videoTracks.find(t => t.participant.identity === localParticipant.identity)) 
+                                ? [videoTracks.find(t => t.participant.identity === localParticipant.identity)!] 
+                                : [])
+                        ];
+                        
+                        return (
+                            <div className="flex flex-col gap-4 w-full h-full">
+                                {/* Main screen share view (takes up most space) */}
+                                <div className="flex-1 w-full min-h-0">
+                                    <SpeakingVideoTile trackRef={primaryScreenShare} isScreenShare={true} />
+                                </div>
+                                
+                                {/* Bottom strip for additional screen shares and participant cameras */}
+                                {(additionalScreenShares.length > 0 || allCameraTracks.length > 0) && (
+                                    <div className="h-28 md:h-36 flex gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+                                        {/* Additional screen shares first (if any) */}
+                                        {additionalScreenShares.map(track => (
+                                            <div key={`screen-${track.participant.identity}`} className="h-full aspect-video flex-shrink-0">
+                                                <SpeakingVideoTile trackRef={track} isScreenShare={true} />
+                                            </div>
+                                        ))}
+                                        
+                                        {/* Then show participant cameras */}
+                                        {allCameraTracks.map(track => (
+                                            <div key={`camera-${track.participant.identity}`} className="h-full aspect-video flex-shrink-0">
+                                                <SpeakingVideoTile trackRef={track} />
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    }
+                    
                     if (hasRemoteVideo) {
                         // Video call UI (even if started as audio, show when remote video is present)
                         return (
@@ -649,7 +743,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                             </div>
                         );
                     }
-                    // Audio-first UI
+                    // Audio-first UI (no video, no screen share)
                     return (
                     // Audio call UI - show participant avatars/names and render audio tracks
                     <div className="flex flex-col items-center justify-center text-white/90 font-light tracking-wide">
@@ -670,7 +764,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                                 </p>
                             </>
                         ) : (
-                            <div className="flex flex-col items-center gap-4">
+                            <div className="flex flex-col md:flex-row items-center justify-center gap-6 md:gap-8 flex-wrap">
                                 {remoteParticipants.map(participant => {
                                     // Find audio track for this participant
                                     const participantAudioTrack = remoteAudioTracks.find(
@@ -700,8 +794,8 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                 )} )()}
             </div>
 
-            {/* Floating Local Video - show whenever camera is enabled */}
-            {!isVideoOff && <FloatingLocalVideo />}
+            {/* Floating Local Video - show whenever camera is enabled and no screen share is active */}
+            {!isVideoOff && screenShareTracks.length === 0 && <FloatingLocalVideo />}
 
             {/* Floating Control Capsule */}
             <div className="fixed bottom-8 md:bottom-12 left-1/2 -translate-x-1/2 w-fit px-6 py-3 rounded-full bg-white/[0.03] border border-white/10 backdrop-blur-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center gap-4 md:gap-8 z-[100]" style={{ bottom: 'max(2rem, calc(env(safe-area-inset-bottom, 0px) + 1.5rem))' }}>
@@ -726,6 +820,22 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                         <VideoOff size={18} className="text-red-400" />
                     ) : (
                         <Video size={18} className="text-white/90" />
+                    )}
+                </button>
+
+                {/* Screen Share Button */}
+                <button 
+                    onClick={toggleScreenShare} 
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all hover:scale-110 ${
+                        isScreenShareEnabled 
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-[0_0_20px_rgba(16,185,129,0.3)] animate-pulse' 
+                            : 'bg-white/5 text-white/90 border border-white/10 hover:bg-white/10'
+                    }`}
+                >
+                    {isScreenShareEnabled ? (
+                        <XSquare size={18} />
+                    ) : (
+                        <MonitorUp size={18} />
                     )}
                 </button>
 

@@ -349,7 +349,7 @@ export default function ContactsPage() {
       <div className="h-full w-full flex flex-col bg-transparent max-w-6xl mx-auto">
         
         {/* Header with Glass Container */}
-        <div className="p-4 md:p-6 sticky top-0 z-40 backdrop-blur-xl border-b border-white/5 bg-[#03030b]/80">
+        <div className="p-4 md:p-6 sticky top-0 z-40 backdrop-blur-xl border-b border-white/5 bg-white/5 rounded-2xl">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/70 tracking-tight mb-1">

@@ -31,11 +31,8 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
     );
   }
 
-  // Toggle orbs for specific pages to avoid visual clutter
-  const hideOrbs = pathname === '/contacts' || pathname === '/translate';
-
   return (
-    <AuroraBackground showOrbs={!hideOrbs}>
+    <AuroraBackground showOrbs={true}>
       <div className="flex h-screen w-full overflow-hidden">
         {/* Sidebar */}
         <Sidebar 
