@@ -22,6 +22,9 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   // Hide shell structure for auth pages
   const isAuthPage = pathname?.startsWith('/auth');
   
+  // Check if current page is homepage
+  const isHomePage = pathname === '/';
+  
   if (isAuthPage) {
     return (
       <>
@@ -53,8 +56,14 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 <Menu size={24} />
               </button>
               
-              {/* Global Search Component */}
-              <GlobalSearch />
+              {/* Global Search Component - Hidden on Homepage */}
+              {isHomePage ? (
+                <div className="hidden md:flex items-center gap-2 opacity-50">
+                  <span className="font-display font-bold tracking-widest text-sm">COMMAND DECK</span>
+                </div>
+              ) : (
+                <GlobalSearch />
+              )}
             </div>
 
             <div className="flex items-center gap-3 pl-4">

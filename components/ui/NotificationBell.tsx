@@ -553,7 +553,16 @@ export default function NotificationBell() {
         
         // Clean up existing channel if any
         if (channel) {
-          supabase.removeChannel(channel);
+          try {
+            channel.unsubscribe();
+          } catch (e) {
+            // Ignore unsubscribe errors
+          }
+          try {
+            supabase.removeChannel(channel);
+          } catch (e) {
+            // Ignore removeChannel errors
+          }
         }
 
         // Create a simpler channel configuration
@@ -638,7 +647,16 @@ export default function NotificationBell() {
       mounted = false;
       if (channel) {
         console.log('🧹 Cleaning up notification subscription');
-        supabase.removeChannel(channel);
+        try {
+          channel.unsubscribe();
+        } catch (e) {
+          // Ignore unsubscribe errors
+        }
+        try {
+          supabase.removeChannel(channel);
+        } catch (e) {
+          // Ignore removeChannel errors
+        }
       }
       if (pollInterval) {
         clearInterval(pollInterval);

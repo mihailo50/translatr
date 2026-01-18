@@ -193,11 +193,18 @@ const MessageInput: React.FC<MessageInputProps> = ({
                 if (!response.ok) {
                     throw new Error('File uploaded but not accessible. Please ensure the "attachments" bucket is public in Supabase Storage settings.');
                 }
-            } catch (fetchError) {
-                console.error('File accessibility check failed:', fetchError);
-                // Delete the uploaded file since it's not accessible
-                await supabase.storage.from('attachments').remove([fileName]);
-                throw new Error('File uploaded but not accessible. The storage bucket may not be public.');
+            } catch (fetchError: any) {
+                // Handle network errors gracefully
+                if (fetchError instanceof TypeError && fetchError.message === 'Failed to fetch') {
+                    // Network error - skip file check but don't delete the file
+                    console.log('Network error during file accessibility check, skipping verification');
+                } else {
+                    // Other errors (file not accessible, etc.) - log and handle
+                    console.error('File accessibility check failed:', fetchError);
+                    // Delete the uploaded file since it's not accessible
+                    await supabase.storage.from('attachments').remove([fileName]);
+                    throw new Error('File uploaded but not accessible. The storage bucket may not be public.');
+                }
             }
             
             const type = processedFile.type.startsWith('image/') ? 'image' : 'file';

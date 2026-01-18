@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Phone, Video, MoreVertical, Ban, Trash2, X, Unlock, Search, Users, Circle, Bell, BellOff, Image as ImageIcon, Languages, ArrowLeft, ChevronDown, ShieldCheck } from 'lucide-react';
 import { useLiveKitChat } from '../../hooks/useLiveKitChat';
 import { useUserStatus, UserStatus } from '../../hooks/useUserStatus';
@@ -53,6 +53,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     roomDetails
 }) => {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   // Use notification context - safe for SSR with updated hook
   const { isNotificationsOpen, setIsNotificationsOpen, setCurrentRoomId } = useNotification();
@@ -157,7 +158,16 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       .subscribe();
     
     return () => {
-      supabase.removeChannel(channel);
+      try {
+        channel.unsubscribe();
+      } catch (e) {
+        // Ignore unsubscribe errors
+      }
+      try {
+        supabase.removeChannel(channel);
+      } catch (e) {
+        // Ignore removeChannel errors
+      }
     };
   }, [roomId, supabase]);
   
@@ -404,7 +414,16 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     return () => {
       clearInterval(pollInterval);
       clearInterval(activeCallPollInterval);
-      supabase.removeChannel(callNotifChannel);
+      try {
+        callNotifChannel.unsubscribe();
+      } catch (e) {
+        // Ignore unsubscribe errors
+      }
+      try {
+        supabase.removeChannel(callNotifChannel);
+      } catch (e) {
+        // Ignore removeChannel errors
+      }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, roomId, supabase]);
@@ -712,7 +731,16 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      try {
+        channel.unsubscribe();
+      } catch (e) {
+        // Ignore unsubscribe errors
+      }
+      try {
+        supabase.removeChannel(channel);
+      } catch (e) {
+        // Ignore removeChannel errors
+      }
     };
   }, [incomingCallNotifId, supabase]);
   
@@ -737,7 +765,46 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   useEffect(() => {
     showCallBannerRef.current = showCallBanner;
   }, [showCallBanner]);
-  
+
+  // Auto-join call when accepting from GlobalCallHandler banner
+  useEffect(() => {
+    const acceptCall = searchParams?.get('acceptCall');
+    const callId = searchParams?.get('callId');
+    const callType = searchParams?.get('callType') as 'audio' | 'video' | null;
+    
+    if (acceptCall === 'true' && callType && !activeCallTokenRef.current && !isCallModalOpenRef.current) {
+      // Remove URL params after reading
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+      
+      // Auto-join the accepted call
+      const joinAcceptedCall = async () => {
+        console.log('📞 Auto-joining accepted call from banner:', { callId, callType, roomId });
+        
+        // Use initiateCall to join the call
+        const res = await initiateCall(roomId, userId, userName, callType);
+        
+        if (res.success && res.token && res.serverUrl) {
+          const token = typeof res.token === 'string' ? res.token : await res.token;
+          setActiveCallToken(token);
+          setActiveCallUrl(res.serverUrl);
+          setActiveCallType(callType);
+          setCallStartTime(Date.now());
+          callStartTimeRef.current = Date.now();
+          
+          updateUserStatus('in-call');
+          toast.success('Call joined');
+        } else {
+          console.error('❌ Failed to auto-join call:', res.error);
+          toast.error(res.error || 'Failed to join call');
+        }
+      };
+      
+      // Small delay to ensure ChatRoom is fully mounted
+      setTimeout(joinAcceptedCall, 300);
+    }
+  }, [searchParams, roomId, userId, userName, updateUserStatus]);
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isMediaDrawerOpen, setIsMediaDrawerOpen] = useState(false);
   const [isGroupMembersOpen, setIsGroupMembersOpen] = useState(false);
@@ -805,7 +872,16 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       
       return () => {
           clearInterval(refreshInterval);
-          supabase.removeChannel(channel);
+          try {
+            channel.unsubscribe();
+          } catch (e) {
+            // Ignore unsubscribe errors
+          }
+          try {
+            supabase.removeChannel(channel);
+          } catch (e) {
+            // Ignore removeChannel errors
+          }
       };
   }, [directPartnerId, supabase]);
 
@@ -906,7 +982,16 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     return () => {
       mounted = false;
       clearInterval(pollInterval);
-      supabase.removeChannel(channel);
+      try {
+        channel.unsubscribe();
+      } catch (e) {
+        // Ignore unsubscribe errors
+      }
+      try {
+        supabase.removeChannel(channel);
+      } catch (e) {
+        // Ignore removeChannel errors
+      }
     };
   }, [roomDetails.room_type, roomDetails.participants, roomId, supabase]);
 
@@ -2028,7 +2113,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       )}
       
       {/* --- FLOATING PANE HEADER --- */}
-      <div className="sticky top-0 left-0 right-0 z-50 w-full shrink-0 px-2 sm:px-4 pt-2">
+      <div className="sticky top-0 z-50 w-full shrink-0 -mx-4 px-4 -mt-4 pt-4 md:-mx-8 md:px-8 bg-[#0B0D12]/80 backdrop-blur-xl border-b border-white/5">
         <div 
           className="relative h-20 flex items-center mx-2 sm:mx-4 my-2 rounded-2xl border border-white/10 floating-header-pane"
           style={{
@@ -2415,6 +2500,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         isTranslationEnabled={isTranslationEnabled}
         isNotificationsOpen={isNotificationsOpen}
         isGroup={roomDetails.room_type === 'group'}
+        roomName={roomDetails.name}
+        roomParticipants={roomDetails.participants || []}
       />
       
       {/* Input with Fast P2P Send */}

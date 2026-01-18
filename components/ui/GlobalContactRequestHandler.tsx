@@ -139,10 +139,26 @@ export default function GlobalContactRequestHandler() {
         .subscribe();
 
       return () => {
-        channel.unsubscribe();
-        notifUpdatesChannel.unsubscribe();
-        supabase.removeChannel(channel);
-        supabase.removeChannel(notifUpdatesChannel);
+        try {
+          channel.unsubscribe();
+        } catch (e) {
+          // Ignore unsubscribe errors
+        }
+        try {
+          notifUpdatesChannel.unsubscribe();
+        } catch (e) {
+          // Ignore unsubscribe errors
+        }
+        try {
+          supabase.removeChannel(channel);
+        } catch (e) {
+          // Ignore removeChannel errors
+        }
+        try {
+          supabase.removeChannel(notifUpdatesChannel);
+        } catch (e) {
+          // Ignore removeChannel errors
+        }
       };
     };
 

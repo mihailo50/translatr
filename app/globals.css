@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+@theme {
+  --font-family-sans: var(--font-inter), 'Inter', sans-serif;
+  --font-family-display: var(--font-space-grotesk), 'Space Grotesk', sans-serif;
+  
+  --color-aurora-dark: #020617;
+  --color-aurora-slate: #0f172a;
+  --color-aurora-indigo: #6366f1;
+  --color-aurora-purple: #8b5cf6;
+  --color-aurora-pink: #ec4899;
+}
+
 /* 1. MOVE THIS TO THE VERY TOP */
 /* This kills the background and forces text color using the transition + shadow hack */
 input:-webkit-autofill,
@@ -30,7 +41,7 @@ input:focus {
 body {
   background: radial-gradient(circle at 50% 0%, #0a0a15 0%, #020205 100%);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), 'Inter', sans-serif;
 }
 
 @keyframes aurora-1 {
@@ -137,4 +148,77 @@ body {
 
 .scrollbar-none::-webkit-scrollbar {
   display: none;
+}
+
+/* Font Display Utility */
+.font-display {
+  font-family: var(--font-space-grotesk), 'Space Grotesk', sans-serif;
+}
+
+/* Base body styles */
+@layer base {
+  body {
+    @apply antialiased overflow-hidden;
+    font-family: var(--font-inter), 'Inter', sans-serif;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  
+  /* Aurora theme (default) */
+  body.theme-aurora {
+    background-color: var(--color-aurora-dark);
+    color: rgb(241 245 249);
+  }
+  body.theme-aurora ::selection {
+    background-color: rgba(139, 92, 246, 0.3);
+    color: white;
+  }
+  
+  /* Midnight theme (dark mode) */
+  body.theme-midnight {
+    @apply bg-black text-white;
+  }
+  body.theme-midnight ::selection {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: white;
+  }
+}
+
+@layer utilities {
+  /* Aurora theme glass effects */
+  body.theme-aurora .glass-strong {
+    @apply backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl;
+    -webkit-transform: translate3d(0,0,0);
+    transform: translate3d(0,0,0);
+  }
+  body.theme-aurora .glass {
+    @apply backdrop-blur-md bg-white/5 border border-white/5;
+    -webkit-transform: translate3d(0,0,0);
+    transform: translate3d(0,0,0);
+  }
+  
+  /* Midnight theme glass effects (darker) */
+  body.theme-midnight .glass-strong {
+    @apply backdrop-blur-xl bg-white/3 border border-white/5 shadow-2xl;
+    -webkit-transform: translate3d(0,0,0);
+    transform: translate3d(0,0,0);
+  }
+  body.theme-midnight .glass {
+    @apply backdrop-blur-md bg-white/3 border border-white/3;
+    -webkit-transform: translate3d(0,0,0);
+    transform: translate3d(0,0,0);
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  body.theme-aurora .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
+  }
+  body.theme-midnight .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-white/5 rounded-full hover:bg-white/10 transition-colors;
+  }
 }

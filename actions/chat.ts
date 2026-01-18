@@ -210,19 +210,33 @@ export async function sendMessageAction(
 
                 // Create preview text
                 let previewText = '';
+                let hasContent = false;
                 if (attachment) {
+                    hasContent = true;
                     if (attachment.type === 'image') {
                         previewText = attachment.viewOnce ? '📸 View once photo' : '📷 Photo';
                     } else {
                         previewText = `📎 ${attachment.name || 'File'}`;
                     }
                 } else if (options?.isEncrypted) {
+                    // For encrypted messages, assume there's content (ciphertext is present)
+                    hasContent = true;
                     previewText = '🔒 Encrypted message';
                 } else if (text && text.trim().length > 0) {
+                    hasContent = true;
                     // Truncate long messages to ~100 characters
                     previewText = text.length > 100 ? text.substring(0, 100) + '...' : text;
                 } else {
+                    // No content (no text, no attachment) - skip notifications
+                    hasContent = false;
                     previewText = 'New message';
+                }
+
+                // Only create notifications if there's actual message content
+                // This prevents "New message" notifications when no actual message was sent
+                if (!hasContent) {
+                    console.log('Skipping notification creation - no message content (empty text and no attachment)');
+                    return { success: true, messageId: messageData.id };
                 }
 
                 // Create notifications for each recipient (excluding sender)

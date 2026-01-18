@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import UserFooter from './UserFooter';
+import { AetherLogo } from '../ui/AetherLogo';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -65,20 +66,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-white/5">
           <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shadow-lg transition-colors ${
-                theme === 'midnight' 
-                ? 'bg-white text-black' 
-                : 'bg-gradient-to-br from-aurora-indigo to-aurora-purple text-white shadow-aurora-indigo/20'
-            }`}>
-              <Globe className="w-5 h-5" />
-            </div>
-            <span className={`text-xl font-bold bg-clip-text text-transparent ${
-                theme === 'midnight'
-                ? 'bg-gradient-to-r from-white to-gray-400'
-                : 'bg-gradient-to-r from-white to-white/70'
-            }`}>
-              Translatr
-            </span>
+            <img src="/logo/logo.svg" alt="Aether" className="w-[57.6px] h-[57.6px]" />
+            <AetherLogo />
           </div>
           <button 
             onClick={onClose}

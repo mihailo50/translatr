@@ -230,13 +230,18 @@ export async function initiateCall(roomId: string, userId: string, userName: str
           }
         }
         
-        console.log('📞 [initiateCall] Creating notifications for recipients:', { 
+        // NOTE: We don't create notification bell notifications here when initiating a call.
+        // Banner notifications are handled separately via LiveKit DataChannel.
+        // Bell notifications are only created when calls are missed (see updateCallRecord/updateCallRecordByCallId).
+        console.log('📞 [initiateCall] Creating banner notifications for recipients (users not in chatroom will see banner):', { 
           recipientIds, 
           count: recipientIds.length,
-          callerId: userId 
+          callerId: userId
         });
         
-        // Create notifications for all recipients
+        // Create banner notifications for users not in chatroom
+        // These are used by GlobalCallHandler to show banner notifications
+        // Users in chatroom will receive calls via LiveKit DataChannel instead
         if (recipientIds.length > 0) {
           const notifications = recipientIds.map(recipientId => ({
             recipient_id: recipientId,
@@ -255,12 +260,10 @@ export async function initiateCall(roomId: string, userId: string, userName: str
             .insert(notifications);
           
           if (insertError) {
-            console.error('📞 [initiateCall] Failed to insert notifications:', insertError);
+            console.error('📞 [initiateCall] Failed to insert banner notifications:', insertError);
           } else {
-            console.log('📞 [initiateCall] Successfully created', notifications.length, 'call notifications');
+            console.log('📞 [initiateCall] Successfully created', notifications.length, 'banner notifications for call');
           }
-        } else {
-          console.warn('📞 [initiateCall] No recipients found for call notifications!');
         }
       }
     } catch (notifError) {

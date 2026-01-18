@@ -22,16 +22,50 @@ interface CallRecordBubbleProps {
     } | null;
   };
   currentUserId: string;
+  isGroup?: boolean;
+  roomName?: string;
+  roomParticipants?: Array<{ id: string; name: string }>;
 }
 
-const CallRecordBubble: React.FC<CallRecordBubbleProps> = ({ record, currentUserId }) => {
+const CallRecordBubble: React.FC<CallRecordBubbleProps> = ({ 
+  record, 
+  currentUserId,
+  isGroup = false,
+  roomName,
+  roomParticipants = []
+}) => {
   const isCaller = record.caller_id === currentUserId;
   const isReceiver = record.receiver_id === currentUserId;
   
-  // Determine the other person's name
-  const otherPersonName = isCaller 
-    ? (record.receiver?.display_name || record.receiver?.email?.split('@')[0] || 'Unknown')
-    : (record.caller?.display_name || record.caller?.email?.split('@')[0] || 'Unknown');
+  // Determine the other person's name or group name
+  let otherPersonName: string;
+  
+  if (isGroup || record.receiver_id === null) {
+    // Group call - use room name or format participant names
+    if (roomName && roomName !== 'Loading...' && roomName !== 'Unknown') {
+      otherPersonName = roomName;
+    } else if (roomParticipants.length > 0) {
+      // Use participant names (excluding current user)
+      const otherParticipants = roomParticipants.filter(p => p.id !== currentUserId);
+      if (otherParticipants.length === 1) {
+        otherPersonName = otherParticipants[0].name;
+      } else if (otherParticipants.length > 1) {
+        const names = otherParticipants.slice(0, 2).map(p => p.name).join(', ');
+        otherPersonName = otherParticipants.length > 2 
+          ? `${names} +${otherParticipants.length - 2}`
+          : names;
+      } else {
+        otherPersonName = 'Group';
+      }
+    } else {
+      otherPersonName = 'Group';
+    }
+  } else {
+    // Direct call - use receiver/caller profile
+    otherPersonName = isCaller 
+      ? (record.receiver?.display_name || record.receiver?.email?.split('@')[0] || 'Unknown')
+      : (record.caller?.display_name || record.caller?.email?.split('@')[0] || 'Unknown');
+  }
   
   // Format duration
   const formatDuration = (seconds: number | null): string => {

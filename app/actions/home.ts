@@ -317,11 +317,23 @@ export async function getHomeData() {
     const isGroup = members.length > 2;
     const otherMembers = members.filter(m => m.profile_id !== user.id);
     
+    // Skip rooms where user is the only member (unless it's a vault)
+    // Vault rooms are handled separately and start with 'vault_'
+    if (otherMembers.length === 0 && !roomId.startsWith('vault_')) {
+      continue; // Skip this room
+    }
+    
+    // Check if this is a vault room
+    const isVault = roomId.startsWith('vault_');
+    
     // Determine room name and avatar
-    let roomName = 'Chat';
-    let roomAvatar = 'https://picsum.photos/seed/default/50/50';
+    let roomName: string;
+    let roomAvatar: string;
 
-    if (isGroup) {
+    if (isVault) {
+      roomName = 'Aether Vault';
+      roomAvatar = 'https://picsum.photos/seed/vault/50/50';
+    } else if (isGroup) {
       roomName = otherMembers
         .map(m => m.profile?.display_name || 'User')
         .slice(0, 2)
@@ -334,6 +346,9 @@ export async function getHomeData() {
       const otherUser = otherMembers[0].profile;
       roomName = otherUser?.display_name || 'User';
       roomAvatar = otherUser?.avatar_url || `https://picsum.photos/seed/${otherUser?.id || 'user'}/50/50`;
+    } else {
+      // Fallback: should not reach here due to check above, but handle edge case
+      continue; // Skip rooms we can't identify properly
     }
 
     // Find last message for this room

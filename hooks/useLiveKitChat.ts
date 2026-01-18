@@ -59,11 +59,24 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
       connectingRef.current = true;
 
       try {
-        const response = await fetch('/api/livekit/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ room_id: roomId, user_id: userId, username: userName }),
-        });
+        let response: Response;
+        try {
+          response = await fetch('/api/livekit/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ room_id: roomId, user_id: userId, username: userName }),
+          });
+        } catch (fetchError: any) {
+          // Handle network errors (TypeError: Failed to fetch)
+          if (fetchError instanceof TypeError && fetchError.message === 'Failed to fetch') {
+            // Network error - silently handle and don't connect
+            console.log('Network error while fetching LiveKit token (connection may be offline)');
+            connectingRef.current = false;
+            return;
+          }
+          // Re-throw other errors
+          throw fetchError;
+        }
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
@@ -333,14 +346,30 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
         }
 
       } catch (err) {
-        console.error('LiveKit connection error:', err);
         connectingRef.current = false;
+        
+        // Handle network errors gracefully (don't log as errors)
+        if (err instanceof TypeError && err.message === 'Failed to fetch') {
+          // Network error - silently handle, don't set error state
+          console.log('Network error while connecting to LiveKit (connection may be offline)');
+          return;
+        }
+        
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        
+        // Only log non-network errors
+        if (errorMessage !== 'Failed to fetch') {
+          console.error('LiveKit connection error:', err);
+        }
+        
         if (mounted) {
-          setError(errorMessage);
-          // If it's a server misconfiguration error, show a helpful message
-          if (errorMessage.includes('Server misconfigured') || errorMessage.includes('Failed to fetch token')) {
-            console.warn('LiveKit is not configured. Chat will work but real-time features may be limited.');
+          // Only set error state for non-network errors
+          if (errorMessage !== 'Failed to fetch') {
+            setError(errorMessage);
+            // If it's a server misconfiguration error, show a helpful message
+            if (errorMessage.includes('Server misconfigured') || errorMessage.includes('Failed to fetch token')) {
+              console.warn('LiveKit is not configured. Chat will work but real-time features may be limited.');
+            }
           }
         }
       }

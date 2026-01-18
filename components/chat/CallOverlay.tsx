@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { LiveKitRoom, useTracks, VideoTrack, useLocalParticipant, useRemoteParticipants, useRoomContext, useIsSpeaking } from '@livekit/components-react';
 import type { TrackReferenceOrPlaceholder } from '@livekit/components-react';
 import { Track, ExternalE2EEKeyProvider, RoomOptions, RoomEvent, RemoteParticipant } from 'livekit-client';
@@ -65,12 +66,16 @@ const FloatingLocalVideo = () => {
     const videoWidth = typeof window !== 'undefined' && window.innerWidth >= 768 ? 192 : 128; // md:w-48 = 192px, w-32 = 128px
     const videoHeight = videoWidth * (9 / 16); // aspect-video = 16:9
     
-    // Initialize position to bottom-right on mount
+    // Initialize position to bottom-right on mount (with mobile-safe top offset)
     useEffect(() => {
         if (typeof window !== 'undefined' && position.x === -1) {
+            const isMobile = window.innerWidth < 768;
+            const topOffset = isMobile ? 128 : 96; // top-32 (128px) on mobile, top-24 (96px) on desktop
             setPosition({
                 x: window.innerWidth - videoWidth - 16, // 16px margin from right
-                y: window.innerHeight - videoHeight - 120 // 120px from bottom (above controls)
+                y: isMobile 
+                    ? topOffset // Position from top on mobile (below header + status bar)
+                    : window.innerHeight - videoHeight - 120 // 120px from bottom (above controls) on desktop
             });
         }
     }, [position.x, videoWidth, videoHeight]);
@@ -401,6 +406,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     const [isVideoOff, setIsVideoOff] = useState(callType === 'audio'); // Video off by default for audio calls
     const [callDuration, setCallDuration] = useState(0); // Call duration in seconds
     const callStartTimeRef = useRef<number | null>(null);
+    const [focusedTrackSid, setFocusedTrackSid] = useState<string | null>(null); // Track SID of the focused screen share
     
     // Screen share toggle with error handling
     // Check if screen share is enabled by looking at local screen share tracks
@@ -445,6 +451,30 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
 
         return () => clearInterval(interval);
     }, [room]);
+
+    // Manage focused screen share track - default to first available, reset if focused track disappears
+    useEffect(() => {
+        if (screenShareTracks.length === 0) {
+            setFocusedTrackSid(null);
+            return;
+        }
+        
+        // If no focused track, default to first one
+        if (!focusedTrackSid) {
+            setFocusedTrackSid(screenShareTracks[0]?.publication.trackSid || null);
+            return;
+        }
+        
+        // Check if focused track still exists
+        const focusedTrackExists = screenShareTracks.some(
+            t => t.publication.trackSid === focusedTrackSid
+        );
+        
+        // If focused track is gone, switch to first available
+        if (!focusedTrackExists && screenShareTracks.length > 0) {
+            setFocusedTrackSid(screenShareTracks[0].publication.trackSid);
+        }
+    }, [screenShareTracks, focusedTrackSid]);
 
     // Format call duration as MM:SS
     const formatCallDuration = (seconds: number): string => {
@@ -659,7 +689,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
               }
             `}} />
             {/* Floating Status Bar */}
-            <div className="fixed top-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md z-[100] w-auto max-w-[90vw]">
+            <div className="fixed top-20 md:top-6 left-1/2 -translate-x-1/2 flex items-center gap-3 px-4 py-1.5 rounded-full bg-white/5 border border-white/10 backdrop-blur-md z-[100] w-auto max-w-[90vw]">
                 <ShieldCheck size={12} className="text-emerald-400" />
                 <span className="text-[10px] tracking-[0.2em] font-bold text-emerald-400/80 uppercase">SECURE E2EE</span>
                 <span className="text-white/50 text-xs">{formatCallDuration(callDuration)}</span>
@@ -685,16 +715,17 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
             </div>
 
             {/* Main Stage (Remote Participants) */}
-            <div className="flex-1 w-full max-w-[1800px] mx-auto pt-24 pb-28 px-4 md:px-8 flex items-center justify-center z-10">
+            <div className="flex-1 w-full max-w-[1800px] mx-auto pt-32 md:pt-24 pb-28 px-4 md:px-8 flex items-center justify-center z-10">
                 {(() => {
                     const hasScreenShare = screenShareTracks.length > 0;
                     const hasRemoteVideo = remoteVideoTracks.length > 0;
                     
                     if (hasScreenShare) {
-                        // Screen share is active - prioritize it with focus layout
-                        // Support multiple screen shares (in case multiple people share in group calls)
-                        const primaryScreenShare = screenShareTracks[0];
-                        const additionalScreenShares = screenShareTracks.slice(1);
+                        // Cinema Mode: Multi-Screen Share with Switcher
+                        // Find the active focused track, or default to first
+                        const activeScreenTrack = screenShareTracks.find(
+                            t => t.publication.trackSid === focusedTrackSid
+                        ) || screenShareTracks[0];
                         
                         // Collect all camera tracks (both remote and local if enabled)
                         const allCameraTracks = [
@@ -705,25 +736,53 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                         ];
                         
                         return (
-                            <div className="flex flex-col gap-4 w-full h-full">
-                                {/* Main screen share view (takes up most space) */}
-                                <div className="flex-1 w-full min-h-0">
-                                    <SpeakingVideoTile trackRef={primaryScreenShare} isScreenShare={true} />
+                            <div className="w-full h-full flex flex-col bg-black relative pt-20">
+                                {/* Multiple Screens Switcher - Top Bar */}
+                                {screenShareTracks.length > 1 && (
+                                    <div className="absolute top-24 left-1/2 -translate-x-1/2 z-50 flex gap-2 bg-black/50 backdrop-blur-md p-1.5 rounded-full border border-white/10">
+                                        {screenShareTracks.map(t => {
+                                            const isActive = activeScreenTrack.publication.trackSid === t.publication.trackSid;
+                                            const participantName = t.participant.name || t.participant.identity;
+                                            return (
+                                                <button 
+                                                    key={t.publication.trackSid}
+                                                    onClick={() => setFocusedTrackSid(t.publication.trackSid)}
+                                                    className={`px-3 py-1 text-xs rounded-full transition-all ${
+                                                        isActive 
+                                                            ? 'bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)]' 
+                                                            : 'hover:bg-white/10 text-white/70'
+                                                    }`}
+                                                >
+                                                    {participantName}'s Screen
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {/* Main Screen Share Stage */}
+                                <div className="flex-1 relative overflow-hidden flex items-center justify-center p-4">
+                                    <div className="relative w-full h-full max-w-[90vw]">
+                                        <VideoTrack 
+                                            trackRef={activeScreenTrack} 
+                                            className="w-full h-full"
+                                            style={{ objectFit: 'contain' }}
+                                        />
+                                        {/* Identity Badge - Top Left */}
+                                        <div className="absolute top-4 left-4 bg-black/60 backdrop-blur px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2">
+                                            <MonitorUp size={14} className="text-indigo-400" />
+                                            <span className="text-sm font-medium text-white">
+                                                {activeScreenTrack.participant.name || activeScreenTrack.participant.identity}'s Screen
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
-                                
-                                {/* Bottom strip for additional screen shares and participant cameras */}
-                                {(additionalScreenShares.length > 0 || allCameraTracks.length > 0) && (
-                                    <div className="h-28 md:h-36 flex gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-                                        {/* Additional screen shares first (if any) */}
-                                        {additionalScreenShares.map(track => (
-                                            <div key={`screen-${track.participant.identity}`} className="h-full aspect-video flex-shrink-0">
-                                                <SpeakingVideoTile trackRef={track} isScreenShare={true} />
-                                            </div>
-                                        ))}
-                                        
-                                        {/* Then show participant cameras */}
+
+                                {/* Camera Strip (Bottom) */}
+                                {allCameraTracks.length > 0 && (
+                                    <div className="h-32 w-full bg-[#0B0D12] border-t border-white/10 p-4 flex gap-3 overflow-x-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent snap-x">
                                         {allCameraTracks.map(track => (
-                                            <div key={`camera-${track.participant.identity}`} className="h-full aspect-video flex-shrink-0">
+                                            <div key={`camera-${track.participant.identity}`} className="h-full aspect-video flex-shrink-0 snap-center">
                                                 <SpeakingVideoTile trackRef={track} />
                                             </div>
                                         ))}
@@ -906,8 +965,10 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
   // they need to be in the room to detect when someone joins.
   // We use a minimal listener component that only watches for participants
   // without trying to publish any tracks.
+  if (typeof document === 'undefined') return null;
+  
   if (hidden) {
-    return (
+    return createPortal(
       <div className="sr-only" aria-hidden="true">
         <LiveKitRoom
             token={token}
@@ -929,11 +990,12 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
               onCallAccepted={onCallAccepted} 
             />
         </LiveKitRoom>
-      </div>
+      </div>,
+      document.body
     );
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[9999] bg-[#020205] text-white animate-in fade-in duration-300 h-dvh">
         {/* Aurora Cosmos Background Layer */}
         <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
@@ -956,7 +1018,8 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
         >
             <CallContent roomName={roomName} roomType={roomType} callType={callType} onDisconnect={onDisconnect} userId={userId} onParticipantJoined={onParticipantJoined} onCallAccepted={onCallAccepted} />
         </LiveKitRoom>
-    </div>
+    </div>,
+    document.body
   );
 };
 

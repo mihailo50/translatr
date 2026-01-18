@@ -2,10 +2,13 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, ChevronRight, MessageSquare } from 'lucide-react';
-import { Conversation, HomeStats } from '../actions/home';
+import { ChevronRight, MessageSquare, MessageSquarePlus, UserPlus, Shield, Languages, Search, Loader2, X } from 'lucide-react';
+import { Conversation } from '../actions/home';
 import { createClient } from '../../utils/supabase/client';
 import { deriveKey, decryptData } from '../../utils/encryption';
+import { toast } from 'sonner';
+import { globalSearch, GlobalSearchResults } from '../actions/search';
+import { getOrCreateVault } from '../actions/vault';
 
 interface HomePageClientProps {
   homeData: {
@@ -14,14 +17,22 @@ interface HomePageClientProps {
       avatar: string | null;
     };
     conversations: Conversation[];
-    stats: HomeStats;
   };
 }
 
 export default function HomePageClient({ homeData }: HomePageClientProps) {
-  const [showAll, setShowAll] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>(homeData.conversations);
   const supabase = createClient();
+  
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<GlobalSearchResults | null>(null);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+  
+  // Vault state
+  const [isOpeningVault, setIsOpeningVault] = useState(false);
 
   // Sync conversations when homeData changes (e.g., on page refresh)
   useEffect(() => {
@@ -63,15 +74,29 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
 
   // Track room IDs to avoid unnecessary re-subscriptions
   const roomIdsRef = useRef<string>('');
-  const cleanupRealtimeRef = useRef<(() => void) | undefined>(undefined);
+  const channelsRef = useRef<any[]>([]);
   const subscribedRoomsRef = useRef<Set<string>>(new Set());
   
   // Set up real-time subscription for new messages
   useEffect(() => {
     let mounted = true;
-    const channels: any[] = [];
     
     const setupRealtime = async () => {
+      // Clean up previous channels first
+      channelsRef.current.forEach((channel) => {
+        try {
+          channel.unsubscribe();
+        } catch (e) {
+          // Ignore unsubscribe errors
+        }
+        try {
+          supabase.removeChannel(channel);
+        } catch (e) {
+          // Ignore removeChannel errors
+        }
+      });
+      channelsRef.current = [];
+
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || !mounted) return;
 
@@ -310,7 +335,7 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
             }
           });
       
-      channels.push(globalChannel);
+      channelsRef.current.push(globalChannel);
       
       // Also set up per-room subscriptions as backup (more targeted)
       allRoomIdsArray.forEach((roomId) => {
@@ -334,21 +359,12 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
           )
           .subscribe();
         
-        channels.push(roomChannel);
+        channelsRef.current.push(roomChannel);
       });
-
-      return () => {
-        // Clean up all channels
-        channels.forEach((channel) => {
-          supabase.removeChannel(channel);
-        });
-        // Clear subscribed rooms
-        subscribedRoomsRef.current.clear();
-      };
     };
 
-    const cleanupRealtime = setupRealtime().then((cleanup) => {
-      cleanupRealtimeRef.current = cleanup;
+    setupRealtime().catch((error) => {
+      console.error('Error setting up real-time subscriptions:', error);
     });
 
     // Polling fallback: Periodically refresh conversations to catch any missed updates
@@ -481,173 +497,322 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
 
     return () => {
       mounted = false;
-      // Clean up real-time subscriptions
-      if (cleanupRealtimeRef.current) {
-        cleanupRealtimeRef.current();
-      }
+      // Clean up all real-time subscriptions synchronously
+      channelsRef.current.forEach((channel) => {
+        try {
+          channel.unsubscribe();
+        } catch (e) {
+          // Ignore unsubscribe errors
+        }
+        try {
+          supabase.removeChannel(channel);
+        } catch (e) {
+          // Ignore removeChannel errors
+        }
+      });
+      channelsRef.current = [];
       roomIdsRef.current = ''; // Reset on cleanup
-      cleanupRealtimeRef.current = undefined;
       subscribedRoomsRef.current.clear();
       clearInterval(pollInterval); // Clear polling interval
     };
   }, [conversations.map(c => c.id).join(','), supabase, decryptMessageClient]); // Re-subscribe when room IDs change
 
-  const displayedConversations = showAll ? conversations : conversations.slice(0, 3);
+  // Handle click outside to close search dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setIsSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
-  // Format numbers for display
-  const formatNumber = (num: number): string => {
-    if (num >= 1000000) {
-      return (num / 1000000).toFixed(1) + 'M';
-    } else if (num >= 1000) {
-      return (num / 1000).toFixed(1) + 'k';
+  // Debounce search logic
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (searchQuery.trim().length >= 2) {
+        setIsSearchLoading(true);
+        setIsSearchOpen(true);
+        try {
+          const data = await globalSearch(searchQuery);
+          setSearchResults(data);
+        } catch (error) {
+          console.error("Search failed", error);
+        } finally {
+          setIsSearchLoading(false);
+        }
+      } else {
+        setSearchResults(null);
+        setIsSearchOpen(false);
+      }
+    }, 300); // 300ms debounce
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const handleSelectUser = (userId: string) => {
+    router.push(`/chat/${userId}`);
+    setIsSearchOpen(false);
+    setSearchQuery('');
+  };
+
+  const handleSelectMessage = (roomId: string) => {
+    router.push(`/chat/${roomId}`);
+    setIsSearchOpen(false);
+    setSearchQuery('');
+  };
+
+  const handleOpenVault = async () => {
+    try {
+      setIsOpeningVault(true);
+      const vaultId = await getOrCreateVault();
+      router.push(`/chat/${vaultId}`);
+    } catch (error) {
+      console.error('Error opening vault:', error);
+      toast.error('Unable to access Vault', {
+        description: error instanceof Error ? error.message : 'An error occurred'
+      });
+    } finally {
+      setIsOpeningVault(false);
     }
-    return num.toLocaleString();
   };
 
   return (
     <div className="space-y-6 pb-8">
       
-      {/* Welcome Section */}
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div>
-              <h1 className="text-3xl font-bold text-white mb-2">Welcome back, {homeData.user.name}</h1>
-              <p className="text-white/50">Here's what's happening with your translations today.</p>
-          </div>
-      </div>
+      {/* Section 1: Search Bar */}
+      <div className="relative" ref={searchRef}>
+        <div 
+          className={`w-full bg-white/5 border rounded-2xl p-4 flex items-center gap-3 transition-colors ${
+            isSearchOpen ? 'border-aurora-indigo/50 bg-white/10' : 'border-white/10 hover:bg-white/10'
+          }`}
+        >
+          <Search className={`flex-shrink-0 transition-colors ${isSearchOpen ? 'text-aurora-indigo' : 'text-white/30'}`} size={18} />
+          <input 
+            type="text" 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => searchQuery.length >= 2 && setIsSearchOpen(true)}
+            placeholder="Search messages, people..." 
+            className="flex-1 bg-transparent border-none outline-none text-white placeholder-white/50 text-sm font-sans"
+          />
+          {isSearchLoading ? (
+            <Loader2 className="w-4 h-4 text-aurora-indigo animate-spin flex-shrink-0" />
+          ) : searchQuery && (
+            <button 
+              onClick={() => { setSearchQuery(''); setIsSearchOpen(false); }}
+              className="text-white/30 hover:text-white flex-shrink-0"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="glass-strong p-6 rounded-2xl relative overflow-hidden group hover:bg-white/10 transition-colors">
-              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <svg className="w-24 h-24 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-              </div>
-              <h3 className="text-white/60 font-medium mb-1">Total Translations</h3>
-              <div className="text-3xl font-bold text-white mb-2">{formatNumber(homeData.stats.totalTranslations)}</div>
-              <div className="text-xs text-green-400 font-semibold flex items-center gap-1">
-                  <span>Active</span>
-                  <span className="text-white/30">translations</span>
-              </div>
-          </div>
-
-          <div className="glass-strong p-6 rounded-2xl relative overflow-hidden group hover:bg-white/10 transition-colors">
-              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <svg className="w-24 h-24 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm4.24 16L12 15.45 7.77 18l1.12-4.81-3.73-3.23 4.92-.42L12 5l2.25 4.57 4.92.42-3.73 3.23L16.23 18z"/></svg>
-              </div>
-              <h3 className="text-white/60 font-medium mb-1">Active Minutes</h3>
-              <div className="text-3xl font-bold text-white mb-2">{formatNumber(homeData.stats.activeMinutes)}</div>
-              <div className="text-xs text-aurora-purple font-semibold flex items-center gap-1">
-                  <span>Estimated</span>
-                  <span className="text-white/30">activity</span>
-              </div>
-          </div>
-
-          <div className="glass-strong p-6 rounded-2xl relative overflow-hidden group hover:bg-white/10 transition-colors">
-              <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                  <svg className="w-24 h-24 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
-              </div>
-              <h3 className="text-white/60 font-medium mb-1">Messages Sent</h3>
-              <div className="text-3xl font-bold text-white mb-2">{formatNumber(homeData.stats.messagesSent)}</div>
-              <div className="text-xs text-white/40 font-semibold flex items-center gap-1">
-                  <span>All time</span>
-              </div>
-          </div>
-      </div>
-
-      {/* Recent Activity */}
-      {conversations.length > 0 ? (
-        <div className={`glass p-1 rounded-3xl border border-white/10 transition-all duration-500 ease-in-out ${showAll ? 'bg-white/10' : ''}`}>
-            <div className="px-6 py-5 border-b border-white/5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    <h2 className="text-lg font-bold text-white">{showAll ? 'All Conversations' : 'Recent Conversations'}</h2>
-                    <span className="px-2 py-0.5 rounded-full bg-white/10 text-white/50 text-xs font-medium">
-                        {conversations.length}
-                    </span>
-                </div>
-                {conversations.length > 3 && (
-                  <button 
-                    onClick={() => setShowAll(!showAll)}
-                    className="text-sm font-semibold text-aurora-indigo hover:text-aurora-purple transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5 flex items-center gap-1"
-                  >
-                    {showAll ? 'Show Less' : 'View All'}
-                  </button>
-                )}
-            </div>
-            <div className="p-2 space-y-1">
-                {displayedConversations.map((chat) => (
-                    <a 
-                      key={chat.id} 
-                      href={`/chat/${chat.id}`} 
-                      onClick={(e) => handleNavigation(e, `/chat/${chat.id}`)}
-                      className="block group"
+        {/* Search Results Dropdown */}
+        {isSearchOpen && searchResults && (
+          <div className="absolute top-full left-0 right-0 mt-2 glass-strong rounded-2xl border border-white/10 overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200 z-50">
+            <div className="max-h-[400px] overflow-y-auto scrollbar-thin">
+              
+              {/* Users Section */}
+              {searchResults.users.length > 0 && (
+                <div className="p-2">
+                  <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider px-3 py-2">People</h3>
+                  {searchResults.users.map(user => (
+                    <button 
+                      key={user.id}
+                      onClick={() => handleSelectUser(user.id)}
+                      className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-white/10 transition-colors text-left group/item"
                     >
-                      <div className="flex items-center gap-4 p-4 rounded-2xl hover:bg-white/5 transition-all duration-300 cursor-pointer border border-transparent hover:border-white/5 relative overflow-hidden">
-                          
-                          {/* Hover Effect Background */}
-                          <div className="absolute inset-0 bg-gradient-to-r from-aurora-indigo/0 via-aurora-indigo/5 to-aurora-indigo/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-
-                          <div className="relative">
-                              <img 
-                                src={chat.avatar} 
-                                className="w-12 h-12 rounded-xl object-cover shadow-lg border border-white/10 group-hover:scale-105 transition-transform duration-300" 
-                                alt={chat.name}
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  target.src = `https://picsum.photos/seed/${chat.id}/50/50`;
-                                }}
-                              />
-                              {chat.type === 'group' && (
-                                  <div className="absolute -bottom-1 -right-1 bg-slate-900 rounded-full p-0.5 border border-white/10">
-                                      <div className="bg-aurora-purple/20 p-1 rounded-full">
-                                          <Users size={8} className="text-aurora-purple" />
-                                      </div>
-                                  </div>
-                              )}
-                          </div>
-
-                          <div className="flex-1 min-w-0 relative z-10">
-                              <div className="flex items-center justify-between mb-1">
-                                  <h4 className="font-semibold text-white truncate group-hover:text-aurora-indigo transition-colors flex-1 mr-2">
-                                      {chat.name}
-                                  </h4>
-                                  <span className="text-xs text-white/40 font-medium whitespace-nowrap shrink-0">{chat.time}</span>
-                              </div>
-                              <p className={`text-sm truncate transition-colors ${chat.unread > 0 ? 'text-white font-medium' : 'text-white/50 group-hover:text-white/70'}`}>
-                                  {chat.lastMessage}
-                              </p>
-                          </div>
-
-                          {chat.unread > 0 && (
-                              <div className="ml-2 px-2 py-0.5 rounded-full bg-aurora-pink text-[10px] font-bold text-white shadow-lg shadow-aurora-pink/30 animate-pulse">
-                                  {chat.unread}
-                              </div>
-                          )}
-                          
-                          <ChevronRight size={16} className="text-white/20 group-hover:text-white/50 transition-colors ml-2" />
+                      <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
+                        {user.avatar_url ? (
+                          <img src={user.avatar_url} className="w-full h-full object-cover" alt="" />
+                        ) : (
+                          <span className="text-xs font-bold text-white">
+                            {(user.display_name?.[0] || user.email?.[0] || '?').toUpperCase()}
+                          </span>
+                        )}
                       </div>
-                    </a>
-                ))}
-                
-                {showAll && (
-                    <div className="pt-2 text-center">
-                         <button onClick={() => setShowAll(false)} className="text-xs text-white/30 hover:text-white transition-colors">Collapse list</button>
-                    </div>
-                )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white group-hover/item:text-aurora-indigo transition-colors truncate">
+                          {user.display_name || 'Unknown'}
+                        </p>
+                        <p className="text-xs text-white/40 truncate">{user.email}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Messages Section */}
+              {searchResults.messages.length > 0 && (
+                <div className="p-2 border-t border-white/5">
+                  <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider px-3 py-2">Messages</h3>
+                  {searchResults.messages.map(msg => (
+                    <button 
+                      key={msg.id}
+                      onClick={() => handleSelectMessage(msg.room_id)}
+                      className="w-full flex items-start gap-3 p-2 rounded-xl hover:bg-white/10 transition-colors text-left group/item"
+                    >
+                      <div className="mt-1 p-1.5 rounded-lg bg-aurora-indigo/10 text-aurora-indigo shrink-0">
+                        <MessageSquare size={14} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-center mb-0.5">
+                          <span className="text-xs font-semibold text-white/70 truncate pr-2">{msg.sender_name}</span>
+                          <span className="text-[10px] text-white/30 shrink-0">{new Date(msg.created_at).toLocaleDateString()}</span>
+                        </div>
+                        <p className="text-sm text-white/60 truncate group-hover/item:text-white transition-colors">
+                          {msg.text}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Empty State */}
+              {searchResults.users.length === 0 && searchResults.messages.length === 0 && (
+                <div className="p-8 text-center text-white/40">
+                  <Search size={24} className="mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No results found</p>
+                </div>
+              )}
             </div>
-        </div>
-      ) : (
-        <div className="glass p-8 rounded-3xl border border-white/10 text-center">
-          <MessageSquare size={48} className="text-white/20 mx-auto mb-4" />
-          <h3 className="text-xl font-bold text-white mb-2">No conversations yet</h3>
-          <p className="text-white/50 mb-6">Start chatting with your contacts to see conversations here.</p>
-          <a 
-            href="/contacts"
-            onClick={(e) => handleNavigation(e, '/contacts')}
-            className="inline-flex items-center gap-2 text-sm font-semibold text-aurora-indigo hover:text-aurora-purple transition-colors"
-          >
-            Go to Contacts <ChevronRight size={16} />
-          </a>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
+
+      {/* Section 2: Command Grid (4 Cards) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 my-6">
+        {/* Card 1: Start Chat */}
+        <button
+          onClick={() => router.push('/contacts')}
+          className="group relative overflow-hidden p-4 rounded-2xl border border-white/5 bg-white/[0.03] hover:bg-white/[0.06] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(99,102,241,0.1)] cursor-pointer"
+        >
+          <div className="flex flex-col items-center justify-center gap-3">
+            <div className="w-14 h-14 rounded-lg bg-indigo-500/20 flex items-center justify-center border border-indigo-500/30 group-hover:border-indigo-500/50 transition-colors shadow-[0_0_15px_rgba(99,102,241,0.3)]">
+              <MessageSquarePlus size={28} className="text-indigo-400" />
+            </div>
+            <span className="font-display font-bold text-xs uppercase tracking-wider text-indigo-400">
+              Start Chat
+            </span>
+          </div>
+        </button>
+
+        {/* Card 2: Add Contact */}
+        <button
+          onClick={() => router.push('/contacts?action=add')}
+          className="group relative overflow-hidden p-4 rounded-2xl border border-white/5 bg-white/[0.03] hover:bg-white/[0.06] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(16,185,129,0.1)] cursor-pointer"
+        >
+          <div className="flex flex-col items-center justify-center gap-3">
+            <div className="w-14 h-14 rounded-lg bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30 group-hover:border-emerald-500/50 transition-colors shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+              <UserPlus size={28} className="text-emerald-400" />
+            </div>
+            <span className="font-display font-bold text-xs uppercase tracking-wider text-emerald-400">
+              Add Contact
+            </span>
+          </div>
+        </button>
+
+        {/* Card 3: Aether Vault */}
+        <button
+          onClick={handleOpenVault}
+          disabled={isOpeningVault}
+          className="group relative overflow-hidden p-4 rounded-2xl border border-white/5 bg-white/[0.03] hover:bg-white/[0.06] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(245,158,11,0.1)] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <div className="flex flex-col items-center justify-center gap-3">
+            <div className="w-14 h-14 rounded-lg bg-amber-500/20 flex items-center justify-center border border-amber-500/30 group-hover:border-amber-500/50 transition-colors shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+              {isOpeningVault ? (
+                <Loader2 size={28} className="text-amber-400 animate-spin" />
+              ) : (
+                <Shield size={28} className="text-amber-400" />
+              )}
+            </div>
+            <span className="font-display font-bold text-xs uppercase tracking-wider text-amber-400">
+              My Vault
+            </span>
+          </div>
+        </button>
+
+        {/* Card 4: Live Translate */}
+        <button
+          onClick={() => router.push('/translate')}
+          className="group relative overflow-hidden p-4 rounded-2xl border border-white/5 bg-white/[0.03] hover:bg-white/[0.06] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(236,72,153,0.1)] cursor-pointer"
+        >
+          <div className="flex flex-col items-center justify-center gap-3">
+            <div className="w-14 h-14 rounded-lg bg-pink-500/20 flex items-center justify-center border border-pink-500/30 group-hover:border-pink-500/50 transition-colors shadow-[0_0_15px_rgba(236,72,153,0.3)]">
+              <Languages size={28} className="text-pink-400" />
+            </div>
+            <span className="font-display font-bold text-xs uppercase tracking-wider text-pink-400">
+              Live Translate
+            </span>
+          </div>
+        </button>
+      </div>
+
+      {/* Section 3: Recent Signals (Conversations) */}
+      <div className="mt-8">
+        <h3 className="text-white/40 font-display text-sm uppercase tracking-widest mb-4 ml-1">Active Frequencies</h3>
+        
+        {conversations.length > 0 ? (
+          <div className="space-y-1">
+            {conversations.map((chat) => (
+              <a 
+                key={chat.id} 
+                href={`/chat/${chat.id}`} 
+                onClick={(e) => handleNavigation(e, `/chat/${chat.id}`)}
+                className="block group"
+              >
+                <div className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/5 transition-all duration-200 cursor-pointer border border-transparent hover:border-white/10 relative overflow-hidden backdrop-blur-sm">
+                  
+                  {/* Minimal hover effect */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-aurora-indigo/0 via-aurora-indigo/3 to-aurora-indigo/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+                  <div className="relative flex-shrink-0">
+                    <img 
+                      src={chat.avatar} 
+                      className="w-10 h-10 rounded-lg object-cover border border-white/10 group-hover:border-white/20 transition-colors" 
+                      alt={chat.name}
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.src = `https://picsum.photos/seed/${chat.id}/50/50`;
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex-1 min-w-0 relative z-10">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <h4 className="font-semibold text-sm text-white truncate group-hover:text-indigo-300 transition-colors flex-1 mr-2 font-sans">
+                        {chat.name}
+                      </h4>
+                      <span className="text-xs text-white/30 font-medium whitespace-nowrap shrink-0 font-sans">{chat.time}</span>
+                    </div>
+                    <p className={`text-xs truncate transition-colors font-sans ${chat.unread > 0 ? 'text-white/80 font-medium' : 'text-white/40 group-hover:text-white/60'}`}>
+                      {chat.lastMessage}
+                    </p>
+                  </div>
+
+                  {chat.unread > 0 && (
+                    <div className="ml-2 px-1.5 py-0.5 rounded bg-pink-500/20 border border-pink-500/30 text-[10px] font-bold text-pink-400 flex-shrink-0">
+                      {chat.unread}
+                    </div>
+                  )}
+                  
+                  <ChevronRight size={14} className="text-white/20 group-hover:text-white/40 transition-colors ml-1 flex-shrink-0" />
+                </div>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <div className="glass p-8 rounded-xl border border-white/10 text-center">
+            <div className="flex flex-col items-center justify-center">
+              <div className="w-2 h-2 rounded-full bg-white/20 animate-pulse mb-3" />
+              <p className="text-white/30 text-sm font-sans">Waiting for signals...</p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

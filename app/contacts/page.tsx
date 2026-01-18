@@ -23,14 +23,31 @@ import {
 } from '../../actions/contacts';
 import { createClient } from '../../utils/supabase/client';
 import { useUserStatus, UserStatus } from '../../hooks/useUserStatus';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import CreateGroupModal from '../../components/chat/CreateGroupModal';
 
 export default function ContactsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
-  const [activeTab, setActiveTab] = useState<'friends' | 'search' | 'requests'>('friends');
+  
+  // Initialize activeTab from URL params or default to 'friends'
+  const getInitialTab = (): 'friends' | 'search' | 'requests' => {
+    const tab = searchParams?.get('tab');
+    const action = searchParams?.get('action');
+    
+    // Support both ?tab=search and ?action=add
+    if (tab === 'search' || action === 'add') {
+      return 'search';
+    }
+    if (tab === 'requests') {
+      return 'requests';
+    }
+    return 'friends';
+  };
+  
+  const [activeTab, setActiveTab] = useState<'friends' | 'search' | 'requests'>(getInitialTab());
   
   // Data State
   const [friends, setFriends] = useState<ContactUser[]>([]);
@@ -109,6 +126,20 @@ export default function ContactsPage() {
   // Refs to access current values in subscription without recreating it
   const activeTabRef = useRef(activeTab);
   const searchQueryRef = useRef(searchQuery);
+  
+  // Update activeTab when URL params change
+  useEffect(() => {
+    const tab = searchParams?.get('tab');
+    const action = searchParams?.get('action');
+    
+    if (tab === 'search' || action === 'add') {
+      setActiveTab('search');
+    } else if (tab === 'requests') {
+      setActiveTab('requests');
+    } else if (tab === 'friends' || (!tab && !action)) {
+      setActiveTab('friends');
+    }
+  }, [searchParams]);
   
   // Keep refs in sync
   useEffect(() => {

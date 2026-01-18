@@ -32,6 +32,8 @@ interface MessageListProps {
   isTranslationEnabled: boolean;
   isNotificationsOpen?: boolean;
   isGroup?: boolean; // Whether this is a group chat
+  roomName?: string; // Room name for group calls
+  roomParticipants?: Array<{ id: string; name: string }>; // Other participants for group calls
 }
 
 const MessageList: React.FC<MessageListProps> = ({ 
@@ -41,7 +43,9 @@ const MessageList: React.FC<MessageListProps> = ({
   userPreferredLanguage, 
   isTranslationEnabled, 
   isNotificationsOpen = false,
-  isGroup = false
+  isGroup = false,
+  roomName,
+  roomParticipants = []
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isMounted, setIsMounted] = useState(false);
@@ -98,7 +102,7 @@ const MessageList: React.FC<MessageListProps> = ({
                 <div className="bg-indigo-500/5 border border-indigo-500/10 rounded-lg p-3 max-w-sm mx-auto mb-8 flex items-center gap-2 text-center">
                     <Lock size={14} className="text-indigo-400 shrink-0" />
                     <p className="text-xs text-white/70 leading-relaxed">
-                        Messages and calls are end-to-end encrypted. Translatr cannot read or listen to them.
+                        Messages and calls are end-to-end encrypted. AETHER cannot read or listen to them.
                     </p>
                 </div>
             )}
@@ -118,6 +122,9 @@ const MessageList: React.FC<MessageListProps> = ({
                     key={`call-${item.data.id}`}
                     record={item.data as CallRecord}
                     currentUserId={currentUserId}
+                    isGroup={isGroup}
+                    roomName={roomName}
+                    roomParticipants={roomParticipants}
                   />
                 );
               } else {

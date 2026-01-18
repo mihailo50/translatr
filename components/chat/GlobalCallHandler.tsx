@@ -7,6 +7,7 @@ import CallNotificationBanner from './CallNotificationBanner';
 import { useNotification } from '../contexts/NotificationContext';
 import { toast } from 'sonner';
 import { callLogger } from '@/utils/callLogger';
+import { updateCallRecordByCallId } from '@/actions/callRecords';
 
 interface CallNotification {
   id: string;
@@ -359,12 +360,36 @@ export default function GlobalCallHandler() {
 
       return () => {
         console.log('📞 [GlobalCallHandler] Cleaning up subscriptions');
-        channel.unsubscribe();
-        notifUpdatesChannel.unsubscribe();
-        callRecordsChannel.unsubscribe();
-        supabase.removeChannel(channel);
-        supabase.removeChannel(notifUpdatesChannel);
-        supabase.removeChannel(callRecordsChannel);
+        try {
+          channel.unsubscribe();
+        } catch (e) {
+          // Ignore unsubscribe errors
+        }
+        try {
+          notifUpdatesChannel.unsubscribe();
+        } catch (e) {
+          // Ignore unsubscribe errors
+        }
+        try {
+          callRecordsChannel.unsubscribe();
+        } catch (e) {
+          // Ignore unsubscribe errors
+        }
+        try {
+          supabase.removeChannel(channel);
+        } catch (e) {
+          // Ignore removeChannel errors
+        }
+        try {
+          supabase.removeChannel(notifUpdatesChannel);
+        } catch (e) {
+          // Ignore removeChannel errors
+        }
+        try {
+          supabase.removeChannel(callRecordsChannel);
+        } catch (e) {
+          // Ignore removeChannel errors
+        }
       };
     };
 
@@ -471,7 +496,16 @@ export default function GlobalCallHandler() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      try {
+        channel.unsubscribe();
+      } catch (e) {
+        // Ignore unsubscribe errors
+      }
+      try {
+        supabase.removeChannel(channel);
+      } catch (e) {
+        // Ignore removeChannel errors
+      }
     };
   }, [supabase, incomingCall]);
 
@@ -481,14 +515,22 @@ export default function GlobalCallHandler() {
     // Stop ringtone
     stopRingtone();
     
+    // Update call record status to 'accepted' before navigating
+    const callId = incomingCall.content.call_id;
+    if (callId) {
+      await updateCallRecordByCallId(callId, 'accepted');
+    }
+    
     // Mark notification as read
     await supabase
       .from('notifications')
       .update({ is_read: true, read_at: new Date().toISOString() })
       .eq('id', incomingCall.id);
     
-    // Navigate to chat room
-    router.push(`/chat/${incomingCall.content.room_id}`);
+    // Navigate to chat room with call info in URL params so ChatRoom can auto-join
+    const roomId = incomingCall.content.room_id;
+    const callType = incomingCall.content.call_type;
+    router.push(`/chat/${roomId}?acceptCall=true&callId=${callId || ''}&callType=${callType}`);
     
     // Clear call state
     setShowBanner(false);
