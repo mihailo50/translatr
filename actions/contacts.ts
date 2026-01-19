@@ -46,8 +46,12 @@ export async function getContactsData() {
 
   for (const row of data) {
     const isSender = row.user_id === user.id;
-    const otherUser = isSender ? row.receiver : row.sender;
-    if (!otherUser) continue; 
+    const otherUserRaw = isSender ? row.receiver : row.sender;
+    if (!otherUserRaw) continue;
+    
+    // Handle case where Supabase returns array (shouldn't happen but TypeScript thinks it might)
+    const otherUser = Array.isArray(otherUserRaw) ? otherUserRaw[0] : otherUserRaw;
+    if (!otherUser) continue;
 
     const contactProfile: ContactUser = {
         id: otherUser.id,
