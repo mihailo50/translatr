@@ -135,8 +135,7 @@ export async function sendMessageAction(
         await roomService.sendData(
             roomId,
             encoder.encode(dataPacket),
-            DataPacket_Kind.RELIABLE,
-            { reliable: true }
+            DataPacket_Kind.RELIABLE
         );
     }
 

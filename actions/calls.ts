@@ -48,8 +48,7 @@ export async function cancelCall(roomId: string, callerId: string) {
         await roomService.sendData(
           roomId,
           encoder.encode(dataPacket),
-          DataPacket_Kind.RELIABLE,
-          { reliable: true }
+          DataPacket_Kind.RELIABLE
         );
       } catch (e) {
         // Silently continue - notifications are already marked as read
@@ -291,8 +290,7 @@ export async function initiateCall(roomId: string, userId: string, userName: str
         await roomService.sendData(
             roomId,
             encoder.encode(dataPacket),
-            DataPacket_Kind.RELIABLE,
-            { reliable: true }
+            DataPacket_Kind.RELIABLE
         );
         console.log('📞 [initiateCall] LiveKit server broadcast successful');
     } catch (e) {
