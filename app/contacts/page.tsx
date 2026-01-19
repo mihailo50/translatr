@@ -347,12 +347,12 @@ export default function ContactsPage() {
   const handleSendRequest = (userId: string) => {
     startTransition(async () => {
       const res = await sendContactRequest(userId);
-      if (res.success) {
+      if ('success' in res && res.success) {
         toast.success("Friend request sent!");
         // Update local state to show 'sent' status immediately
         setSearchResults(prev => prev.map(u => u.id === userId ? { ...u, status: 'pending_sent' } : u));
       } else {
-        toast.error(res.error || "Failed to send request");
+        toast.error('error' in res ? res.error : "Failed to send request");
       }
     });
   };
