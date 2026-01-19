@@ -189,14 +189,14 @@ export default function GlobalContactRequestHandler() {
       const result = await acceptContactRequest(contact.id);
       if (result.success) {
         // Mark notification as read (fire and forget for speed)
-        supabase
+        const markReadPromise1 = supabase
           .from('notifications')
           .update({ is_read: true, read_at: new Date().toISOString() })
           .eq('id', incomingRequest.id)
-          .select()
-          .catch((err) => {
-            console.error('Error marking contact request notification as read:', err);
-          });
+          .select();
+        Promise.resolve(markReadPromise1).catch((err: any) => {
+          console.error('Error marking contact request notification as read:', err);
+        });
         
         // Navigate to contacts page (immediate)
         router.push('/contacts');
@@ -227,14 +227,14 @@ export default function GlobalContactRequestHandler() {
       const result = await declineContactRequest(contact.id);
       if (result.success) {
         // Mark notification as read (fire and forget for speed)
-        supabase
+        const markReadPromise2 = supabase
           .from('notifications')
           .update({ is_read: true, read_at: new Date().toISOString() })
           .eq('id', incomingRequest.id)
-          .select()
-          .catch((err) => {
-            console.error('Error marking contact request notification as read:', err);
-          });
+          .select();
+        Promise.resolve(markReadPromise2).catch((err: any) => {
+          console.error('Error marking contact request notification as read:', err);
+        });
       }
     }
     

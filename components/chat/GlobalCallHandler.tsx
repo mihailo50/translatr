@@ -522,14 +522,14 @@ export default function GlobalCallHandler() {
     }
     
     // Mark notification as read (fire and forget for speed)
-    supabase
+    const markReadPromise1 = supabase
       .from('notifications')
       .update({ is_read: true, read_at: new Date().toISOString() })
       .eq('id', incomingCall.id)
-      .select()
-      .catch((err) => {
-        console.error('Error marking call notification as read:', err);
-      });
+      .select();
+    Promise.resolve(markReadPromise1).catch((err: any) => {
+      console.error('Error marking call notification as read:', err);
+    });
     
     // Navigate to chat room with call info in URL params so ChatRoom can auto-join (immediate)
     const roomId = incomingCall.content.room_id;
@@ -548,14 +548,14 @@ export default function GlobalCallHandler() {
     stopRingtone();
     
     // Mark notification as read (fire and forget for speed)
-    supabase
+    const markReadPromise2 = supabase
       .from('notifications')
       .update({ is_read: true, read_at: new Date().toISOString() })
       .eq('id', incomingCall.id)
-      .select()
-      .catch((err) => {
-        console.error('Error marking call notification as read:', err);
-      });
+      .select();
+    Promise.resolve(markReadPromise2).catch((err: any) => {
+      console.error('Error marking call notification as read:', err);
+    });
     
     // Clear call state (immediate)
     setShowBanner(false);
@@ -569,14 +569,14 @@ export default function GlobalCallHandler() {
     stopRingtone();
     
     // Mark notification as read (fire and forget for speed)
-    supabase
+    const markReadPromise3 = supabase
       .from('notifications')
       .update({ is_read: true, read_at: new Date().toISOString() })
       .eq('id', incomingCall.id)
-      .select()
-      .catch((err) => {
-        console.error('Error marking call notification as read:', err);
-      });
+      .select();
+    Promise.resolve(markReadPromise3).catch((err: any) => {
+      console.error('Error marking call notification as read:', err);
+    });
     
     // Navigate to chat room to send a message
     router.push(`/chat/${incomingCall.content.room_id}`);

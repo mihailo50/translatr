@@ -671,23 +671,20 @@ export default function NotificationBell() {
         setUnreadCount(prev => Math.max(0, prev - 1));
         
         // 2. Update DB in background (fire and forget for speed)
-        supabase
+        const markReadPromise = supabase
             .from('notifications')
             .update({ 
                 is_read: true,
                 read_at: new Date().toISOString()
             })
             .eq('id', notification.id)
-            .select() // Minimal select to reduce response size
-            .then(() => {
-                // Success - UI already updated
-            })
-            .catch((err) => {
-                // Rollback on error
-                console.error('Error marking notification as read:', err);
-                setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, is_read: false } : n));
-                setUnreadCount(prev => prev + 1);
-            });
+            .select(); // Minimal select to reduce response size
+        Promise.resolve(markReadPromise).catch((err: any) => {
+            // Rollback on error
+            console.error('Error marking notification as read:', err);
+            setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, is_read: false } : n));
+            setUnreadCount(prev => prev + 1);
+        });
     }
 
     // 3. Redirect based on type (immediate, no waiting)
@@ -710,7 +707,7 @@ export default function NotificationBell() {
     setUnreadCount(0);
 
     // 2. Update DB in background (fire and forget for speed)
-    supabase
+    const markAllReadPromise = supabase
         .from('notifications')
         .update({ 
             is_read: true,
@@ -718,16 +715,13 @@ export default function NotificationBell() {
         })
         .eq('recipient_id', user.id)
         .eq('is_read', false)
-        .select() // Minimal select to reduce response size
-        .then(() => {
-            // Success - UI already updated
-        })
-        .catch((err) => {
-            // Rollback on error
-            console.error('Error marking all notifications as read:', err);
-            setNotifications(previousNotifications);
-            setUnreadCount(previousUnreadCount);
-        });
+        .select(); // Minimal select to reduce response size
+    Promise.resolve(markAllReadPromise).catch((err: any) => {
+        // Rollback on error
+        console.error('Error marking all notifications as read:', err);
+        setNotifications(previousNotifications);
+        setUnreadCount(previousUnreadCount);
+    });
   };
 
   const getIcon = (type: string) => {

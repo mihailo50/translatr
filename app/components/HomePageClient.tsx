@@ -392,7 +392,8 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
         if (!latestMessages || latestMessages.length === 0) return;
         
         // Group messages by room and get the latest for each
-        const latestByRoom = new Map<string, typeof latestMessages[0]>();
+        type LatestMessageType = NonNullable<typeof latestMessages>[number];
+        const latestByRoom = new Map<string, LatestMessageType>();
         latestMessages.forEach(msg => {
           if (!latestByRoom.has(msg.room_id)) {
             latestByRoom.set(msg.room_id, msg);

@@ -84,7 +84,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         if (!user) return;
 
         // Mark all unread message notifications for this room as read (fire and forget for speed)
-        supabase
+        const markReadPromise = supabase
           .from('notifications')
           .update({ 
             is_read: true,
@@ -94,14 +94,11 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           .eq('type', 'message')
           .eq('related_id', roomId)
           .eq('is_read', false)
-          .select() // Minimal select to reduce response size
-          .then(() => {
-            // Success - notifications marked as read
-          })
-          .catch((err) => {
-            // Silently handle error
-            console.error('Error marking room notifications as read:', err);
-          });
+          .select(); // Minimal select to reduce response size
+        Promise.resolve(markReadPromise).catch((err: any) => {
+          // Silently handle error
+          console.error('Error marking room notifications as read:', err);
+        });
       } catch (err) {
         // Silently handle error
       }

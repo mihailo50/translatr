@@ -415,16 +415,13 @@ export const useUserStatus = (user: any) => {
 
       // Persist to DB with schema-safe value (non-blocking for speed)
       const persisted = mapToPersistedStatus(newStatus);
-      supabase
+      const updateStatusPromise = supabase
         .from('profiles')
         .update({ status: persisted })
-        .eq('id', user.id)
-        .then(() => {
-          // Status persisted successfully
-        })
-        .catch((error) => {
-          console.error('❌ Failed to update status in database:', error);
-        });
+        .eq('id', user.id);
+      Promise.resolve(updateStatusPromise).catch((error: any) => {
+        console.error('❌ Failed to update status in database:', error);
+      });
         
   }, [mapToPersistedStatus, supabase, user?.id, trackPresence]);
 

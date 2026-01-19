@@ -210,8 +210,9 @@ export async function getHomeData() {
   }
 
   // Get the last message for each room
-  const lastMessagesMap = new Map<string, typeof allMessages[0]>();
-  if (allMessages) {
+  type MessageType = NonNullable<typeof allMessages>[number];
+  const lastMessagesMap = new Map<string, MessageType>();
+  if (allMessages && allMessages.length > 0) {
     for (const msg of allMessages) {
       if (!lastMessagesMap.has(msg.room_id)) {
         lastMessagesMap.set(msg.room_id, msg);
@@ -276,7 +277,9 @@ export async function getHomeData() {
             let lastMessageTime = 'Never';
             
             if (lastMessage) {
-              const senderName = lastMessage.sender?.display_name || 'Someone';
+              const senderRaw = lastMessage.sender;
+              const sender = Array.isArray(senderRaw) ? senderRaw[0] : senderRaw;
+              const senderName = sender?.display_name || 'Someone';
               lastMessageText = `${senderName}: ${lastMessage.original_text}`;
               
               const messageDate = new Date(lastMessage.created_at);
@@ -335,7 +338,11 @@ export async function getHomeData() {
       roomAvatar = 'https://picsum.photos/seed/vault/50/50';
     } else if (isGroup) {
       roomName = otherMembers
-        .map(m => m.profile?.display_name || 'User')
+        .map(m => {
+          const profileRaw = m.profile;
+          const profile = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;
+          return profile?.display_name || 'User';
+        })
         .slice(0, 2)
         .join(', ');
       if (otherMembers.length > 2) {
@@ -343,7 +350,8 @@ export async function getHomeData() {
       }
       roomAvatar = 'https://picsum.photos/seed/group/50/50';
     } else if (otherMembers.length === 1) {
-      const otherUser = otherMembers[0].profile;
+      const otherUserRaw = otherMembers[0].profile;
+      const otherUser = Array.isArray(otherUserRaw) ? otherUserRaw[0] : otherUserRaw;
       roomName = otherUser?.display_name || 'User';
       roomAvatar = otherUser?.avatar_url || `https://picsum.photos/seed/${otherUser?.id || 'user'}/50/50`;
     } else {
@@ -362,7 +370,9 @@ export async function getHomeData() {
       // Get sender name - check if it's the current user
       let senderName = 'You';
       if (lastMessage.sender_id !== user.id) {
-        senderName = lastMessage.sender?.display_name || lastMessage.sender?.email?.split('@')[0] || 'Someone';
+        const senderRaw = lastMessage.sender;
+        const sender = Array.isArray(senderRaw) ? senderRaw[0] : senderRaw;
+        senderName = sender?.display_name || sender?.email?.split('@')[0] || 'Someone';
       }
       
       // Handle encrypted messages or empty text
