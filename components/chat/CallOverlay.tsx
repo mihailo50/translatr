@@ -558,7 +558,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
             if (!audioElement) {
                 audioElement = document.createElement('audio');
                 audioElement.autoplay = true;
-                audioElement.playsInline = true;
+                // playsInline is only for video elements, not audio
                 audioElement.volume = 1.0;
                 audioElement.muted = false;
                 audioElement.style.display = 'none';
