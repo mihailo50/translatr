@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { LiveKitRoom, useTracks, VideoTrack, useLocalParticipant, useRemoteParticipants, useRoomContext, useIsSpeaking } from '@livekit/components-react';
-import type { TrackReferenceOrPlaceholder } from '@livekit/components-react';
+import type { TrackReferenceOrPlaceholder, TrackReference } from '@livekit/components-react';
 import { Track, ExternalE2EEKeyProvider, RoomOptions, RoomEvent, RemoteParticipant } from 'livekit-client';
 import { ShieldCheck, Mic, MicOff, Video, VideoOff, PhoneOff, MonitorUp, MonitorOff, XSquare } from 'lucide-react';
 import { toast } from 'sonner';
@@ -26,6 +26,14 @@ interface CallOverlayProps {
 const SpeakingVideoTile = ({ trackRef, isScreenShare = false }: { trackRef: TrackReferenceOrPlaceholder, isScreenShare?: boolean }) => {
     const isSpeaking = useIsSpeaking(trackRef.participant);
     
+    // Filter out placeholders - VideoTrack doesn't accept placeholders
+    if (!trackRef.publication) {
+        return null; // Don't render placeholder tracks
+    }
+    
+    // Type guard: if publication exists, it's a TrackReference, not a placeholder
+    const validTrackRef = trackRef as TrackReference;
+    
     return (
         <div 
             className={`relative rounded-2xl overflow-hidden shadow-xl transition-all duration-300 ${
@@ -34,7 +42,7 @@ const SpeakingVideoTile = ({ trackRef, isScreenShare = false }: { trackRef: Trac
                     : 'border border-white/10 bg-white/5'
             }`}
         >
-            <VideoTrack trackRef={trackRef} className={`w-full h-full ${isScreenShare ? 'object-contain' : 'object-cover'}`} />
+            <VideoTrack trackRef={validTrackRef} className={`w-full h-full ${isScreenShare ? 'object-contain' : 'object-cover'}`} />
             <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded text-xs text-white/90 font-light tracking-wide flex items-center gap-2">
                 {isScreenShare && <MonitorUp size={12} className="text-emerald-400" />}
                 {trackRef.participant.name || trackRef.participant.identity}
