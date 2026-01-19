@@ -273,10 +273,12 @@ export async function sendMessageAction(
                         }));
 
                         // Insert notifications immediately without waiting for response
-                        const insertPromise = supabaseService
-                            .from('notifications')
-                            .insert(notifications)
-                            .select();
+                        const insertPromise = Promise.resolve(
+                            supabaseService
+                                .from('notifications')
+                                .insert(notifications)
+                                .select()
+                        );
 
                         // Log result asynchronously to not block
                         insertPromise.then(({ data: insertedNotifications, error: notifInsertError }) => {
