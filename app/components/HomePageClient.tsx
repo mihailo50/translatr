@@ -319,19 +319,24 @@ export default function HomePageClient({ homeData }: HomePageClientProps) {
           .subscribe((status, err) => {
             if (status === 'SUBSCRIBED') {
               console.log('✅ Subscribed to ALL messages for real-time updates');
-            } else if (status === 'CHANNEL_ERROR' || status === 'SUBSCRIPTION_ERROR') {
-              console.error('❌ Failed to subscribe to messages:', {
-                status,
-                error: err || 'Unknown error',
-                errorType: err?.constructor?.name,
-                errorMessage: err?.message || 'No error message provided'
-              });
-              console.error('💡 Make sure real-time replication is enabled for the messages table in Supabase');
-              console.error('💡 Check Supabase dashboard: Database > Replication > Enable for "messages" table');
-            } else if (status === 'TIMED_OUT') {
-              console.warn('⏱️ Message subscription timed out, will retry...');
             } else {
-              console.log('📡 Message subscription status:', status, err ? `(error: ${err})` : '');
+              // Handle error states - check for errors in the err parameter
+              if (err || status === 'TIMED_OUT' || status === 'CLOSED') {
+                console.error('❌ Failed to subscribe to messages:', {
+                  status,
+                  error: err || 'Unknown error',
+                  errorType: err?.constructor?.name,
+                  errorMessage: err?.message || 'No error message provided'
+                });
+                if (status === 'TIMED_OUT') {
+                  console.warn('⏱️ Message subscription timed out, will retry...');
+                } else {
+                  console.error('💡 Make sure real-time replication is enabled for the messages table in Supabase');
+                  console.error('💡 Check Supabase dashboard: Database > Replication > Enable for "messages" table');
+                }
+              } else {
+                console.log('📡 Message subscription status:', status, err ? `(error: ${err})` : '');
+              }
             }
           });
       
