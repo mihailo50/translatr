@@ -902,13 +902,13 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       // Priority: 1. Presence (most real-time), 2. Database status (fallback), 3. Default to offline
       const presenceStatus = onlineUsers[directPartnerId];
       
-      // CRITICAL: If presence explicitly says offline, ALWAYS trust it (most real-time)
-      if (presenceStatus === 'offline') {
-          return 'offline';
-      }
-      
-      // If presence exists and is not offline, use it (most real-time)
-      if (presenceStatus && presenceStatus !== 'offline') {
+      // If presence exists, use it (presence is the most real-time data)
+      if (presenceStatus !== undefined) {
+          // CRITICAL: If presence explicitly says offline, ALWAYS trust it (most real-time)
+          if (presenceStatus === 'offline') {
+              return 'offline';
+          }
+          // Return the presence status (already checked it's not offline)
           return presenceStatus;
       }
       
@@ -1021,7 +1021,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           
           // Fallback to presence status
           const presenceStatus = onlineUsers[p.id];
-          if (presenceStatus && presenceStatus !== 'offline' && presenceStatus !== 'invisible') {
+          if (presenceStatus !== undefined && presenceStatus !== 'offline' && presenceStatus !== 'invisible') {
             return true;
           }
           
