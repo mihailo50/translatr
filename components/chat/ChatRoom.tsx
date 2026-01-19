@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Phone, Video, MoreVertical, Ban, Trash2, X, Unlock, Search, Users, Circle, Bell, BellOff, Image as ImageIcon, Languages, ArrowLeft, ChevronDown, ShieldCheck } from 'lucide-react';
@@ -11,10 +12,19 @@ import { useNotification } from '../contexts/NotificationContext';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import LiveKitCallModal from './LiveKitCallModal';
-import CallOverlay from './CallOverlay';
-import MediaDrawer from './MediaDrawer';
 import CallNotificationBanner from './CallNotificationBanner';
 import ConfirmModal from '../ui/ConfirmModal';
+
+// Lazy-load heavy components to improve initial page load
+const CallOverlay = dynamic(() => import('./CallOverlay'), {
+  ssr: false, // LiveKit components require client-side only
+  loading: () => null, // No loading state needed (overlay is conditionally rendered)
+});
+
+const MediaDrawer = dynamic(() => import('./MediaDrawer'), {
+  ssr: false,
+  loading: () => null, // Drawer handles its own loading state
+});
 import { initiateCall, cancelCall, checkActiveCall } from '../../actions/calls';
 import { createCallRecord, updateCallRecord, updateCallRecordByCallId, getCallRecords } from '../../actions/callRecords';
 import { blockUserInRoom, unblockUserInRoom, getBlockStatus } from '../../actions/contacts';
@@ -2119,12 +2129,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       {/* --- FLOATING PANE HEADER --- */}
       <div className="sticky top-0 z-50 w-full shrink-0 -mx-4 px-4 -mt-4 pt-4 md:-mx-8 md:px-8 bg-[#0B0D12]/80 backdrop-blur-xl border-b border-white/5">
         <div 
-          className="relative h-20 flex items-center mx-2 sm:mx-4 my-2 rounded-2xl border border-white/10 floating-header-pane"
-          style={{
-            background: 'rgba(3, 3, 11, 0.85)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-          }}
+          className="relative h-20 flex items-center mx-2 sm:mx-4 my-2 rounded-2xl border border-white/5 bg-white/[0.02] backdrop-blur-md floating-header-pane shadow-lg shadow-black/20"
         >
           {/* AURORA ANIMATION LAYER: Pulls from your globals.css */}
           <div className="absolute inset-0 pointer-events-none overflow-hidden">

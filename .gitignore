@@ -22,7 +22,11 @@
 
 # misc
 .DS_Store
+
+# SSL certificates (self-signed for local dev only)
 *.pem
+cert.pem
+key.pem
 
 # debug
 npm-debug.log*
@@ -32,6 +36,13 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+.env.local
+.env*.local
+.env.production
+.env.development
+
+# custom dev server (local HTTPS only, not for production)
+server.js
 
 # vercel
 .vercel
@@ -39,3 +50,31 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Bundle analyzer output
+.next/analyze/
+.analyze/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS files
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
