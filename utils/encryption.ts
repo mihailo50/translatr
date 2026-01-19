@@ -62,19 +62,19 @@ export async function encryptData(text: string, key: CryptoKey): Promise<{ ciphe
   // 12 bytes IV is standard for AES-GCM
   const ivArray = new Uint8Array(12);
   crypto.getRandomValues(ivArray);
+  
   // Type assertion: getRandomValues returns Uint8Array<ArrayBufferLike> but 
   // crypto.subtle.encrypt accepts it at runtime. This is a known TypeScript limitation.
-  const iv = ivArray as unknown as Uint8Array;
-  
+  // @ts-expect-error - TypeScript incorrectly flags this as an error, but it works at runtime
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
+    { name: "AES-GCM", iv: ivArray },
     key,
     enc.encode(text)
   );
   
   return {
     cipher: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
-    iv: btoa(String.fromCharCode(...new Uint8Array(iv)))
+    iv: btoa(String.fromCharCode(...new Uint8Array(ivArray)))
   };
 }
 
