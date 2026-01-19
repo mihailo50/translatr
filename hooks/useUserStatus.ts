@@ -129,8 +129,10 @@ export const useUserStatus = (user: any) => {
         });
         setOnlineUsers(prev => ({ ...prev, ...userMap }));
         setLastSeenMap(prev => ({ ...prev, ...seenMap }));
-      })
-      .on('presence', { event: 'update' }, ({ key, newPresences }) => {
+      });
+    
+    channel
+      .on('presence' as any, { event: 'update' }, ({ key, newPresences }) => {
         // Handle status updates (when a user changes their status)
         const userMap: Record<string, UserStatus> = {};
         const seenMap: Record<string, number> = {};
@@ -149,8 +151,10 @@ export const useUserStatus = (user: any) => {
         });
         setOnlineUsers(prev => ({ ...prev, ...userMap }));
         setLastSeenMap(prev => ({ ...prev, ...seenMap }));
-      })
-      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+      });
+    
+    channel
+      .on('presence' as any, { event: 'leave' }, ({ key, leftPresences }) => {
         const userMap: Record<string, UserStatus> = {};
         leftPresences.forEach((presence: any) => {
           if (presence.user_id) {
