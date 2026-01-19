@@ -589,41 +589,27 @@ export default function NotificationBell() {
             console.log('📡 Notification subscription status:', status, err ? `Error: ${err.message || 'Unknown error'}` : '');
             if (status === 'SUBSCRIBED') {
               console.log('✅ Successfully subscribed to notifications');
-            } else if (status === 'CHANNEL_ERROR' || status === 'SUBSCRIPTION_ERROR') {
-              const errorMsg = err?.message || 'Unknown error';
-              console.error('❌ Notification channel error:', errorMsg);
-              
-              // Check if it's a replication issue
-              if (errorMsg.includes('replication') || errorMsg.includes('publication') || errorMsg.toLowerCase().includes('unknown')) {
-                console.warn('⚠️ Real-time replication may not be enabled for notifications table. Using polling fallback.');
-                console.warn('💡 To enable real-time: Run: ALTER PUBLICATION supabase_realtime ADD TABLE notifications;');
-              }
-              
-              // Retry subscription after a delay (max 3 retries)
-              if (retryCount < 3 && mounted) {
-                console.log(`🔄 Retrying subscription (attempt ${retryCount + 1}/3)...`);
-                setTimeout(() => {
-                  setupSubscription(retryCount + 1);
-                }, 2000 * (retryCount + 1)); // Exponential backoff
-              } else {
-                console.warn('⚠️ Max retries reached, will use polling fallback');
-              }
-            } else if (status === 'TIMED_OUT') {
-              console.warn('⏱️ Notification subscription timed out');
-              // Retry on timeout
-              if (retryCount < 3 && mounted) {
-                console.log(`🔄 Retrying subscription after timeout (attempt ${retryCount + 1}/3)...`);
-                setTimeout(() => {
-                  setupSubscription(retryCount + 1);
-                }, 2000 * (retryCount + 1));
-              }
-            } else if (status === 'CLOSED') {
-              console.warn('🔌 Notification channel closed');
-              // Retry if closed unexpectedly
-              if (retryCount < 2 && mounted) {
-                setTimeout(() => {
-                  setupSubscription(retryCount + 1);
-                }, 3000);
+            } else {
+              // Handle error states - check for errors in the err parameter or timeout/closed status
+              if (err || status === 'TIMED_OUT' || status === 'CLOSED') {
+                const errorMsg = err?.message || 'Unknown error';
+                console.error('❌ Notification channel error:', errorMsg);
+                
+                // Check if it's a replication issue
+                if (errorMsg.includes('replication') || errorMsg.includes('publication') || errorMsg.toLowerCase().includes('unknown')) {
+                  console.warn('⚠️ Real-time replication may not be enabled for notifications table. Using polling fallback.');
+                  console.warn('💡 To enable real-time: Run: ALTER PUBLICATION supabase_realtime ADD TABLE notifications;');
+                }
+                
+                // Retry subscription after a delay (max 3 retries)
+                if (retryCount < 3 && mounted) {
+                  console.log(`🔄 Retrying subscription (attempt ${retryCount + 1}/3)...`);
+                  setTimeout(() => {
+                    setupSubscription(retryCount + 1);
+                  }, 2000 * (retryCount + 1)); // Exponential backoff
+                } else {
+                  console.warn('⚠️ Max retries reached, will use polling fallback');
+                }
               }
             }
           });
