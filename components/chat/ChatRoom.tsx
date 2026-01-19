@@ -913,15 +913,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       }
       
       // If presence has NO data, fall back to database status
-      if (!presenceStatus) {
-          if (partnerProfileStatus) {
-              return partnerProfileStatus;
-          }
-          return 'offline';
-      }
-      
-      // If we have database status and no presence, use DB
-      if (partnerProfileStatus !== undefined) {
+      if (partnerProfileStatus !== null && partnerProfileStatus !== undefined) {
           // If database says offline, trust it
           if (partnerProfileStatus === 'offline') {
               return 'offline';
