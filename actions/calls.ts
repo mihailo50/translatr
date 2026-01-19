@@ -1,6 +1,6 @@
 'use server';
 
-import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient, DataPacket_Kind } from 'livekit-server-sdk';
 import { createClient as createSupabaseAdminClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '../utils/supabase/server';
 import { callLogger } from '../utils/callLogger';
@@ -48,7 +48,7 @@ export async function cancelCall(roomId: string, callerId: string) {
         await roomService.sendData(
           roomId,
           encoder.encode(dataPacket),
-          [],
+          DataPacket_Kind.RELIABLE,
           { reliable: true }
         );
       } catch (e) {
@@ -291,7 +291,7 @@ export async function initiateCall(roomId: string, userId: string, userName: str
         await roomService.sendData(
             roomId,
             encoder.encode(dataPacket),
-            [],
+            DataPacket_Kind.RELIABLE,
             { reliable: true }
         );
         console.log('📞 [initiateCall] LiveKit server broadcast successful');

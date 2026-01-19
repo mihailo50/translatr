@@ -1,7 +1,7 @@
 'use server';
 
 import OpenAI from 'openai';
-import { RoomServiceClient } from 'livekit-server-sdk';
+import { RoomServiceClient, DataPacket_Kind } from 'livekit-server-sdk';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '../utils/supabase/server';
 
@@ -135,7 +135,7 @@ export async function sendMessageAction(
         await roomService.sendData(
             roomId,
             encoder.encode(dataPacket),
-            [],
+            DataPacket_Kind.RELIABLE,
             { reliable: true }
         );
     }
