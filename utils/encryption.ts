@@ -65,16 +65,18 @@ export async function encryptData(text: string, key: CryptoKey): Promise<{ ciphe
   
   // Type assertion: getRandomValues returns Uint8Array<ArrayBufferLike> but 
   // crypto.subtle.encrypt accepts it at runtime. This is a known TypeScript limitation.
-  // @ts-expect-error - TypeScript incorrectly flags this as an error, but it works at runtime
+  // Create a new Uint8Array with a proper ArrayBuffer to satisfy TypeScript
+  const iv = new Uint8Array(ivArray);
+  
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: ivArray },
+    { name: "AES-GCM", iv },
     key,
     enc.encode(text)
   );
   
   return {
     cipher: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
-    iv: btoa(String.fromCharCode(...new Uint8Array(ivArray)))
+    iv: btoa(String.fromCharCode(...new Uint8Array(iv)))
   };
 }
 
