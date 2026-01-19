@@ -65,12 +65,14 @@ const nextConfig: NextConfig = {
     const cspDirectives = [
       // Default source: deny everything by default
       "default-src 'self'",
-      // Scripts: allow unsafe-inline for Next.js hydration (required), and Vercel Live feedback
-      `script-src ${scriptSrc} https://vercel.live`,
+      // Scripts: allow unsafe-inline for Next.js hydration (required), Vercel Live feedback, and blob: as fallback for workers
+      `script-src ${scriptSrc} https://vercel.live blob:`,
+      // Workers: allow self and blob URLs (LiveKit uses blob URLs for Web Workers)
+      "worker-src 'self' blob:",
       // Styles: self and inline (Tailwind and component styles require inline)
       "style-src 'self' 'unsafe-inline'",
       // Images: self, data URIs, blob URIs, Supabase Storage, Google Auth avatars, Google APIs, placeholder images, and Vercel assets
-      "img-src 'self' data: blob: https://*.supabase.co https://storage.supabase.co https://*.googleusercontent.com https://*.googleapis.com https://picsum.photos https://fastly.picsum.photos https://grainy-gradients.vercel.app",
+      "img-src 'self' data: blob: https://*.supabase.co https://storage.supabase.co https://*.googleusercontent.com https://*.googleapis.com https://picsum.photos https://fastly.picsum.photos https://vercel.com https://*.vercel.com https://grainy-gradients.vercel.app",
       // Fonts: self and data URIs
       "font-src 'self' data:",
       // Connect: self, Supabase API, and LiveKit (WebSocket and HTTPS)

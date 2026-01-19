@@ -1481,7 +1481,18 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                   
                   // Check if room is still connected before proceeding (prevents errors if room disconnected during wait)
                   if (liveKitChatRoom.state !== ConnectionState.Connected) {
-                      console.log('⚠️ Room disconnected during wait, aborting call invite');
+                      // Check if this is likely a CSP/worker issue
+                      const hasCSPError = typeof window !== 'undefined' && 
+                          window.console &&
+                          (document.querySelector('[data-csp-violation]') !== null ||
+                           // Check browser console for CSP violations
+                           (window as any).__CSP_VIOLATION__);
+                      
+                      if (hasCSPError) {
+                          console.error('⚠️ Room disconnected - possible CSP violation blocking LiveKit workers. Please check browser console for CSP errors.');
+                      } else {
+                          console.log('⚠️ Room disconnected during wait, aborting call invite');
+                      }
                       return;
                   }
                   

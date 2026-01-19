@@ -210,6 +210,11 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
               return; // Suppress - this is a transient network error
             }
             
+            // Suppress AudioContext autoplay policy warnings (browser security policy, not an error)
+            if (typeof firstArg === 'string' && firstArg.includes('AudioContext was not allowed to start')) {
+              return; // Suppress - this is expected browser behavior, audio will work after user interaction
+            }
+            
             // Check all args for empty or meaningless error objects
             const hasOnlyEmptyErrors = args.every(arg => {
               if (typeof arg === 'string') return true; // String args are fine
