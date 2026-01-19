@@ -67,13 +67,12 @@ export default function ContactsPage() {
     
     // Priority: 1. Presence (most real-time), 2. Database status (fallback), 3. Offline (default)
     
-    // If presence explicitly says offline, ALWAYS trust it (most real-time)
-    if (presence === 'offline') {
-      return 'offline';
-    }
-    
-    // If presence exists and is not offline, use it
-    if (presence && presence !== 'offline') {
+    // If presence exists, use it (presence is the most real-time data)
+    if (presence !== undefined) {
+      // If presence explicitly says offline, ALWAYS trust it (most real-time)
+      if (presence === 'offline') {
+        return 'offline';
+      }
       // Map invisible to offline for display
       if (presence === 'invisible') return 'offline';
       return presence;
