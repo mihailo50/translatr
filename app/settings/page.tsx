@@ -63,7 +63,7 @@ export default function SettingsPage() {
   useEffect(() => {
     const init = async () => {
       const data = await getProfile();
-      if (data?.profile) {
+      if (data?.profile && data?.user) {
         setProfile({ ...data.profile, email: data.user.email });
         setDisplayName(data.profile.display_name || '');
         setBio(data.profile.bio || '');
