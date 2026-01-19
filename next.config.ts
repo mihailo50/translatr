@@ -69,8 +69,8 @@ const nextConfig: NextConfig = {
       `script-src ${scriptSrc} https://vercel.live`,
       // Styles: self and inline (Tailwind and component styles require inline)
       "style-src 'self' 'unsafe-inline'",
-      // Images: self, data URIs, blob URIs, Supabase Storage, Google Auth avatars, and Google APIs
-      "img-src 'self' data: blob: https://*.supabase.co https://storage.supabase.co https://*.googleusercontent.com https://*.googleapis.com",
+      // Images: self, data URIs, blob URIs, Supabase Storage, Google Auth avatars, Google APIs, placeholder images, and Vercel assets
+      "img-src 'self' data: blob: https://*.supabase.co https://storage.supabase.co https://*.googleusercontent.com https://*.googleapis.com https://picsum.photos https://grainy-gradients.vercel.app",
       // Fonts: self and data URIs
       "font-src 'self' data:",
       // Connect: self, Supabase API, and LiveKit (WebSocket and HTTPS)
