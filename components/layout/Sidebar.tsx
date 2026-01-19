@@ -65,7 +65,13 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-white/5">
-          <div className="flex items-center gap-3">
+          <div 
+            className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={() => {
+              router.push('/');
+              if (window.innerWidth < 768) onClose();
+            }}
+          >
             <img src="/logo/logo.svg" alt="Aether" className="w-[57.6px] h-[57.6px]" />
             <AetherLogo />
           </div>

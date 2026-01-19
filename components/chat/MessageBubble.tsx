@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Globe, RefreshCw, Paperclip, FileText, Download, Timer, X, Eye } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Globe, RefreshCw, Paperclip, FileText, Download, Timer, X, Eye, Mic, Play, Pause } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
 interface MessageBubbleProps {
@@ -14,7 +14,7 @@ interface MessageBubbleProps {
     isMe: boolean;
     attachment?: {
         url: string;
-        type: 'image' | 'file';
+        type: 'image' | 'file' | 'voice';
         name?: string;
         viewOnce?: boolean;
     };
@@ -113,6 +113,83 @@ const ViewOnceModal = ({ src, onClose }: { src: string, onClose: () => void }) =
         </div>,
         document.body
     );
+};
+
+const VoicePlayer: React.FC<{ url: string }> = ({ url }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const audio = new Audio(url);
+    audioRef.current = audio;
+
+    const updateTime = () => setCurrentTime(audio.currentTime);
+    const updateDuration = () => setDuration(audio.duration);
+    const handleEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    };
+
+    audio.addEventListener('timeupdate', updateTime);
+    audio.addEventListener('loadedmetadata', updateDuration);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', updateTime);
+      audio.removeEventListener('loadedmetadata', updateDuration);
+      audio.removeEventListener('ended', handleEnded);
+      audio.pause();
+      audio.src = '';
+    };
+  }, [url]);
+
+  const togglePlay = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const formatTime = (seconds: number): string => {
+    if (isNaN(seconds)) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-lg bg-black/20 border border-white/5 w-[240px] max-w-full">
+      <button
+        onClick={togglePlay}
+        className="w-10 h-10 rounded-full bg-aurora-indigo/20 hover:bg-aurora-indigo/30 text-aurora-indigo flex items-center justify-center transition-colors flex-shrink-0"
+      >
+        {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
+      </button>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <Mic size={14} className="text-aurora-indigo flex-shrink-0" />
+          <span className="text-xs font-medium text-white">Voice Message</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-aurora-indigo transition-all duration-100"
+              style={{ width: duration > 0 ? `${(currentTime / duration) * 100}%` : '0%' }}
+            />
+          </div>
+          <span className="text-[10px] text-white/50 font-mono min-w-[3rem] text-right">
+            {formatTime(currentTime)} / {formatTime(duration)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLanguage, isTranslationEnabled = true, isGroup = false }) => {
@@ -271,6 +348,9 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, userPreferredLan
                             )}
                         </div>
                     )
+                ) : message.attachment.type === 'voice' ? (
+                    /* Voice Message */
+                    <VoicePlayer url={message.attachment.url} />
                 ) : (
                     /* File Attachment */
                     <a 

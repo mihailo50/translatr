@@ -521,13 +521,17 @@ export default function GlobalCallHandler() {
       await updateCallRecordByCallId(callId, 'accepted');
     }
     
-    // Mark notification as read
-    await supabase
+    // Mark notification as read (fire and forget for speed)
+    supabase
       .from('notifications')
       .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq('id', incomingCall.id);
+      .eq('id', incomingCall.id)
+      .select()
+      .catch((err) => {
+        console.error('Error marking call notification as read:', err);
+      });
     
-    // Navigate to chat room with call info in URL params so ChatRoom can auto-join
+    // Navigate to chat room with call info in URL params so ChatRoom can auto-join (immediate)
     const roomId = incomingCall.content.room_id;
     const callType = incomingCall.content.call_type;
     router.push(`/chat/${roomId}?acceptCall=true&callId=${callId || ''}&callType=${callType}`);
@@ -543,13 +547,17 @@ export default function GlobalCallHandler() {
     // Stop ringtone
     stopRingtone();
     
-    // Mark notification as read
-    await supabase
+    // Mark notification as read (fire and forget for speed)
+    supabase
       .from('notifications')
       .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq('id', incomingCall.id);
+      .eq('id', incomingCall.id)
+      .select()
+      .catch((err) => {
+        console.error('Error marking call notification as read:', err);
+      });
     
-    // Clear call state
+    // Clear call state (immediate)
     setShowBanner(false);
     setIncomingCall(null);
   };
@@ -560,11 +568,15 @@ export default function GlobalCallHandler() {
     // Stop ringtone
     stopRingtone();
     
-    // Mark notification as read
-    await supabase
+    // Mark notification as read (fire and forget for speed)
+    supabase
       .from('notifications')
       .update({ is_read: true, read_at: new Date().toISOString() })
-      .eq('id', incomingCall.id);
+      .eq('id', incomingCall.id)
+      .select()
+      .catch((err) => {
+        console.error('Error marking call notification as read:', err);
+      });
     
     // Navigate to chat room to send a message
     router.push(`/chat/${incomingCall.content.room_id}`);

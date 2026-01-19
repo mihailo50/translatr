@@ -7,7 +7,7 @@ import { createClient as createServerClient } from '../utils/supabase/server';
 
 interface AttachmentData {
   url: string;
-  type: 'image' | 'file';
+  type: 'image' | 'file' | 'voice';
   name?: string;
   viewOnce?: boolean;
 }

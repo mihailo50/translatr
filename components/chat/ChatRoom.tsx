@@ -73,8 +73,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
 
-        // Mark all unread message notifications for this room as read
-        const { error } = await supabase
+        // Mark all unread message notifications for this room as read (fire and forget for speed)
+        supabase
           .from('notifications')
           .update({ 
             is_read: true,
@@ -83,17 +83,21 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
           .eq('recipient_id', user.id)
           .eq('type', 'message')
           .eq('related_id', roomId)
-          .eq('is_read', false);
-
-        if (error) {
-          // Silently handle error
-        }
+          .eq('is_read', false)
+          .select() // Minimal select to reduce response size
+          .then(() => {
+            // Success - notifications marked as read
+          })
+          .catch((err) => {
+            // Silently handle error
+            console.error('Error marking room notifications as read:', err);
+          });
       } catch (err) {
         // Silently handle error
       }
     };
 
-    // Mark notifications as read when room is loaded
+    // Mark notifications as read when room is loaded (non-blocking)
     markRoomNotificationsAsRead();
     
     // Load call records for this room

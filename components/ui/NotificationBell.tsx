@@ -665,22 +665,32 @@ export default function NotificationBell() {
   }, []); // Empty deps - only run once on mount
 
   const handleNotificationClick = async (notification: Notification) => {
-    // 1. Mark as read in DB
+    // 1. Optimistic UI update FIRST (instant feedback)
     if (!notification.is_read) {
-        await supabase
+        setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, is_read: true } : n));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+        
+        // 2. Update DB in background (fire and forget for speed)
+        supabase
             .from('notifications')
             .update({ 
                 is_read: true,
                 read_at: new Date().toISOString()
             })
-            .eq('id', notification.id);
-        
-        // Optimistic Update
-        setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, is_read: true } : n));
-        setUnreadCount(prev => Math.max(0, prev - 1));
+            .eq('id', notification.id)
+            .select() // Minimal select to reduce response size
+            .then(() => {
+                // Success - UI already updated
+            })
+            .catch((err) => {
+                // Rollback on error
+                console.error('Error marking notification as read:', err);
+                setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, is_read: false } : n));
+                setUnreadCount(prev => prev + 1);
+            });
     }
 
-    // 2. Redirect based on type
+    // 3. Redirect based on type (immediate, no waiting)
     setIsNotificationsOpen(false);
     if (notification.type === 'message' && notification.related_id) {
         window.location.href = `/chat/${notification.related_id}`;
@@ -693,17 +703,31 @@ export default function NotificationBell() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    await supabase
+    // 1. Optimistic UI update FIRST (instant feedback)
+    const previousNotifications = [...notifications];
+    const previousUnreadCount = unreadCount;
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    setUnreadCount(0);
+
+    // 2. Update DB in background (fire and forget for speed)
+    supabase
         .from('notifications')
         .update({ 
             is_read: true,
             read_at: new Date().toISOString()
         })
         .eq('recipient_id', user.id)
-        .eq('is_read', false);
-
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-    setUnreadCount(0);
+        .eq('is_read', false)
+        .select() // Minimal select to reduce response size
+        .then(() => {
+            // Success - UI already updated
+        })
+        .catch((err) => {
+            // Rollback on error
+            console.error('Error marking all notifications as read:', err);
+            setNotifications(previousNotifications);
+            setUnreadCount(previousUnreadCount);
+        });
   };
 
   const getIcon = (type: string) => {

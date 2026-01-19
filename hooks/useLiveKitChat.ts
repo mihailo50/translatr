@@ -18,7 +18,7 @@ export interface ChatMessage {
   iv?: string; // Initialization Vector for encryption
   attachment?: {
     url: string;
-    type: 'image' | 'file';
+    type: 'image' | 'file' | 'voice';
     name?: string;
     viewOnce?: boolean;
   };

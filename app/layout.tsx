@@ -47,7 +47,7 @@ export default function RootLayout({
             }
          `}} />
       </head>
-      <body className={`${inter.variable} ${spaceGrotesk.variable} antialiased selection:bg-indigo-500/30`}>
+      <body className={`${inter.variable} ${spaceGrotesk.variable} antialiased bg-[#0B0D12] selection:bg-indigo-500/30`}>
         <ThemeProvider>
           <NotificationProvider>
             <AppShell>{children}</AppShell>

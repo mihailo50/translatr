@@ -163,6 +163,12 @@ body {
     transition: background-color 0.3s ease, color 0.3s ease;
   }
   
+  /* Headings use brand font (Space Grotesk) */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-space-grotesk), 'Space Grotesk', sans-serif;
+    letter-spacing: -0.02em;
+  }
+  
   /* Aurora theme (default) */
   body.theme-aurora {
     background-color: var(--color-aurora-dark);

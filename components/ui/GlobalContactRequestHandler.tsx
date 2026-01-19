@@ -188,13 +188,17 @@ export default function GlobalContactRequestHandler() {
     if (contact?.id) {
       const result = await acceptContactRequest(contact.id);
       if (result.success) {
-        // Mark notification as read
-        await supabase
+        // Mark notification as read (fire and forget for speed)
+        supabase
           .from('notifications')
           .update({ is_read: true, read_at: new Date().toISOString() })
-          .eq('id', incomingRequest.id);
+          .eq('id', incomingRequest.id)
+          .select()
+          .catch((err) => {
+            console.error('Error marking contact request notification as read:', err);
+          });
         
-        // Navigate to contacts page
+        // Navigate to contacts page (immediate)
         router.push('/contacts');
       }
     }
@@ -222,11 +226,15 @@ export default function GlobalContactRequestHandler() {
     if (contact?.id) {
       const result = await declineContactRequest(contact.id);
       if (result.success) {
-        // Mark notification as read
-        await supabase
+        // Mark notification as read (fire and forget for speed)
+        supabase
           .from('notifications')
           .update({ is_read: true, read_at: new Date().toISOString() })
-          .eq('id', incomingRequest.id);
+          .eq('id', incomingRequest.id)
+          .select()
+          .catch((err) => {
+            console.error('Error marking contact request notification as read:', err);
+          });
       }
     }
     
