@@ -74,7 +74,9 @@ const nextConfig: NextConfig = {
       // Fonts: self and data URIs
       "font-src 'self' data:",
       // Connect: self, Supabase API, and LiveKit (WebSocket and HTTPS)
-      "connect-src 'self' https://*.supabase.co wss://*.livekit.cloud https://*.livekit.cloud",
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co wss://*.livekit.cloud https://*.livekit.cloud",
+      // Frame sources: allow Vercel Live for development/preview feedback
+      "frame-src 'self' https://vercel.live",
       // Media: self, blob, and Supabase Storage (for voice messages, videos)
       "media-src 'self' blob: https://*.supabase.co https://storage.supabase.co",
       // Object/embed: deny (no Flash, plugins, etc.)
