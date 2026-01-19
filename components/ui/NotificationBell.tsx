@@ -13,7 +13,7 @@ interface NotificationContent {
 
 interface Notification {
   id: string;
-  type: 'message' | 'contact_request' | 'system';
+  type: 'message' | 'contact_request' | 'system' | 'call';
   content: NotificationContent;
   is_read: boolean;
   created_at: string;
