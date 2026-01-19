@@ -19,7 +19,8 @@ import {
   acceptContactRequest, 
   declineContactRequest,
   getOrCreateDirectRoom,
-  ContactUser 
+  ContactUser,
+  ContactPresenceStatus
 } from '../../actions/contacts';
 import { createClient } from '../../utils/supabase/client';
 import { useUserStatus, UserStatus } from '../../hooks/useUserStatus';
@@ -226,13 +227,17 @@ export default function ContactsPage() {
                             return currentFriends;
                           }
                           // Add the recipient to friends immediately
+                          // Map UserStatus to ContactPresenceStatus (convert 'away' to 'offline')
+                          const mappedStatus: ContactPresenceStatus = 
+                            recipientProfile.status === 'away' ? 'offline' :
+                            (recipientProfile.status as ContactPresenceStatus) || 'offline';
                           return [{
                             id: recipientProfile.id,
                             display_name: recipientProfile.display_name,
                             email: recipientProfile.email,
                             avatar_url: recipientProfile.avatar_url,
                             status: 'friends' as const,
-                            profile_status: recipientProfile.status as UserStatus,
+                            profile_status: mappedStatus,
                             relationship_id: updatedRecord.id
                           }, ...currentFriends];
                         });
@@ -256,13 +261,17 @@ export default function ContactsPage() {
                             return currentFriends;
                           }
                           // Add the sender to friends
+                          // Map UserStatus to ContactPresenceStatus (convert 'away' to 'offline')
+                          const mappedStatus2: ContactPresenceStatus = 
+                            senderProfile.status === 'away' ? 'offline' :
+                            (senderProfile.status as ContactPresenceStatus) || 'offline';
                           return [{
                             id: senderProfile.id,
                             display_name: senderProfile.display_name,
                             email: senderProfile.email,
                             avatar_url: senderProfile.avatar_url,
                             status: 'friends' as const,
-                            profile_status: senderProfile.status as UserStatus,
+                            profile_status: mappedStatus2,
                             relationship_id: updatedRecord.id
                           }, ...currentFriends];
                         });
