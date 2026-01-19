@@ -2116,7 +2116,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       )}
       
       {/* --- FLOATING PANE HEADER --- */}
-      <div className="sticky top-0 z-50 w-full shrink-0 -mx-4 px-4 -mt-4 pt-4 md:-mx-8 md:px-8 bg-[#0B0D12]/80 backdrop-blur-xl border-b border-white/5">
+      <div className="">
         <div 
           className="relative h-20 flex items-center mx-2 sm:mx-4 my-2 rounded-2xl border border-white/5 bg-white/[0.02] backdrop-blur-md floating-header-pane shadow-lg shadow-black/20"
         >
