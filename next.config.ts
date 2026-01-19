@@ -65,12 +65,12 @@ const nextConfig: NextConfig = {
     const cspDirectives = [
       // Default source: deny everything by default
       "default-src 'self'",
-      // Scripts: allow unsafe-inline for Next.js hydration (required)
-      `script-src ${scriptSrc}`,
+      // Scripts: allow unsafe-inline for Next.js hydration (required), and Vercel Live feedback
+      `script-src ${scriptSrc} https://vercel.live`,
       // Styles: self and inline (Tailwind and component styles require inline)
       "style-src 'self' 'unsafe-inline'",
-      // Images: self, data URIs, blob URIs, Supabase Storage, and Google Auth avatars
-      "img-src 'self' data: blob: https://*.supabase.co https://storage.supabase.co https://lh3.googleusercontent.com",
+      // Images: self, data URIs, blob URIs, Supabase Storage, Google Auth avatars, and Google APIs
+      "img-src 'self' data: blob: https://*.supabase.co https://storage.supabase.co https://*.googleusercontent.com https://*.googleapis.com",
       // Fonts: self and data URIs
       "font-src 'self' data:",
       // Connect: self, Supabase API, and LiveKit (WebSocket and HTTPS)
