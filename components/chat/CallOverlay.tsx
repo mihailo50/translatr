@@ -405,6 +405,19 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     // Listen for screen share tracks
     const screenShareTracks = useTracks([Track.Source.ScreenShare]);
     
+    // Ensure screen share tracks are subscribed
+    useEffect(() => {
+        if (!room) return;
+        
+        // Ensure we subscribe to remote screen share tracks
+        remoteParticipants.forEach(participant => {
+            const screenSharePublication = participant.getTrackPublication(Track.Source.ScreenShare);
+            if (screenSharePublication && !screenSharePublication.isSubscribed) {
+                screenSharePublication.setSubscribed(true);
+            }
+        });
+    }, [room, remoteParticipants, screenShareTracks]);
+    
     // Filter remote tracks
     const remoteVideoTracks = videoTracks.filter(t => t.participant.identity !== localParticipant.identity);
     const remoteAudioTracks = audioTracks.filter(t => t.participant.identity !== localParticipant.identity);
@@ -425,14 +438,47 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     const toggleScreenShare = async () => {
         try {
             if (isScreenShareEnabled) {
+                // Stop screen sharing
                 await localParticipant.setScreenShareEnabled(false);
+                toast.success('Screen sharing stopped');
             } else {
-                await localParticipant.setScreenShareEnabled(true);
+                // Start screen sharing
+                // Check if getDisplayMedia is supported
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+                    toast.error('Screen sharing not supported', {
+                        description: 'Your browser does not support screen sharing.'
+                    });
+                    return;
+                }
+                
+                try {
+                    await localParticipant.setScreenShareEnabled(true);
+                    toast.success('Screen sharing started');
+                } catch (error: any) {
+                    // Handle permission denied errors
+                    if (error.name === 'NotAllowedError' || error.message?.includes('permission')) {
+                        toast.error('Permission denied', {
+                            description: 'Please allow screen sharing permissions in your browser settings.'
+                        });
+                    } else if (error.name === 'NotReadableError') {
+                        toast.error('Screen sharing unavailable', {
+                            description: 'Another application might be using your screen.'
+                        });
+                    } else if (error.name === 'AbortError') {
+                        // User cancelled the screen share dialog
+                        console.log('Screen share cancelled by user');
+                    } else {
+                        console.error('Screen share error:', error);
+                        toast.error('Failed to share screen', {
+                            description: error.message || 'Please check your permissions and try again.'
+                        });
+                    }
+                }
             }
-        } catch (error) {
-            console.error('Screen share error:', error);
-            toast.error('Failed to share screen', {
-                description: 'Please check your permissions and try again.'
+        } catch (error: any) {
+            console.error('Screen share toggle error:', error);
+            toast.error('Failed to toggle screen share', {
+                description: error.message || 'Please try again.'
             });
         }
     };
@@ -525,9 +571,37 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     // Attach audio tracks to audio elements for playback
     const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map());
     
+    // Resume AudioContext to fix autoplay policy issues
+    // Note: LiveKit manages its own AudioContext internally, but calling play() on audio elements
+    // after user interaction should automatically resume the associated AudioContext
+    const resumeAudioContext = async () => {
+        try {
+            // Force resume by playing a silent audio element if needed
+            // This helps wake up the AudioContext for LiveKit's internal processing
+            const silentAudio = document.createElement('audio');
+            silentAudio.src = 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjGH0fPRgjMGHm7A7uOZUQ0PUKfj77RlHQY1jdPz0IA1BiBqv+7knVEQD0+i4fC3ZiAGMIXQ89KBOAYgab7t46BTEQ9PpODwuGcgBjCG0PPTgDcGHmq+7uShUhEPTqPg8LlmIAYwhdDz04E5BiBpvu3joFMRD0+k4PC5ZyAGMIbQ89OAOAYgab7u5KFS';
+            silentAudio.volume = 0;
+            await silentAudio.play();
+            silentAudio.pause();
+            silentAudio.remove();
+        } catch (error) {
+            // Silently handle - audio might already be unlocked
+        }
+    };
+    
     useEffect(() => {
         // Audio is needed for BOTH audio and video calls
         if (!room) return;
+        
+        // Resume AudioContext when room connects (after user interaction)
+        if (room.state === 'connected') {
+            resumeAudioContext();
+        }
+        
+        const handleConnected = () => {
+            resumeAudioContext();
+        };
+        room.on(RoomEvent.Connected, handleConnected);
         
         // Ensure we subscribe to remote audio tracks
         remoteParticipants.forEach(participant => {
@@ -575,9 +649,25 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
                 audioElement.volume = 1.0;
                 audioElement.muted = false;
                 
-                audioElement.play().catch(() => {
-                    // Silently handle autoplay failures
-                });
+                // Play with retry logic to handle AudioContext suspension
+                const playAudio = async () => {
+                    try {
+                        await audioElement.play();
+                    } catch (error) {
+                        // If play fails, try resuming AudioContext and retry
+                        await resumeAudioContext();
+                        // Retry after a brief delay
+                        setTimeout(async () => {
+                            try {
+                                await audioElement.play();
+                            } catch (retryError) {
+                                // Final attempt failed - log but don't throw
+                                console.warn('Audio playback failed after retry:', retryError);
+                            }
+                        }, 100);
+                    }
+                };
+                playAudio();
             }
         });
         
@@ -594,6 +684,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
         
         return () => {
             // Cleanup on unmount
+            room.off(RoomEvent.Connected, handleConnected);
             audioRefs.current.forEach((audioElement) => {
                 audioElement.pause();
                 audioElement.srcObject = null;
