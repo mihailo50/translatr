@@ -60,7 +60,9 @@ export async function encryptData(text: string, key: CryptoKey): Promise<{ ciphe
   const crypto = getCrypto();
   const enc = new TextEncoder();
   // 12 bytes IV is standard for AES-GCM
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ivArray = new Uint8Array(12);
+  crypto.getRandomValues(ivArray);
+  const iv: Uint8Array = ivArray;
   
   const ciphertext = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
