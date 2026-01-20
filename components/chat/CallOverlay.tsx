@@ -291,6 +291,17 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     // Track if we've already notified about call acceptance
     const callAcceptedNotifiedRef = useRef(false);
     
+    // Track if component is mounted to prevent rendering after unmount
+    const isMountedRef = useRef(true);
+    
+    // Cleanup on unmount
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+        };
+    }, []);
+    
     // Listen for DataChannel messages AND participant joins for instant call acceptance detection
     useEffect(() => {
         if (!room || room.state !== 'connected') return;
@@ -694,15 +705,50 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
         };
     }, [remoteAudioTracks, remoteParticipants, room]);
 
-    // Listen for room disconnection events and data channel messages
+    // Listen for room disconnection events, connection errors, and data channel messages
     useEffect(() => {
-        if (!room) return;
+        if (!room || !isMountedRef.current) return;
         
-        const handleDisconnected = () => {
+        const handleDisconnected = (reason?: string) => {
+            if (!isMountedRef.current) return;
+            
+            // Only show error if it's not a user-initiated disconnect
+            if (reason && !reason.includes('client') && !reason.includes('user')) {
+                console.warn('LiveKit disconnected:', reason);
+                // Don't show toast for normal disconnections
+            }
             onDisconnect(false);
         };
         
+        const handleConnectionError = (error: Error) => {
+            if (!isMountedRef.current) return;
+            
+            // Filter out expected errors
+            const errorMessage = error.message || '';
+            if (
+                errorMessage.includes('Client initiated disconnect') ||
+                errorMessage.includes('Abort connection attempt') ||
+                errorMessage.includes('Connection timeout') && errorMessage.includes('retrying')
+            ) {
+                // These are expected - don't show error
+                return;
+            }
+            
+            // Only show unexpected connection errors
+            if (errorMessage.includes('Connection timeout')) {
+                toast.error('Connection timeout', {
+                    description: 'The connection timed out. Please check your network and try again.'
+                });
+            } else if (errorMessage.includes('Failed to fetch') || errorMessage.includes('Network')) {
+                toast.error('Network error', {
+                    description: 'Unable to connect. Please check your internet connection.'
+                });
+            }
+        };
+        
         const handleData = (payload: Uint8Array) => {
+            if (!isMountedRef.current) return;
+            
             const decoder = new TextDecoder();
             try {
                 const data = JSON.parse(decoder.decode(payload));
@@ -715,10 +761,31 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
         };
         
         room.on(RoomEvent.Disconnected, handleDisconnected);
+        room.on(RoomEvent.ConnectionQualityChanged, () => {
+            // Monitor connection quality silently
+        });
         room.on(RoomEvent.DataReceived, handleData);
         
+        // Listen for connection errors via room state
+        const checkConnectionState = () => {
+            if (!isMountedRef.current) return;
+            
+            if (room.state === 'disconnected' && room.connectionState === 'disconnected') {
+                // Connection failed - check if it was intentional
+                const lastError = (room as any).lastError;
+                if (lastError && lastError instanceof Error) {
+                    handleConnectionError(lastError);
+                }
+            }
+        };
+        
+        // Check connection state periodically
+        const connectionCheckInterval = setInterval(checkConnectionState, 1000);
+        
         return () => {
+            clearInterval(connectionCheckInterval);
             room.off(RoomEvent.Disconnected, handleDisconnected);
+            room.off(RoomEvent.ConnectionQualityChanged, () => {});
             room.off(RoomEvent.DataReceived, handleData);
         };
     }, [room, onDisconnect]);
@@ -1036,6 +1103,12 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
          adaptiveStream: true,
          dynacast: true,
          
+         // Connection settings - increase timeout and add retry logic
+         connectionTimeout: 60_000, // 60 seconds (default is 30)
+         disconnectOnPageLeave: false, // Prevent disconnection on page visibility changes
+         reconnectAttempts: 3, // Retry connection up to 3 times
+         reconnectAttemptDelay: 2_000, // Wait 2 seconds between retries
+         
          // Video capture defaults - 720p
          videoCaptureDefaults: {
              resolution: {
@@ -1075,11 +1148,33 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
             connect={true}
             video={false}
             audio={false}
-            onDisconnected={() => onDisconnect(false)}
+            onDisconnected={(reason) => {
+                // Silent disconnect for hidden listener
+                if (reason && !reason.includes('client') && !reason.includes('user')) {
+                    console.warn('Hidden LiveKit listener disconnected:', reason);
+                }
+                onDisconnect(false);
+            }}
+            onError={(error) => {
+                // Filter out expected errors for hidden listener
+                const errorMessage = error?.message || '';
+                if (
+                    errorMessage.includes('Client initiated disconnect') ||
+                    errorMessage.includes('Abort connection attempt')
+                ) {
+                    return; // Expected - don't log
+                }
+                // Only log unexpected errors for hidden listener
+                console.warn('Hidden LiveKit listener error:', error);
+            }}
             options={{
               // Minimal options for hidden listener - no track publishing
               adaptiveStream: false,
               dynacast: false,
+              connectionTimeout: 60_000, // Same timeout as main room
+              disconnectOnPageLeave: false,
+              reconnectAttempts: 3,
+              reconnectAttemptDelay: 2_000,
             }}
             data-lk-theme="default"
         >
@@ -1110,7 +1205,37 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
             connect={true}
             video={callType === 'video'} // Only enable video for video calls
             audio={true}
-            onDisconnected={() => onDisconnect(false)} // Default disconnect fallback
+            onDisconnected={(reason) => {
+                // Only show error if it's not user-initiated
+                if (reason && !reason.includes('client') && !reason.includes('user')) {
+                    console.warn('LiveKit disconnected:', reason);
+                }
+                onDisconnect(false);
+            }}
+            onError={(error) => {
+                // Filter out expected errors
+                const errorMessage = error?.message || '';
+                if (
+                    errorMessage.includes('Client initiated disconnect') ||
+                    errorMessage.includes('Abort connection attempt') ||
+                    (errorMessage.includes('Connection timeout') && errorMessage.includes('retrying'))
+                ) {
+                    return; // Expected errors - don't show
+                }
+                
+                // Show unexpected errors
+                if (errorMessage.includes('Connection timeout')) {
+                    toast.error('Connection timeout', {
+                        description: 'The connection timed out. Please check your network and try again.'
+                    });
+                } else if (errorMessage.includes('Failed to fetch') || errorMessage.includes('Network')) {
+                    toast.error('Network error', {
+                        description: 'Unable to connect. Please check your internet connection.'
+                    });
+                } else {
+                    console.error('LiveKit connection error:', error);
+                }
+            }}
             options={roomOptions}
             data-lk-theme="default"
             className="h-full w-full relative z-10"
