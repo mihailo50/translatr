@@ -25,6 +25,9 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   // Check if current page is homepage
   const isHomePage = pathname === '/';
   
+  // Check if current page is a chat page (needs fixed layout)
+  const isChatPage = pathname?.startsWith('/chat/');
+  
   if (isAuthPage) {
     return (
       <>
@@ -36,7 +39,11 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
 
   return (
     <AuroraBackground showOrbs={true}>
-      <div className="flex h-screen w-full overflow-hidden">
+      <div className={`flex w-full ${
+        isChatPage 
+          ? 'h-[100dvh] overflow-hidden' 
+          : 'min-h-[100dvh] overflow-y-auto overflow-x-hidden'
+      }`}>
         {/* Sidebar */}
         <Sidebar 
           isOpen={isSidebarOpen} 
@@ -44,10 +51,18 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
         />
 
         {/* Main Content Area */}
-        <main className="flex-1 flex flex-col h-full min-w-0 bg-transparent relative z-10">
+        <main className={`flex-1 flex flex-col min-w-0 bg-transparent relative z-10 ${
+          isChatPage 
+            ? 'h-full overflow-hidden' 
+            : 'min-h-full'
+        }`}>
           
           {/* Top Header (Mobile & Desktop) */}
-          <header className="h-16 flex items-center justify-between px-4 md:px-8 border-b border-white/5 glass sticky top-0 z-20">
+          <header className={`h-16 flex items-center justify-between px-4 md:px-8 border-b border-white/5 glass z-20 ${
+            isChatPage 
+              ? 'sticky top-0' 
+              : 'sticky top-0'
+          }`}>
             <div className="flex items-center gap-4 flex-1">
               <button 
                 onClick={() => setIsSidebarOpen(true)}
@@ -72,8 +87,12 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           </header>
 
           {/* Scrollable Content */}
-          <div className="flex-1 overflow-y-auto scrollbar-none md:scrollbar-thin p-4 md:p-8">
-            <div className="max-w-7xl mx-auto h-full">
+          <div className={`flex-1 scrollbar-none md:scrollbar-thin ${
+            isChatPage 
+              ? 'overflow-hidden h-full' 
+              : 'overflow-y-auto overflow-x-hidden p-4 md:p-8'
+          }`}>
+            <div className={`${isChatPage ? 'h-full w-full' : 'max-w-7xl mx-auto h-full'}`}>
                 {children}
             </div>
           </div>
