@@ -1101,17 +1101,14 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
              keyProvider,
              worker: new Worker(new URL('livekit-client/e2ee-worker', import.meta.url))
          },
-         // Adaptive streaming for better quality
-         adaptiveStream: true,
-         dynacast: true,
-         
-         // Connection settings - increase timeout and add retry logic
-         connectionTimeout: 60_000, // 60 seconds (default is 30)
-         disconnectOnPageLeave: false, // Prevent disconnection on page visibility changes
-         reconnectAttempts: 3, // Retry connection up to 3 times
-         reconnectAttemptDelay: 2_000, // Wait 2 seconds between retries
-         
-         // Video capture defaults - 720p
+        // Adaptive streaming for better quality
+        adaptiveStream: true,
+        dynacast: true,
+        
+        // Note: connectionTimeout, disconnectOnPageLeave, reconnectAttempts, 
+        // and reconnectAttemptDelay are not valid RoomOptions properties in LiveKit SDK
+        
+        // Video capture defaults - 720p
          videoCaptureDefaults: {
              resolution: {
                  width: 1280,
@@ -1175,10 +1172,8 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
               // Minimal options for hidden listener - no track publishing
               adaptiveStream: false,
               dynacast: false,
-              connectionTimeout: 60_000, // Same timeout as main room
-              disconnectOnPageLeave: false,
-              reconnectAttempts: 3,
-              reconnectAttemptDelay: 2_000,
+              // Note: connectionTimeout, disconnectOnPageLeave, reconnectAttempts, 
+              // and reconnectAttemptDelay are not valid RoomOptions properties
             }}
             data-lk-theme="default"
         >
