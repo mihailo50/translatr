@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import AuroraBackground from '../../../components/ui/AuroraBackground';
-import GoogleAuthButton from '../../../components/ui/GoogleAuthButton';
-import { login } from '../actions';
-import { Mail, Lock, ArrowRight, Loader2, Eye, EyeOff } from 'lucide-react';
-import { createClient } from '../../../utils/supabase/client';
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import AuroraBackground from "../../../components/ui/AuroraBackground";
+import GoogleAuthButton from "../../../components/ui/GoogleAuthButton";
+import { login } from "../actions";
+import { Mail, Lock, ArrowRight, Loader2, Eye, EyeOff } from "lucide-react";
+import { createClient } from "../../../utils/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,31 +22,30 @@ export default function LoginPage() {
 
     const formData = new FormData(e.currentTarget);
     try {
-        const result = await login(null, formData);
-        
-        if (result?.error) {
-            setError(result.error);
-        } else if (result?.success) {
-             // Use Next.js router for proper navigation
-             const target = result.redirect || '/';
-             router.push(target);
-        }
-    } catch (e) {
-        console.error(e);
-        setError('An unexpected error occurred');
+      const result = await login(null, formData);
+
+      if (result?.error) {
+        setError(result.error);
+      } else if (result?.success) {
+        // Use Next.js router for proper navigation
+        const target = result.redirect || "/";
+        router.push(target);
+      }
+    } catch (_e) {
+      setError("An unexpected error occurred");
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   };
 
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
     setError(null);
-    
+
     try {
       const supabase = createClient();
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
+        provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
         },
@@ -57,9 +56,8 @@ export default function LoginPage() {
         setIsGoogleLoading(false);
       }
       // User will be redirected to Google, no need to set loading to false
-    } catch (e) {
-      console.error(e);
-      setError('Failed to initiate Google sign-in');
+    } catch (_e) {
+      setError("Failed to initiate Google sign-in");
       setIsGoogleLoading(false);
     }
   };
@@ -68,7 +66,6 @@ export default function LoginPage() {
     <AuroraBackground showOrbs={true}>
       <div className="flex min-h-screen items-center justify-center p-4">
         <div className="glass-strong w-full max-w-md p-8 rounded-3xl border-t-2 border-l border-r border-white/20 relative overflow-hidden">
-          
           {/* Header */}
           <div className="mb-8 text-center">
             <h1 className="text-3xl font-bold text-white mb-2">Welcome Back</h1>
@@ -79,9 +76,14 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-4">
               <div className="group">
-                <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">Email</label>
+                <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">
+                  Email
+                </label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-indigo transition-colors" size={20} />
+                  <Mail
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-indigo transition-colors"
+                    size={20}
+                  />
                   <input
                     name="email"
                     type="email"
@@ -96,9 +98,14 @@ export default function LoginPage() {
               </div>
 
               <div className="group">
-                <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">Password</label>
+                <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">
+                  Password
+                </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-purple transition-colors" size={20} />
+                  <Lock
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-purple transition-colors"
+                    size={20}
+                  />
                   <input
                     name="password"
                     type={showPassword ? "text" : "password"}
@@ -122,11 +129,11 @@ export default function LoginPage() {
 
             {/* Forgot Password Link */}
             <div className="text-right">
-              <a 
-                href="/auth/forgot-password" 
+              <a
+                href="/auth/forgot-password"
                 onClick={(e) => {
                   e.preventDefault();
-                  router.push('/auth/forgot-password');
+                  router.push("/auth/forgot-password");
                 }}
                 className="text-sm text-aurora-indigo hover:text-aurora-pink transition-colors font-medium cursor-pointer"
               >
@@ -174,14 +181,14 @@ export default function LoginPage() {
 
             <div className="text-center mt-6">
               <p className="text-sm text-white/50">
-                Don't have an account?{' '}
-                <a 
-                    href="/auth/register" 
-                    onClick={(e) => {
-                      e.preventDefault();
-                      router.push('/auth/register');
-                    }}
-                    className="text-aurora-indigo hover:text-aurora-pink transition-colors font-medium cursor-pointer"
+                Don&apos;t have an account?{" "}
+                <a
+                  href="/auth/register"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    router.push("/auth/register");
+                  }}
+                  className="text-aurora-indigo hover:text-aurora-pink transition-colors font-medium cursor-pointer"
                 >
                   Sign Up
                 </a>

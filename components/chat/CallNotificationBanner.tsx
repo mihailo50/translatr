@@ -1,10 +1,10 @@
-import React from 'react';
-import { Phone, Video, PhoneOff, MessageSquare, X } from 'lucide-react';
-import { createPortal } from 'react-dom';
+import React from "react";
+import { Phone, Video, PhoneOff, MessageSquare, X } from "lucide-react";
+import { createPortal } from "react-dom";
 
 interface CallNotificationBannerProps {
   callerName: string;
-  callType: 'audio' | 'video';
+  callType: "audio" | "video";
   onAccept: () => void;
   onDecline: () => void;
   onDeclineWithMessage: () => void;
@@ -17,32 +17,31 @@ const CallNotificationBanner: React.FC<CallNotificationBannerProps> = ({
   onAccept,
   onDecline,
   onDeclineWithMessage,
-  onDismiss
+  onDismiss,
 }) => {
-
-  if (typeof document === 'undefined') return null;
+  if (typeof document === "undefined") return null;
 
   return createPortal(
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-full max-w-md px-4 animate-in slide-in-from-top-4 fade-in duration-300">
-      <div 
+      <div
         className="relative rounded-2xl border border-indigo-500/30 overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.8)]"
         style={{
-          background: 'rgba(5, 5, 15, 0.98)',
-          backdropFilter: 'blur(25px)',
-          WebkitBackdropFilter: 'blur(25px)',
+          background: "rgba(5, 5, 15, 0.98)",
+          backdropFilter: "blur(25px)",
+          WebkitBackdropFilter: "blur(25px)",
         }}
       >
         {/* Subtle Internal Top-Light Gradient */}
-        <div 
+        <div
           className="absolute inset-0 pointer-events-none z-0"
           style={{
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, transparent 100%)',
+            background: "linear-gradient(180deg, rgba(255,255,255,0.05) 0%, transparent 100%)",
           }}
         />
-        
+
         {/* Ambient Glow */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-aurora-indigo/20 rounded-full blur-[80px] pointer-events-none z-0" />
-        
+
         {/* Close button */}
         {onDismiss && (
           <button
@@ -64,7 +63,7 @@ const CallNotificationBanner: React.FC<CallNotificationBannerProps> = ({
             <div className="flex-1 min-w-0">
               <h3 className="text-white font-bold text-base truncate">{callerName}</h3>
               <p className="text-white/60 text-sm flex items-center gap-1.5">
-                {callType === 'video' ? <Video size={14} /> : <Phone size={14} />}
+                {callType === "video" ? <Video size={14} /> : <Phone size={14} />}
                 <span>Incoming {callType} call</span>
               </p>
             </div>
@@ -95,7 +94,7 @@ const CallNotificationBanner: React.FC<CallNotificationBannerProps> = ({
               onClick={onAccept}
               className="h-12 px-4 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white rounded-xl transition-all text-sm font-medium shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2"
             >
-              {callType === 'video' ? <Video size={18} /> : <Phone size={18} />}
+              {callType === "video" ? <Video size={18} /> : <Phone size={18} />}
               <span className="whitespace-nowrap">Accept</span>
             </button>
           </div>
@@ -107,4 +106,3 @@ const CallNotificationBanner: React.FC<CallNotificationBannerProps> = ({
 };
 
 export default CallNotificationBanner;
-

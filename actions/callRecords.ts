@@ -1,15 +1,15 @@
-'use server';
+"use server";
 
-import { createClient } from '@supabase/supabase-js';
-import { createClient as createServerClient } from '../utils/supabase/server';
+import { createClient } from "@supabase/supabase-js";
+import { createClient as createServerClient } from "../utils/supabase/server";
 
 export interface CallRecord {
   id: string;
   room_id: string;
   caller_id: string;
   receiver_id: string | null;
-  call_type: 'audio' | 'video';
-  status: 'initiated' | 'accepted' | 'declined' | 'missed' | 'ended';
+  call_type: "audio" | "video";
+  status: "initiated" | "accepted" | "declined" | "missed" | "ended";
   started_at: string;
   ended_at: string | null;
   duration_seconds: number | null;
@@ -32,47 +32,44 @@ export async function createCallRecord(
   roomId: string,
   callerId: string,
   receiverId: string | null,
-  callType: 'audio' | 'video',
+  callType: "audio" | "video",
   callId?: string
 ): Promise<{ success: boolean; recordId?: string; error?: string }> {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
-      console.error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable');
-      return { success: false, error: 'Server configuration error' };
+    if (!supabaseUrl || supabaseUrl === "https://placeholder.supabase.co") {
+      return { success: false, error: "Server configuration error" };
     }
 
-    if (!supabaseServiceKey || supabaseServiceKey === 'placeholder-key') {
-      console.error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
-      return { success: false, error: 'Server configuration error' };
+    if (!supabaseServiceKey || supabaseServiceKey === "placeholder-key") {
+      return { success: false, error: "Server configuration error" };
     }
 
     const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
 
     const { data, error } = await supabaseService
-      .from('call_records')
+      .from("call_records")
       .insert({
         room_id: roomId,
         caller_id: callerId,
         receiver_id: receiverId,
         call_type: callType,
-        status: 'initiated',
+        status: "initiated",
         call_id: callId || null,
       })
-      .select('id')
+      .select("id")
       .single();
 
     if (error) {
-      console.error('Error creating call record:', error);
       return { success: false, error: error.message };
     }
 
     return { success: true, recordId: data.id };
-  } catch (error: any) {
-    console.error('CreateCallRecord Error:', error);
-    return { success: false, error: error.message || 'Failed to create call record' };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to create call record";
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -81,24 +78,24 @@ export async function createCallRecord(
  */
 export async function updateCallRecord(
   recordId: string,
-  status: 'accepted' | 'declined' | 'missed' | 'ended',
+  status: "accepted" | "declined" | "missed" | "ended",
   durationSeconds?: number
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
-      return { success: false, error: 'Server configuration error' };
+    if (!supabaseUrl || supabaseUrl === "https://placeholder.supabase.co") {
+      return { success: false, error: "Server configuration error" };
     }
 
-    if (!supabaseServiceKey || supabaseServiceKey === 'placeholder-key') {
-      return { success: false, error: 'Server configuration error' };
+    if (!supabaseServiceKey || supabaseServiceKey === "placeholder-key") {
+      return { success: false, error: "Server configuration error" };
     }
 
     const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
 
-    const updateData: any = {
+    const updateData: { status: string; ended_at: string; duration_seconds?: number } = {
       status,
       ended_at: new Date().toISOString(),
     };
@@ -108,19 +105,18 @@ export async function updateCallRecord(
     }
 
     const { error } = await supabaseService
-      .from('call_records')
+      .from("call_records")
       .update(updateData)
-      .eq('id', recordId);
+      .eq("id", recordId);
 
     if (error) {
-      console.error('Error updating call record:', error);
       return { success: false, error: error.message };
     }
 
     return { success: true };
-  } catch (error: any) {
-    console.error('UpdateCallRecord Error:', error);
-    return { success: false, error: error.message || 'Failed to update call record' };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to update call record";
+    return { success: false, error: errorMessage };
   }
 }
 
@@ -129,24 +125,24 @@ export async function updateCallRecord(
  */
 export async function updateCallRecordByCallId(
   callId: string,
-  status: 'accepted' | 'declined' | 'missed' | 'ended',
+  status: "accepted" | "declined" | "missed" | "ended",
   durationSeconds?: number
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
-      return { success: false, error: 'Server configuration error' };
+    if (!supabaseUrl || supabaseUrl === "https://placeholder.supabase.co") {
+      return { success: false, error: "Server configuration error" };
     }
 
-    if (!supabaseServiceKey || supabaseServiceKey === 'placeholder-key') {
-      return { success: false, error: 'Server configuration error' };
+    if (!supabaseServiceKey || supabaseServiceKey === "placeholder-key") {
+      return { success: false, error: "Server configuration error" };
     }
 
     const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
 
-    const updateData: any = {
+    const updateData: { status: string; ended_at: string; duration_seconds?: number } = {
       status,
       ended_at: new Date().toISOString(),
     };
@@ -156,54 +152,57 @@ export async function updateCallRecordByCallId(
     }
 
     const { error } = await supabaseService
-      .from('call_records')
+      .from("call_records")
       .update(updateData)
-      .eq('call_id', callId);
+      .eq("call_id", callId);
 
     if (error) {
-      console.error('Error updating call record by call_id:', error);
       return { success: false, error: error.message };
     }
 
     return { success: true };
-  } catch (error: any) {
-    console.error('UpdateCallRecordByCallId Error:', error);
-    return { success: false, error: error.message || 'Failed to update call record' };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to update call record";
+    return { success: false, error: errorMessage };
   }
 }
 
 /**
  * Get call records for a room with caller and receiver profile information
  */
-export async function getCallRecords(roomId: string): Promise<{ success: boolean; records?: CallRecord[]; error?: string }> {
+export async function getCallRecords(
+  roomId: string
+): Promise<{ success: boolean; records?: CallRecord[]; error?: string }> {
   try {
     const supabase = await createServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (!user) {
-      return { success: false, error: 'Unauthorized' };
+      return { success: false, error: "Unauthorized" };
     }
 
     const { data, error } = await supabase
-      .from('call_records')
-      .select(`
+      .from("call_records")
+      .select(
+        `
         *,
         caller:profiles!call_records_caller_fkey(display_name, email),
         receiver:profiles!call_records_receiver_fkey(display_name, email)
-      `)
-      .eq('room_id', roomId)
-      .order('created_at', { ascending: false })
+      `
+      )
+      .eq("room_id", roomId)
+      .order("created_at", { ascending: false })
       .limit(100); // Limit to last 100 call records
 
     if (error) {
-      console.error('Error fetching call records:', error);
       return { success: false, error: error.message };
     }
 
     return { success: true, records: data as CallRecord[] };
-  } catch (error: any) {
-    console.error('GetCallRecords Error:', error);
-    return { success: false, error: error.message || 'Failed to fetch call records' };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Failed to fetch call records";
+    return { success: false, error: errorMessage };
   }
 }
-

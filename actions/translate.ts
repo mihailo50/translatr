@@ -1,6 +1,6 @@
-'use server';
+"use server";
 
-import OpenAI from 'openai';
+import OpenAI from "openai";
 
 export interface TranslationResult {
   translatedText?: string;
@@ -8,18 +8,21 @@ export interface TranslationResult {
   error?: string;
 }
 
-export async function translateTextAction(text: string, targetLang: string): Promise<TranslationResult> {
+export async function translateTextAction(
+  text: string,
+  targetLang: string
+): Promise<TranslationResult> {
   // 1. Validation
   if (!text || !text.trim()) {
-    return { translatedText: '' };
+    return { translatedText: "" };
   }
 
   try {
     // Initialize OpenAI inside the action to prevent top-level execution issues
     // and enable browser access for hybrid environments
-    const openai = new OpenAI({ 
-        apiKey: process.env.OPENAI_API_KEY || 'placeholder-key',
-        dangerouslyAllowBrowser: true
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY || "placeholder-key",
+      dangerouslyAllowBrowser: true,
     });
 
     // 2. OpenAI Request
@@ -31,25 +34,23 @@ export async function translateTextAction(text: string, targetLang: string): Pro
           content: `You are a high-accuracy translation engine. 
           1. Detect the source language of the input text (ISO 639-1 code).
           2. Translate the text into the target language with code "${targetLang}".
-          3. Return a JSON object with keys: "translatedText" (string) and "detectedSourceLang" (string).`
+          3. Return a JSON object with keys: "translatedText" (string) and "detectedSourceLang" (string).`,
         },
         {
           role: "user",
-          content: text
-        }
+          content: text,
+        },
       ],
-      response_format: { type: "json_object" }
+      response_format: { type: "json_object" },
     });
 
-    const result = JSON.parse(completion.choices[0].message.content || '{}');
+    const result = JSON.parse(completion.choices[0].message.content || "{}");
 
     return {
       translatedText: result.translatedText,
-      detectedSourceLang: result.detectedSourceLang
+      detectedSourceLang: result.detectedSourceLang,
     };
-
-  } catch (error) {
-    console.error('Translation Action Error:', error);
-    return { error: 'Failed to translate text. Please try again.' };
+  } catch (_error) {
+    return { error: "Failed to translate text. Please try again." };
   }
 }

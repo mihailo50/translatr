@@ -3,7 +3,17 @@
  * Provides clean, structured logging for call lifecycle events
  */
 
-type CallLogLevel = 'INIT' | 'ACCEPT' | 'DECLINE' | 'END' | 'ERROR' | 'TIMEOUT' | 'RINGING' | 'UI_SHOWN' | 'UI_HIDDEN' | 'CANCELLED';
+type CallLogLevel =
+  | "INIT"
+  | "ACCEPT"
+  | "DECLINE"
+  | "END"
+  | "ERROR"
+  | "TIMEOUT"
+  | "RINGING"
+  | "UI_SHOWN"
+  | "UI_HIDDEN"
+  | "CANCELLED";
 
 interface CallLogData {
   callId?: string;
@@ -12,7 +22,7 @@ interface CallLogData {
   initiatorName?: string;
   receiverId?: string;
   receiverName?: string;
-  callType: 'audio' | 'video';
+  callType: "audio" | "video";
   duration?: number;
   reason?: string;
   deviceInfo?: string; // e.g. "GlobalCallHandler" or "ChatRoom"
@@ -20,7 +30,7 @@ interface CallLogData {
 
 class CallLogger {
   private callStartTimes: Map<string, number> = new Map();
-  
+
   private formatDuration(ms: number): string {
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
@@ -28,71 +38,39 @@ class CallLogger {
     return `${minutes}m ${remainingSeconds}s`;
   }
 
-  private log(level: CallLogLevel, message: string, data?: Partial<CallLogData>) {
-    const timestamp = new Date().toLocaleTimeString();
-    const icon = {
-      INIT: '📞',
-      ACCEPT: '✅',
-      DECLINE: '❌',
-      END: '📴',
-      ERROR: '🔴',
-      TIMEOUT: '⏱️',
-      RINGING: '🔔',
-      UI_SHOWN: '📱',
-      UI_HIDDEN: '🙈',
-      CANCELLED: '🚫'
-    }[level];
-
-    let logMessage = `${icon} [CALL ${level}] ${timestamp} - ${message}`;
-    
-    if (data) {
-      const details: string[] = [];
-      if (data.callId) details.push(`ID: ${data.callId.substring(0, 12)}...`);
-      if (data.roomId) details.push(`Room: ${data.roomId.substring(0, 12)}...`);
-      if (data.initiatorName) details.push(`Initiator: ${data.initiatorName}`);
-      if (data.receiverName) details.push(`Receiver: ${data.receiverName}`);
-      if (data.callType) details.push(`Type: ${data.callType.toUpperCase()}`);
-      if (data.deviceInfo) details.push(`Component: ${data.deviceInfo}`);
-      if (data.duration !== undefined) details.push(`Duration: ${this.formatDuration(data.duration)}`);
-      if (data.reason) details.push(`Reason: ${data.reason}`);
-      
-      if (details.length > 0) {
-        logMessage += ` | ${details.join(' | ')}`;
-      }
-    }
-
-    console.log(logMessage);
+  private log(_level: CallLogLevel, _message: string, _data?: Partial<CallLogData>) {
+    // Logging disabled - all console statements removed for production
   }
 
   callInitiated(data: CallLogData) {
-    this.log('INIT', 'Call initiated', data);
+    this.log("INIT", "Call initiated", data);
     if (data.callId) {
       this.callStartTimes.set(data.callId, Date.now());
     }
   }
 
   callRinging(data: Partial<CallLogData>) {
-    this.log('RINGING', 'Ringtone playing', data);
+    this.log("RINGING", "Ringtone playing", data);
   }
 
   callUIShown(data: Partial<CallLogData>) {
-    this.log('UI_SHOWN', 'Incoming call UI displayed', data);
+    this.log("UI_SHOWN", "Incoming call UI displayed", data);
   }
 
   callUIHidden(data: Partial<CallLogData>) {
-    this.log('UI_HIDDEN', 'Incoming call UI hidden/removed', data);
+    this.log("UI_HIDDEN", "Incoming call UI hidden/removed", data);
   }
 
   callCancelled(data: Partial<CallLogData>) {
-    this.log('CANCELLED', 'Call cancelled', data);
+    this.log("CANCELLED", "Call cancelled", data);
   }
 
   callAccepted(data: CallLogData) {
-    this.log('ACCEPT', 'Call accepted', data);
+    this.log("ACCEPT", "Call accepted", data);
   }
 
   callDeclined(data: CallLogData) {
-    this.log('DECLINE', 'Call declined', data);
+    this.log("DECLINE", "Call declined", data);
     if (data.callId) {
       this.callStartTimes.delete(data.callId);
     }
@@ -100,22 +78,24 @@ class CallLogger {
 
   callEnded(data: CallLogData) {
     if (data.callId && this.callStartTimes.has(data.callId)) {
-      const startTime = this.callStartTimes.get(data.callId)!;
-      data.duration = Date.now() - startTime;
-      this.callStartTimes.delete(data.callId);
+      const startTime = this.callStartTimes.get(data.callId);
+      if (startTime !== undefined) {
+        data.duration = Date.now() - startTime;
+        this.callStartTimes.delete(data.callId);
+      }
     }
-    this.log('END', 'Call ended', data);
+    this.log("END", "Call ended", data);
   }
 
   callTimeout(data: CallLogData) {
-    this.log('TIMEOUT', 'Call timed out (no answer)', data);
+    this.log("TIMEOUT", "Call timed out (no answer)", data);
     if (data.callId) {
       this.callStartTimes.delete(data.callId);
     }
   }
 
   callError(message: string, data?: Partial<CallLogData>) {
-    this.log('ERROR', message, data);
+    this.log("ERROR", message, data);
   }
 }
 

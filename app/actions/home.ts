@@ -1,14 +1,13 @@
-'use server';
+"use server";
 
-import { createClient } from '../../utils/supabase/server';
-import { redirect } from 'next/navigation';
-import { createClient as createServiceClient } from '@supabase/supabase-js';
-import crypto from 'crypto';
+import { createClient } from "../../utils/supabase/server";
+import { redirect } from "next/navigation";
+import crypto from "crypto";
 
 export interface Conversation {
   id: string;
   name: string;
-  type: 'direct' | 'group';
+  type: "direct" | "group";
   lastMessage: string;
   time: string;
   avatar: string;
@@ -27,65 +26,65 @@ async function decryptMessageServer(cipher: string, iv: string, roomId: string):
   try {
     // Derive key from roomId (matching client-side PBKDF2 logic)
     // Client uses roomId as raw key material, then PBKDF2 with salt
-    const keyMaterial = Buffer.from(roomId, 'utf-8');
-    const salt = Buffer.from('translatr-secure-salt-v1', 'utf-8');
-    
+    const keyMaterial = Buffer.from(roomId, "utf-8");
+    const salt = Buffer.from("translatr-secure-salt-v1", "utf-8");
+
     // Use PBKDF2 to derive key (matching client-side: 100000 iterations, SHA-256, 32 bytes for AES-256)
-    const key = crypto.pbkdf2Sync(keyMaterial, salt, 100000, 32, 'sha256');
-    
+    const key = crypto.pbkdf2Sync(keyMaterial, salt, 100000, 32, "sha256");
+
     // Decode base64
-    const ivBytes = Buffer.from(iv, 'base64');
-    const cipherBytes = Buffer.from(cipher, 'base64');
-    
+    const ivBytes = Buffer.from(iv, "base64");
+    const cipherBytes = Buffer.from(cipher, "base64");
+
     // In Web Crypto API with GCM, the auth tag (16 bytes) is automatically appended to ciphertext
     // Extract it for Node.js crypto which requires it separately
     const authTagLength = 16;
     if (cipherBytes.length < authTagLength) {
-      throw new Error('Ciphertext too short');
+      throw new Error("Ciphertext too short");
     }
-    
+
     const encrypted = cipherBytes.slice(0, -authTagLength);
     const authTag = cipherBytes.slice(-authTagLength);
-    
+
     // Decrypt using AES-256-GCM
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, ivBytes);
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, ivBytes);
     decipher.setAuthTag(authTag);
-    
+
     let decrypted = decipher.update(encrypted);
     decrypted = Buffer.concat([decrypted, decipher.final()]);
-    
-    return decrypted.toString('utf-8');
-  } catch (e) {
-    console.error('Server decryption error:', e);
+
+    return decrypted.toString("utf-8");
+  } catch (_e) {
     // Return encrypted indicator if decryption fails
-    return '🔒 Encrypted message';
+    return "🔒 Encrypted message";
   }
 }
 
 export async function getHomeData() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect('/auth/login');
+    redirect("/auth/login");
   }
 
   // Get user's profile
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('display_name, avatar_url')
-    .eq('id', user.id)
+    .from("profiles")
+    .select("display_name, avatar_url")
+    .eq("id", user.id)
     .single();
 
   // Use service role to bypass RLS for reliable room membership management
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  
-  if (!supabaseUrl || supabaseUrl === 'https://placeholder.supabase.co') {
-    console.error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable');
+
+  if (!supabaseUrl || supabaseUrl === "https://placeholder.supabase.co") {
     return {
       user: {
-        name: profile?.display_name || user.email?.split('@')[0] || 'User',
+        name: profile?.display_name || user.email?.split("@")[0] || "User",
         avatar: profile?.avatar_url || null,
       },
       conversations: [],
@@ -96,56 +95,60 @@ export async function getHomeData() {
       },
     };
   }
-  
-  const { createClient: createServiceClient } = await import('@supabase/supabase-js');
+
+  const { createClient: createServiceClient } = await import("@supabase/supabase-js");
   let serviceSupabase;
-  
-  if (!supabaseServiceKey || supabaseServiceKey === 'placeholder-key') {
-    console.error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
+
+  if (!supabaseServiceKey || supabaseServiceKey === "placeholder-key") {
     // Fall back to regular client (with RLS) instead of failing completely
-    serviceSupabase = createServiceClient(supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '');
+    serviceSupabase = createServiceClient(
+      supabaseUrl,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+    );
   } else {
     serviceSupabase = createServiceClient(supabaseUrl, supabaseServiceKey);
   }
 
   // Get all rooms the user is a member of
   const { data: roomMemberships } = await supabase
-    .from('room_members')
-    .select('room_id')
-    .eq('profile_id', user.id);
+    .from("room_members")
+    .select("room_id")
+    .eq("profile_id", user.id);
 
   // Get all unique room IDs from messages
   const { data: allRoomMessages } = await serviceSupabase
-    .from('messages')
-    .select('room_id, sender_id')
-    .order('created_at', { ascending: false });
+    .from("messages")
+    .select("room_id, sender_id")
+    .order("created_at", { ascending: false });
 
   // Find rooms where user is involved
   const userInvolvedRooms = new Set<string>();
   if (allRoomMessages) {
     // Get unique room IDs
-    const uniqueRoomIds = Array.from(new Set(allRoomMessages.map(m => m.room_id)));
-    
+    const uniqueRoomIds = Array.from(new Set(allRoomMessages.map((m) => m.room_id)));
+
     for (const roomId of uniqueRoomIds) {
       // Check if user sent any message in this room
-      const userSentMessage = allRoomMessages.some(m => m.room_id === roomId && m.sender_id === user.id);
-      
+      const userSentMessage = allRoomMessages.some(
+        (m) => m.room_id === roomId && m.sender_id === user.id
+      );
+
       if (userSentMessage) {
         userInvolvedRooms.add(roomId);
       } else {
         // For direct message rooms, check if room ID contains user ID
-        if (roomId.startsWith('direct_')) {
-          const parts = roomId.split('_');
+        if (roomId.startsWith("direct_")) {
+          const parts = roomId.split("_");
           if (parts.length === 3 && (parts[1] === user.id || parts[2] === user.id)) {
             userInvolvedRooms.add(roomId);
           }
         } else {
           // For group rooms, check if user is a member
           const { data: roomMembers } = await serviceSupabase
-            .from('room_members')
-            .select('profile_id')
-            .eq('room_id', roomId)
-            .eq('profile_id', user.id)
+            .from("room_members")
+            .select("profile_id")
+            .eq("room_id", roomId)
+            .eq("profile_id", user.id)
             .limit(1);
           if (roomMembers && roomMembers.length > 0) {
             userInvolvedRooms.add(roomId);
@@ -156,7 +159,7 @@ export async function getHomeData() {
   }
 
   // Combine room IDs from both sources
-  const memberRoomIds = roomMemberships?.map(rm => rm.room_id) || [];
+  const memberRoomIds = roomMemberships?.map((rm) => rm.room_id) || [];
   const messageRoomIds = Array.from(userInvolvedRooms);
   const allRoomIds = Array.from(new Set([...memberRoomIds, ...messageRoomIds]));
 
@@ -165,7 +168,7 @@ export async function getHomeData() {
     if (!memberRoomIds.includes(roomId)) {
       // Use service role to add user to room_members (bypasses RLS)
       await serviceSupabase
-        .from('room_members')
+        .from("room_members")
         .insert({ room_id: roomId, profile_id: user.id })
         .select()
         .single();
@@ -175,7 +178,7 @@ export async function getHomeData() {
   if (allRoomIds.length === 0) {
     return {
       user: {
-        name: profile?.display_name || user.email?.split('@')[0] || 'User',
+        name: profile?.display_name || user.email?.split("@")[0] || "User",
         avatar: profile?.avatar_url || null,
       },
       conversations: [],
@@ -191,9 +194,10 @@ export async function getHomeData() {
 
   // Get last message for each room using service role to bypass RLS
   // First, get the latest message per room
-  const { data: allMessages, error: messagesError } = await serviceSupabase
-    .from('messages')
-    .select(`
+  const { data: allMessages } = await serviceSupabase
+    .from("messages")
+    .select(
+      `
       id,
       room_id,
       original_text,
@@ -201,13 +205,12 @@ export async function getHomeData() {
       sender_id,
       metadata,
       sender:profiles!messages_sender_id_fkey(id, display_name, avatar_url, email)
-    `)
-    .in('room_id', roomIds)
-    .order('created_at', { ascending: false });
+    `
+    )
+    .in("room_id", roomIds)
+    .order("created_at", { ascending: false });
 
-  if (messagesError) {
-    console.error('Error loading messages for conversations:', messagesError);
-  }
+  // Ignore messagesError silently - we'll handle empty state gracefully
 
   // Get the last message for each room
   type MessageType = NonNullable<typeof allMessages>[number];
@@ -223,16 +226,17 @@ export async function getHomeData() {
 
   // Get all messages count for stats
   const { data: allUserMessages } = await supabase
-    .from('messages')
-    .select('id, translations, created_at')
-    .eq('sender_id', user.id);
+    .from("messages")
+    .select("id, translations, created_at")
+    .eq("sender_id", user.id);
 
   // Calculate stats
   const messagesSent = allUserMessages?.length || 0;
-  const totalTranslations = allUserMessages?.reduce((acc, msg) => {
-    const translations = msg.translations as Record<string, string> || {};
-    return acc + Object.keys(translations).length;
-  }, 0) || 0;
+  const totalTranslations =
+    allUserMessages?.reduce((acc, msg) => {
+      const translations = (msg.translations as Record<string, string>) || {};
+      return acc + Object.keys(translations).length;
+    }, 0) || 0;
 
   // Calculate active minutes (rough estimate: 1 message = 2 minutes of activity)
   // You can refine this logic based on your needs
@@ -246,42 +250,44 @@ export async function getHomeData() {
     // Get room members to determine if it's a group or direct chat
     // Use service role to bypass RLS
     const { data: members } = await serviceSupabase
-      .from('room_members')
-      .select(`
+      .from("room_members")
+      .select(
+        `
         profile_id,
         profile:profiles!room_members_profile_id_fkey(id, display_name, avatar_url)
-      `)
-      .eq('room_id', roomId);
+      `
+      )
+      .eq("room_id", roomId);
 
     // If no members found, try to get other user from direct room ID
     if (!members || members.length === 0) {
       // For direct message rooms, extract the other user from room ID
-      if (roomId.startsWith('direct_')) {
-        const parts = roomId.split('_');
+      if (roomId.startsWith("direct_")) {
+        const parts = roomId.split("_");
         if (parts.length === 3) {
           const userId1 = parts[1];
           const userId2 = parts[2];
           const otherUserId = userId1 === user.id ? userId2 : userId1;
-          
+
           // Get other user's profile
           const { data: otherProfile } = await serviceSupabase
-            .from('profiles')
-            .select('id, display_name, avatar_url')
-            .eq('id', otherUserId)
+            .from("profiles")
+            .select("id, display_name, avatar_url")
+            .eq("id", otherUserId)
             .single();
 
           if (otherProfile) {
             // Create a conversation entry even without room_members
-            const lastMessage = lastMessages.find(msg => msg.room_id === roomId);
-            let lastMessageText = 'No messages yet';
-            let lastMessageTime = 'Never';
-            
+            const lastMessage = lastMessages.find((msg) => msg.room_id === roomId);
+            let lastMessageText = "No messages yet";
+            let lastMessageTime = "Never";
+
             if (lastMessage) {
               const senderRaw = lastMessage.sender;
               const sender = Array.isArray(senderRaw) ? senderRaw[0] : senderRaw;
-              const senderName = sender?.display_name || 'Someone';
+              const senderName = sender?.display_name || "Someone";
               lastMessageText = `${senderName}: ${lastMessage.original_text}`;
-              
+
               const messageDate = new Date(lastMessage.created_at);
               const now = new Date();
               const diffMs = now.getTime() - messageDate.getTime();
@@ -290,7 +296,7 @@ export async function getHomeData() {
               const diffDays = Math.floor(diffMs / 86400000);
 
               if (diffMins < 1) {
-                lastMessageTime = 'Just now';
+                lastMessageTime = "Just now";
               } else if (diffMins < 60) {
                 lastMessageTime = `${diffMins}m ago`;
               } else if (diffHours < 24) {
@@ -304,11 +310,12 @@ export async function getHomeData() {
 
             conversationsMap.set(roomId, {
               id: roomId,
-              name: otherProfile.display_name || 'User',
-              type: 'direct',
+              name: otherProfile.display_name || "User",
+              type: "direct",
               lastMessage: lastMessageText,
               time: lastMessageTime,
-              avatar: otherProfile.avatar_url || `https://picsum.photos/seed/${otherProfile.id}/50/50`,
+              avatar:
+                otherProfile.avatar_url || `https://picsum.photos/seed/${otherProfile.id}/50/50`,
               unread: 0,
             });
           }
@@ -318,97 +325,104 @@ export async function getHomeData() {
     }
 
     const isGroup = members.length > 2;
-    const otherMembers = members.filter(m => m.profile_id !== user.id);
-    
+    const otherMembers = members.filter((m) => m.profile_id !== user.id);
+
     // Skip rooms where user is the only member (unless it's a vault)
     // Vault rooms are handled separately and start with 'vault_'
-    if (otherMembers.length === 0 && !roomId.startsWith('vault_')) {
+    if (otherMembers.length === 0 && !roomId.startsWith("vault_")) {
       continue; // Skip this room
     }
-    
+
     // Check if this is a vault room
-    const isVault = roomId.startsWith('vault_');
-    
+    const isVault = roomId.startsWith("vault_");
+
     // Determine room name and avatar
     let roomName: string;
     let roomAvatar: string;
 
     if (isVault) {
-      roomName = 'Aether Vault';
-      roomAvatar = 'https://picsum.photos/seed/vault/50/50';
+      roomName = "Aether Vault";
+      roomAvatar = "https://picsum.photos/seed/vault/50/50";
     } else if (isGroup) {
       roomName = otherMembers
-        .map(m => {
+        .map((m) => {
           const profileRaw = m.profile;
           const profile = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;
-          return profile?.display_name || 'User';
+          return profile?.display_name || "User";
         })
         .slice(0, 2)
-        .join(', ');
+        .join(", ");
       if (otherMembers.length > 2) {
         roomName += ` +${otherMembers.length - 2}`;
       }
-      roomAvatar = 'https://picsum.photos/seed/group/50/50';
+      roomAvatar = "https://picsum.photos/seed/group/50/50";
     } else if (otherMembers.length === 1) {
       const otherUserRaw = otherMembers[0].profile;
       const otherUser = Array.isArray(otherUserRaw) ? otherUserRaw[0] : otherUserRaw;
-      roomName = otherUser?.display_name || 'User';
-      roomAvatar = otherUser?.avatar_url || `https://picsum.photos/seed/${otherUser?.id || 'user'}/50/50`;
+      roomName = otherUser?.display_name || "User";
+      roomAvatar =
+        otherUser?.avatar_url || `https://picsum.photos/seed/${otherUser?.id || "user"}/50/50`;
     } else {
       // Fallback: should not reach here due to check above, but handle edge case
       continue; // Skip rooms we can't identify properly
     }
 
     // Find last message for this room
-    const lastMessage = lastMessages.find(msg => msg.room_id === roomId);
-    
+    const lastMessage = lastMessages.find((msg) => msg.room_id === roomId);
+
     // Format last message text
-    let lastMessageText = 'No messages yet';
-    let lastMessageTime = 'Never';
-    
+    let lastMessageText = "No messages yet";
+    let lastMessageTime = "Never";
+
     if (lastMessage) {
       // Get sender name - check if it's the current user
-      let senderName = 'You';
+      let senderName = "You";
       if (lastMessage.sender_id !== user.id) {
         const senderRaw = lastMessage.sender;
         const sender = Array.isArray(senderRaw) ? senderRaw[0] : senderRaw;
-        senderName = sender?.display_name || sender?.email?.split('@')[0] || 'Someone';
+        senderName = sender?.display_name || sender?.email?.split("@")[0] || "Someone";
       }
-      
+
       // Handle encrypted messages or empty text
-      let messageText = lastMessage.original_text || '';
-      const metadata = lastMessage.metadata as any;
-      
+      let messageText = lastMessage.original_text || "";
+      const metadata = lastMessage.metadata as
+        | {
+            encrypted?: boolean;
+            iv?: string;
+            attachment_meta?: { type: string; name?: string; viewOnce?: boolean };
+          }
+        | null
+        | undefined;
+
       // Check if message is encrypted
       if (metadata?.encrypted && metadata?.iv && messageText) {
         try {
           // Decrypt the message using Node.js crypto (server-side compatible)
           messageText = await decryptMessageServer(messageText, metadata.iv, roomId);
-        } catch (e) {
-          console.error('Failed to decrypt message preview:', e);
-          messageText = '🔒 Encrypted message';
+        } catch (_e) {
+          messageText = "🔒 Encrypted message";
         }
-      } else if (!messageText || messageText.trim() === '') {
+      } else if (!messageText || messageText.trim() === "") {
         // Check if there's an attachment
         if (metadata?.attachment_meta) {
           const attachment = metadata.attachment_meta;
-          if (attachment.type === 'image') {
-            messageText = attachment.viewOnce ? '📸 View once photo' : '📷 Photo';
+          if (attachment.type === "image") {
+            messageText = attachment.viewOnce ? "📸 View once photo" : "📷 Photo";
           } else {
-            messageText = `📎 ${attachment.name || 'File'}`;
+            messageText = `📎 ${attachment.name || "File"}`;
           }
         } else {
-          messageText = 'Message';
+          messageText = "Message";
         }
       }
-      
+
       // Truncate long messages
       if (messageText.length > 50) {
-        messageText = messageText.substring(0, 50) + '...';
+        messageText = messageText.substring(0, 50) + "...";
       }
-      
+
       lastMessageText = `${senderName}: ${messageText}`;
-      
+
       // Format time
       const messageDate = new Date(lastMessage.created_at);
       const now = new Date();
@@ -418,7 +432,7 @@ export async function getHomeData() {
       const diffDays = Math.floor(diffMs / 86400000);
 
       if (diffMins < 1) {
-        lastMessageTime = 'Just now';
+        lastMessageTime = "Just now";
       } else if (diffMins < 60) {
         lastMessageTime = `${diffMins}m ago`;
       } else if (diffHours < 24) {
@@ -437,7 +451,7 @@ export async function getHomeData() {
     conversationsMap.set(roomId, {
       id: roomId,
       name: roomName,
-      type: isGroup ? 'group' : 'direct',
+      type: isGroup ? "group" : "direct",
       lastMessage: lastMessageText,
       time: lastMessageTime,
       avatar: roomAvatar,
@@ -448,14 +462,16 @@ export async function getHomeData() {
 
   // Sort conversations by last message time (most recent first)
   const conversations = Array.from(conversationsMap.values()).sort((a, b) => {
-    const aTimestamp = (a as any)._lastMessageTimestamp || 0;
-    const bTimestamp = (b as any)._lastMessageTimestamp || 0;
+    const aTimestamp =
+      (a as Conversation & { _lastMessageTimestamp?: number })._lastMessageTimestamp || 0;
+    const bTimestamp =
+      (b as Conversation & { _lastMessageTimestamp?: number })._lastMessageTimestamp || 0;
     return bTimestamp - aTimestamp; // Descending order (newest first)
   });
 
   return {
     user: {
-      name: profile?.display_name || user.email?.split('@')[0] || 'User',
+      name: profile?.display_name || user.email?.split("@")[0] || "User",
       avatar: profile?.avatar_url || null,
     },
     conversations,
@@ -466,4 +482,3 @@ export async function getHomeData() {
     },
   };
 }
-

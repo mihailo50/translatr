@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { Loader2 } from 'lucide-react';
+import React from "react";
+import { Loader2 } from "lucide-react";
 
 interface GoogleAuthButtonProps {
   onClick: () => void;
@@ -14,7 +14,7 @@ const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
   onClick,
   isLoading = false,
   disabled = false,
-  text = 'Continue with Google',
+  text = "Continue with Google",
 }) => {
   return (
     <button

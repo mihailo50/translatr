@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { createPortal } from 'react-dom';
-import { AlertTriangle, X } from 'lucide-react';
+import React from "react";
+import { createPortal } from "react-dom";
+import { AlertTriangle, X } from "lucide-react";
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -12,7 +12,7 @@ interface ConfirmModalProps {
   message: string;
   confirmText?: string;
   cancelText?: string;
-  confirmVariant?: 'danger' | 'primary';
+  confirmVariant?: "danger" | "primary";
 }
 
 export default function ConfirmModal({
@@ -21,11 +21,11 @@ export default function ConfirmModal({
   onConfirm,
   title,
   message,
-  confirmText = 'Confirm',
-  cancelText = 'Cancel',
-  confirmVariant = 'danger'
+  confirmText = "Confirm",
+  cancelText = "Cancel",
+  confirmVariant = "danger",
 }: ConfirmModalProps) {
-  if (!isOpen || typeof document === 'undefined') return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
   const handleConfirm = () => {
     onConfirm();
@@ -43,18 +43,18 @@ export default function ConfirmModal({
       className="fixed inset-0 z-[10000] flex items-center justify-center p-4 animate-in fade-in duration-200"
       onClick={handleBackdropClick}
       style={{
-        background: 'rgba(2, 5, 23, 0.8)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
+        background: "rgba(2, 5, 23, 0.8)",
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
       }}
     >
       <div
         className="glass-strong w-full max-w-md rounded-2xl border border-white/10 shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: 'rgba(5, 5, 16, 0.95)',
-          backdropFilter: 'blur(24px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+          background: "rgba(5, 5, 16, 0.95)",
+          backdropFilter: "blur(24px) saturate(180%)",
+          WebkitBackdropFilter: "blur(24px) saturate(180%)",
         }}
       >
         {/* Close Button */}
@@ -75,14 +75,10 @@ export default function ConfirmModal({
           </div>
 
           {/* Title */}
-          <h3 className="text-xl font-bold text-white text-center mb-3">
-            {title}
-          </h3>
+          <h3 className="text-xl font-bold text-white text-center mb-3">{title}</h3>
 
           {/* Message */}
-          <p className="text-sm text-white/70 text-center mb-6 leading-relaxed">
-            {message}
-          </p>
+          <p className="text-sm text-white/70 text-center mb-6 leading-relaxed">{message}</p>
 
           {/* Actions */}
           <div className="flex items-center gap-3">
@@ -95,9 +91,9 @@ export default function ConfirmModal({
             <button
               onClick={handleConfirm}
               className={`flex-1 px-4 py-2.5 rounded-xl text-white font-medium text-sm transition-all duration-200 ${
-                confirmVariant === 'danger'
-                  ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 hover:border-red-500/40 shadow-[0_0_20px_rgba(239,68,68,0.2)] hover:shadow-[0_0_30px_rgba(239,68,68,0.3)]'
-                  : 'bg-aurora-indigo/20 hover:bg-aurora-indigo/30 border border-aurora-indigo/30 hover:border-aurora-indigo/40 shadow-[0_0_20px_rgba(99,102,241,0.2)] hover:shadow-[0_0_30px_rgba(99,102,241,0.3)]'
+                confirmVariant === "danger"
+                  ? "bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 hover:border-red-500/40 shadow-[0_0_20px_rgba(239,68,68,0.2)] hover:shadow-[0_0_30px_rgba(239,68,68,0.3)]"
+                  : "bg-aurora-indigo/20 hover:bg-aurora-indigo/30 border border-aurora-indigo/30 hover:border-aurora-indigo/40 shadow-[0_0_20px_rgba(99,102,241,0.2)] hover:shadow-[0_0_30px_rgba(99,102,241,0.3)]"
               }`}
             >
               {confirmText}
@@ -109,4 +105,3 @@ export default function ConfirmModal({
     document.body
   );
 }
-

@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import AuroraBackground from '../../../components/ui/AuroraBackground';
-import { Lock, ArrowRight, Loader2, Eye, EyeOff, CheckCircle } from 'lucide-react';
-import { createClient } from '../../../utils/supabase/client';
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import AuroraBackground from "../../../components/ui/AuroraBackground";
+import { Lock, ArrowRight, Loader2, Eye, EyeOff, CheckCircle } from "lucide-react";
+import { createClient } from "../../../utils/supabase/client";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -20,18 +20,18 @@ export default function ResetPasswordPage() {
     setError(null);
 
     const formData = new FormData(e.currentTarget);
-    const password = formData.get('password') as string;
-    const confirmPassword = formData.get('confirmPassword') as string;
+    const password = formData.get("password") as string;
+    const confirmPassword = formData.get("confirmPassword") as string;
 
     // Validate
     if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+      setError("Password must be at least 8 characters");
       setIsLoading(false);
       return;
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError("Passwords do not match");
       setIsLoading(false);
       return;
     }
@@ -39,7 +39,7 @@ export default function ResetPasswordPage() {
     try {
       const supabase = createClient();
       const { error: updateError } = await supabase.auth.updateUser({
-        password: password
+        password: password,
       });
 
       if (updateError) {
@@ -48,12 +48,11 @@ export default function ResetPasswordPage() {
         setSuccess(true);
         // Redirect to login after 3 seconds
         setTimeout(() => {
-          router.push('/auth/login');
+          router.push("/auth/login");
         }, 3000);
       }
-    } catch (e) {
-      console.error(e);
-      setError('An unexpected error occurred');
+    } catch (_e) {
+      setError("An unexpected error occurred");
     } finally {
       setIsLoading(false);
     }
@@ -63,7 +62,6 @@ export default function ResetPasswordPage() {
     <AuroraBackground showOrbs={true}>
       <div className="flex min-h-screen items-center justify-center p-4">
         <div className="glass-strong w-full max-w-md p-8 rounded-3xl border-t-2 border-l border-r border-white/20 relative overflow-hidden">
-          
           {!success ? (
             <>
               {/* Header */}
@@ -76,9 +74,14 @@ export default function ResetPasswordPage() {
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="space-y-4">
                   <div className="group">
-                    <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">New Password</label>
+                    <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">
+                      New Password
+                    </label>
                     <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-purple transition-colors" size={20} />
+                      <Lock
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-purple transition-colors"
+                        size={20}
+                      />
                       <input
                         name="password"
                         type={showPassword ? "text" : "password"}
@@ -98,9 +101,14 @@ export default function ResetPasswordPage() {
                   </div>
 
                   <div className="group">
-                    <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">Confirm Password</label>
+                    <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">
+                      Confirm Password
+                    </label>
                     <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-pink transition-colors" size={20} />
+                      <Lock
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-pink transition-colors"
+                        size={20}
+                      />
                       <input
                         name="confirmPassword"
                         type={showConfirmPassword ? "text" : "password"}
@@ -149,12 +157,8 @@ export default function ResetPasswordPage() {
                   <CheckCircle className="w-8 h-8 text-green-400" />
                 </div>
                 <h2 className="text-2xl font-bold text-white mb-3">Password Reset Successful!</h2>
-                <p className="text-white/70 mb-4">
-                  Your password has been successfully reset.
-                </p>
-                <p className="text-sm text-white/50">
-                  Redirecting to login...
-                </p>
+                <p className="text-white/70 mb-4">Your password has been successfully reset.</p>
+                <p className="text-sm text-white/50">Redirecting to login...</p>
               </div>
             </>
           )}

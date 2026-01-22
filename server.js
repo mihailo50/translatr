@@ -124,7 +124,8 @@ app.prepare().then(async () => {
   });
 
   // Create HTTP server to redirect to HTTPS
-  const httpServer = createHttpServer((req, res) => {
+  // Note: HTTP server is created but not started - only HTTPS is used
+  const _httpServer = createHttpServer((req, res) => {
     const localIP = getLocalIP();
     const host = req.headers.host || `${localIP}:${port}`;
     const httpsUrl = `https://${host}${req.url}`;

@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 @theme {
-  --font-family-sans: var(--font-inter), 'Inter', sans-serif;
-  --font-family-display: var(--font-space-grotesk), 'Space Grotesk', sans-serif;
-  
+  --font-family-sans: var(--font-inter), "Inter", sans-serif;
+  --font-family-display: var(--font-space-grotesk), "Space Grotesk", sans-serif;
+
   --color-aurora-dark: #020617;
   --color-aurora-slate: #0f172a;
   --color-aurora-indigo: #6366f1;
@@ -14,23 +14,23 @@
 /* 1. MOVE THIS TO THE VERY TOP */
 /* This kills the background and forces text color using the transition + shadow hack */
 input:-webkit-autofill,
-input:-webkit-autofill:hover, 
-input:-webkit-autofill:focus, 
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
 input:-webkit-autofill:active,
 input:-internal-autofill-selected {
-    -webkit-text-fill-color: white !important;
-    color: white !important;
-    /* This shadow "paints" over the browser's blue/yellow - Updated to match ChatRoom theme */
-    -webkit-box-shadow: 0 0 0px 1000px #03030b inset !important;
-    box-shadow: 0 0 0px 1000px #03030b inset !important;
-    /* This delay prevents the browser from changing the color back */
-    transition: background-color 5000000s ease-in-out 0s !important;
+  -webkit-text-fill-color: white !important;
+  color: white !important;
+  /* This shadow "paints" over the browser's blue/yellow - Updated to match ChatRoom theme */
+  -webkit-box-shadow: 0 0 0px 1000px #03030b inset !important;
+  box-shadow: 0 0 0px 1000px #03030b inset !important;
+  /* This delay prevents the browser from changing the color back */
+  transition: background-color 5000000s ease-in-out 0s !important;
 }
 
 /* Global input focus ring suppression - Base reset only */
 input:focus {
-    outline: none !important;
-    box-shadow: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 :root {
@@ -41,7 +41,7 @@ input:focus {
 body {
   background: radial-gradient(circle at 50% 0%, #0a0a15 0%, #020205 100%);
   color: var(--foreground);
-  font-family: var(--font-inter), 'Inter', sans-serif;
+  font-family: var(--font-inter), "Inter", sans-serif;
 }
 
 /* CSS Loading Test - Remove this comment if styles are working */
@@ -51,13 +51,21 @@ html {
 }
 
 @keyframes aurora-1 {
-  0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(15%, 10%) scale(1.1); }
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(15%, 10%) scale(1.1);
+  }
 }
 
 @keyframes aurora-2 {
-  0% { transform: translate(0, 0) scale(1.2); }
-  100% { transform: translate(-10%, -15%) scale(1); }
+  0% {
+    transform: translate(0, 0) scale(1.2);
+  }
+  100% {
+    transform: translate(-10%, -15%) scale(1);
+  }
 }
 
 .animate-aurora-1 {
@@ -70,46 +78,90 @@ html {
 
 /* Aurora Glass Input Utility Class */
 .aurora-input {
-    background-color: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: white;
-    transition: all 300ms;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  transition: all 300ms;
 }
 
 .aurora-input::placeholder {
-    color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .aurora-input:focus {
-    outline: none !important;
-    border-color: rgba(99, 102, 241, 0.5);
-    background-color: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
+  outline: none !important;
+  border-color: rgba(99, 102, 241, 0.5);
+  background-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.15);
 }
 
 /* Aurora Focus Utility Class */
 .aurora-focus {
-    transition: all 0.3s ease-out;
+  transition: all 0.3s ease-out;
 }
 
 .aurora-focus:focus {
-    outline: none !important;
-    border-color: rgba(99, 102, 241, 0.4) !important;
-    background-color: rgba(255, 255, 255, 0.08) !important;
-    box-shadow: 0 0 15px rgba(99, 102, 241, 0.15), inset 0 0 10px rgba(255, 255, 255, 0.02) !important;
+  outline: none !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    0 0 15px rgba(99, 102, 241, 0.15),
+    inset 0 0 10px rgba(255, 255, 255, 0.02) !important;
 }
 
 /* Aurora Cosmos Animations for Call Screens */
 @keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-10px); }
+  0%,
+  100% {
+    transform: translateY(0px) translateZ(0);
+  }
+  50% {
+    transform: translateY(-10px) translateZ(0);
+  }
 }
 @keyframes pulse-soft {
-  0%, 100% { opacity: 0.15; transform: scale(1); }
-  50% { opacity: 0.25; transform: scale(1.05); }
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(1) translateZ(0);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(1.05) translateZ(0);
+  }
 }
-.animate-float { animation: float 6s ease-in-out infinite; }
-.animate-nebula { animation: pulse-soft 8s ease-in-out infinite; }
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+  will-change: transform;
+}
+.animate-nebula {
+  animation: pulse-soft 8s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* Blob animation for Aurora orbs - GPU accelerated */
+@keyframes blob {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1) translateZ(0);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1) translateZ(0);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9) translateZ(0);
+  }
+}
+.animate-blob {
+  animation: blob 20s ease-in-out infinite;
+  will-change: transform;
+}
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
 
 /* Aurora Glass Scrollbar Styling */
 .scrollbar-thin {
@@ -148,8 +200,8 @@ html {
 
 /* Mobile Scrollbar Hiding */
 .scrollbar-none {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+  scrollbar-width: none; /* Firefox */
 }
 
 .scrollbar-none::-webkit-scrollbar {
@@ -158,7 +210,7 @@ html {
 
 /* Font Display Utility */
 .font-display {
-  font-family: var(--font-space-grotesk), 'Space Grotesk', sans-serif;
+  font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
 }
 
 /* Base body styles */
@@ -169,23 +221,30 @@ html {
     overflow-x: hidden;
     height: 100%;
   }
-  
+
   body {
     @apply antialiased;
-    font-family: var(--font-inter), 'Inter', sans-serif;
-    transition: background-color 0.3s ease, color 0.3s ease;
+    font-family: var(--font-inter), "Inter", sans-serif;
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
     /* Explicitly ensure body allows scrolling (no overflow-hidden) */
     overflow-y: auto;
     overflow-x: hidden;
     min-height: 100%;
   }
-  
+
   /* Headings use brand font (Space Grotesk) */
-  h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-space-grotesk), 'Space Grotesk', sans-serif;
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-space-grotesk), "Space Grotesk", sans-serif;
     letter-spacing: -0.02em;
   }
-  
+
   /* Aurora theme (default) */
   body.theme-aurora {
     background-color: var(--color-aurora-dark);
@@ -195,7 +254,7 @@ html {
     background-color: rgba(139, 92, 246, 0.3);
     color: white;
   }
-  
+
   /* Midnight theme (dark mode) */
   body.theme-midnight {
     @apply bg-black text-white;
@@ -210,27 +269,27 @@ html {
   /* Aurora theme glass effects */
   body.theme-aurora .glass-strong {
     @apply backdrop-blur-xl bg-white/5 border border-white/10 shadow-2xl;
-    -webkit-transform: translate3d(0,0,0);
-    transform: translate3d(0,0,0);
+    -webkit-transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0);
   }
   body.theme-aurora .glass {
     @apply backdrop-blur-md bg-white/5 border border-white/5;
-    -webkit-transform: translate3d(0,0,0);
-    transform: translate3d(0,0,0);
+    -webkit-transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0);
   }
-  
+
   /* Midnight theme glass effects (darker) */
   body.theme-midnight .glass-strong {
     @apply backdrop-blur-xl bg-white/3 border border-white/5 shadow-2xl;
-    -webkit-transform: translate3d(0,0,0);
-    transform: translate3d(0,0,0);
+    -webkit-transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0);
   }
   body.theme-midnight .glass {
     @apply backdrop-blur-md bg-white/3 border border-white/3;
-    -webkit-transform: translate3d(0,0,0);
-    transform: translate3d(0,0,0);
+    -webkit-transform: translate3d(0, 0, 0);
+    transform: translate3d(0, 0, 0);
   }
-  
+
   .scrollbar-thin::-webkit-scrollbar {
     width: 5px;
     height: 5px;
@@ -243,5 +302,24 @@ html {
   }
   body.theme-midnight .scrollbar-thin::-webkit-scrollbar-thumb {
     @apply bg-white/5 rounded-full hover:bg-white/10 transition-colors;
+  }
+}
+
+/* Accessibility: Minimum Touch Target Size (WCAG 2.5.5) */
+/* Ensure all interactive elements meet the 44x44px minimum touch target on mobile */
+@media (max-width: 768px) {
+  button,
+  a[role="button"],
+  input[type="button"],
+  input[type="submit"],
+  input[type="reset"] {
+    /* Ensure minimum touch target size of 44x44px on mobile */
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* For buttons that are smaller, add padding to meet the minimum */
+  button:not([class*="min-w"]):not([class*="min-h"]) {
+    padding: 0.5rem;
   }
 }

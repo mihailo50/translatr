@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, ReactNode } from "react";
 
 interface NotificationContextType {
   isNotificationsOpen: boolean;
@@ -16,12 +16,14 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
 
   return (
-    <NotificationContext.Provider value={{ 
-      isNotificationsOpen, 
-      setIsNotificationsOpen,
-      currentRoomId,
-      setCurrentRoomId
-    }}>
+    <NotificationContext.Provider
+      value={{
+        isNotificationsOpen,
+        setIsNotificationsOpen,
+        currentRoomId,
+        setCurrentRoomId,
+      }}
+    >
       {children}
     </NotificationContext.Provider>
   );
@@ -32,7 +34,7 @@ export const useNotification = () => {
   if (context === undefined) {
     // During SSR or if not within provider, return default values instead of throwing
     // This prevents hydration errors and allows graceful degradation
-    if (typeof window === 'undefined') {
+    if (typeof window === "undefined") {
       // Server-side: return default values
       return {
         isNotificationsOpen: false,
@@ -42,8 +44,7 @@ export const useNotification = () => {
       };
     }
     // Client-side but not in provider: this is a real error
-    throw new Error('useNotification must be used within a NotificationProvider');
+    throw new Error("useNotification must be used within a NotificationProvider");
   }
   return context;
 };
-

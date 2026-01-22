@@ -1,6 +1,7 @@
-import React from 'react';
-import { UserPlus, X, Check, UserX } from 'lucide-react';
-import { createPortal } from 'react-dom';
+import React from "react";
+import Image from "next/image";
+import { UserPlus, X, Check, UserX } from "lucide-react";
+import { createPortal } from "react-dom";
 
 interface ContactRequestBannerProps {
   senderName: string;
@@ -15,31 +16,31 @@ const ContactRequestBanner: React.FC<ContactRequestBannerProps> = ({
   senderAvatar,
   onAccept,
   onDecline,
-  onDismiss
+  onDismiss,
 }) => {
-  if (typeof document === 'undefined') return null;
+  if (typeof document === "undefined") return null;
 
   return createPortal(
     <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-full max-w-md px-4 animate-in slide-in-from-top-4 fade-in duration-300">
-      <div 
+      <div
         className="relative rounded-2xl border border-aurora-pink/30 overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.8)]"
         style={{
-          background: 'rgba(5, 5, 15, 0.98)',
-          backdropFilter: 'blur(25px)',
-          WebkitBackdropFilter: 'blur(25px)',
+          background: "rgba(5, 5, 15, 0.98)",
+          backdropFilter: "blur(25px)",
+          WebkitBackdropFilter: "blur(25px)",
         }}
       >
         {/* Subtle Internal Top-Light Gradient */}
-        <div 
+        <div
           className="absolute inset-0 pointer-events-none z-0"
           style={{
-            background: 'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, transparent 100%)',
+            background: "linear-gradient(180deg, rgba(255,255,255,0.05) 0%, transparent 100%)",
           }}
         />
-        
+
         {/* Ambient Glow */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-aurora-pink/20 rounded-full blur-[80px] pointer-events-none z-0" />
-        
+
         {/* Close button */}
         {onDismiss && (
           <button
@@ -55,9 +56,11 @@ const ContactRequestBanner: React.FC<ContactRequestBannerProps> = ({
           <div className="flex items-center gap-3 mb-4">
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-aurora-pink to-aurora-indigo p-0.5 shadow-lg shadow-aurora-pink/30">
               {senderAvatar ? (
-                <img 
-                  src={senderAvatar} 
+                <Image
+                  src={senderAvatar}
                   alt={senderName}
+                  width={48}
+                  height={48}
                   className="w-full h-full rounded-full object-cover"
                 />
               ) : (

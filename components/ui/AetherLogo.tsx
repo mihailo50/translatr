@@ -1,6 +1,12 @@
-import React from 'react';
+import React from "react";
 
-export const AetherLogo = ({ className = '', iconOnly = false }: { className?: string, iconOnly?: boolean }) => (
+export const AetherLogo = ({
+  className = "",
+  iconOnly = false,
+}: {
+  className?: string;
+  iconOnly?: boolean;
+}) => (
   <div className={`flex items-center ${className}`}>
     {/* The Wordmark */}
     {!iconOnly && (

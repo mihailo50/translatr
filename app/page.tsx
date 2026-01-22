@@ -1,23 +1,15 @@
-import React from 'react';
-import { getHomeData } from './actions/home';
-import HomePageClient from './components/HomePageClient';
-import { createClient } from '../utils/supabase/server';
-import { redirect } from 'next/navigation';
+import React from "react";
+import { getHomeData } from "./actions/home";
+import HomePageClient from "./components/HomePageClient";
 
-// Force dynamic rendering to ensure auth check runs on every request
-export const dynamic = 'force-dynamic';
+// Middleware handles auth checks at the edge, so we can use revalidate for better caching
+// Revalidate every 60 seconds to keep data fresh while allowing some caching
+export const revalidate = 60;
 
 export default async function HomePage() {
-  // Check authentication first, before any rendering or data fetching
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    // Use redirect which throws and prevents any rendering
-    redirect('/auth/login');
-  }
-
-  // Only fetch data if user is authenticated
+  // Auth check is handled by middleware.ts at the edge
+  // If we reach here, user is authenticated (middleware already verified)
+  // Fetch data directly without redundant auth check
   const homeData = await getHomeData();
 
   return <HomePageClient homeData={homeData} />;

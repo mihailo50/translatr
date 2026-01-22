@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { Phone, Video, Mic, MicOff, VideoOff, PhoneOff, MessageSquare } from 'lucide-react';
-import { Room, LocalTrack, Track } from 'livekit-client';
+import React, { useState } from "react";
+import { Phone, Video, Mic, MicOff, VideoOff, PhoneOff, MessageSquare } from "lucide-react";
+import { Room } from "livekit-client";
 
 interface LiveKitCallModalProps {
   isOpen: boolean;
   callerName: string;
-  callType: 'audio' | 'video';
+  callType: "audio" | "video";
   onAnswer: () => void;
   onDecline: () => void;
   onDeclineWithMessage?: () => void;
@@ -23,10 +23,10 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
   onDeclineWithMessage,
   activeRoom,
   isCallActive,
-  isSender = false
+  isSender = false,
 }) => {
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(callType === 'video');
+  const [isVideoEnabled, setIsVideoEnabled] = useState(callType === "video");
 
   // Handle track toggling when call is active
   const toggleMute = async () => {
@@ -44,12 +44,12 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
   };
 
   const handleHangup = () => {
-      // Logic to stop tracks
-      if (activeRoom?.localParticipant) {
-          activeRoom.localParticipant.setMicrophoneEnabled(false);
-          activeRoom.localParticipant.setCameraEnabled(false);
-      }
-      onDecline();
+    // Logic to stop tracks
+    if (activeRoom?.localParticipant) {
+      activeRoom.localParticipant.setMicrophoneEnabled(false);
+      activeRoom.localParticipant.setCameraEnabled(false);
+    }
+    onDecline();
   };
 
   if (!isOpen) return null;
@@ -57,7 +57,9 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
   return (
     <>
       {/* Custom Animations */}
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         @keyframes caller-pulse {
           0% {
             transform: scale(1);
@@ -117,12 +119,13 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
         .radar-ring-3 {
           animation: radar 2s ease-out infinite 0.8s;
         }
-      `}} />
+      `,
+        }}
+      />
 
       <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-[#020205]/90 backdrop-blur-md animate-in fade-in duration-300 px-4">
         {/* Content Container - No Border, with padding to keep centered */}
         <div className="w-full max-w-sm flex flex-col items-center relative py-8">
-          
           {/* Ambient Background Glow */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/20 rounded-full blur-[80px] pointer-events-none caller-glow" />
 
@@ -145,7 +148,9 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
                 </>
               )}
               {/* Avatar Circle */}
-              <div className={`relative w-24 h-24 rounded-full bg-gradient-to-br from-indigo-600/40 to-purple-600/40 p-1 shadow-lg shadow-indigo-500/30 ${isSender ? 'caller-pulse' : ''}`}>
+              <div
+                className={`relative w-24 h-24 rounded-full bg-gradient-to-br from-indigo-600/40 to-purple-600/40 p-1 shadow-lg shadow-indigo-500/30 ${isSender ? "caller-pulse" : ""}`}
+              >
                 <div className="w-full h-full rounded-full bg-[#020205] flex items-center justify-center text-3xl font-bold text-white uppercase">
                   {callerName.charAt(0)}
                 </div>
@@ -154,7 +159,7 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
 
             {/* Name */}
             <h2 className="text-xl font-bold text-white mt-4">{callerName}</h2>
-            
+
             {/* Status */}
             {isSender ? (
               <div className="mt-1">
@@ -164,7 +169,7 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
               </div>
             ) : (
               <p className="text-xs uppercase tracking-[0.2em] text-indigo-400 mt-1 font-medium">
-                {isCallActive ? 'CONNECTED' : `INCOMING ${callType.toUpperCase()} CALL`}
+                {isCallActive ? "CONNECTED" : `INCOMING ${callType.toUpperCase()} CALL`}
               </p>
             )}
           </div>
@@ -173,7 +178,7 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
           {isSender ? (
             /* Sender View - Only End Button at Bottom - Fixed position */
             <div className="w-full mt-12 flex justify-center">
-              <button 
+              <button
                 onClick={onDecline}
                 className="w-12 h-12 rounded-full bg-red-500/80 hover:bg-red-500 text-white transition-colors flex items-center justify-center"
               >
@@ -185,7 +190,7 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
               {!isCallActive ? (
                 <>
                   {/* Decline */}
-                  <button 
+                  <button
                     onClick={onDecline}
                     className="w-16 h-16 rounded-full bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500 hover:text-white transition-all flex items-center justify-center hover:scale-110"
                   >
@@ -194,7 +199,7 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
 
                   {/* Decline with Message */}
                   {onDeclineWithMessage && (
-                    <button 
+                    <button
                       onClick={onDeclineWithMessage}
                       className="w-16 h-16 rounded-full bg-white/5 text-white/70 border border-white/10 hover:bg-white/10 hover:text-white transition-all flex items-center justify-center hover:scale-110"
                     >
@@ -203,33 +208,33 @@ const LiveKitCallModal: React.FC<LiveKitCallModalProps> = ({
                   )}
 
                   {/* Answer */}
-                  <button 
+                  <button
                     onClick={onAnswer}
                     className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-white transition-all flex items-center justify-center hover:scale-110"
                   >
-                    {callType === 'video' ? <Video size={24} /> : <Phone size={24} />}
+                    {callType === "video" ? <Video size={24} /> : <Phone size={24} />}
                   </button>
                 </>
               ) : (
                 <>
                   {/* Active Call Controls */}
-                  <button 
+                  <button
                     onClick={toggleMute}
-                    className={`w-12 h-12 rounded-full transition-all flex items-center justify-center hover:scale-110 ${isMuted ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-white/5 text-white/90 border border-white/10 hover:bg-white/10'}`}
+                    className={`w-12 h-12 rounded-full transition-all flex items-center justify-center hover:scale-110 ${isMuted ? "bg-red-500/20 text-red-400 border border-red-500/30" : "bg-white/5 text-white/90 border border-white/10 hover:bg-white/10"}`}
                   >
                     {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
                   </button>
 
-                  <button 
+                  <button
                     onClick={handleHangup}
                     className="w-12 h-12 rounded-full bg-red-500/80 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.4)] transition-all flex items-center justify-center hover:scale-110"
                   >
                     <PhoneOff size={20} />
                   </button>
 
-                  <button 
+                  <button
                     onClick={toggleVideo}
-                    className={`w-12 h-12 rounded-full transition-all flex items-center justify-center hover:scale-110 ${!isVideoEnabled ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-white/5 text-white/90 border border-white/10 hover:bg-white/10'}`}
+                    className={`w-12 h-12 rounded-full transition-all flex items-center justify-center hover:scale-110 ${!isVideoEnabled ? "bg-red-500/20 text-red-400 border border-red-500/30" : "bg-white/5 text-white/90 border border-white/10 hover:bg-white/10"}`}
                   >
                     {isVideoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
                   </button>

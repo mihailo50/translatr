@@ -1,0 +1,24 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": ["app/**/*.{ts,tsx}", "components/**/*.{ts,tsx}", "server.js"],
+  "project": ["**/*.{ts,tsx,js,jsx,mjs,cjs}"],
+  "ignore": [
+    "**/*.d.ts",
+    "next-env.d.ts",
+    ".next/**",
+    "node_modules/**",
+    "out/**",
+    "build/**",
+    "dist/**"
+  ],
+  "ignoreDependencies": [
+    "@next/bundle-analyzer",
+    "selfsigned",
+    "@livekit/components-styles",
+    "tailwindcss",
+    "postcss"
+  ],
+  "next": {
+    "entry": ["app/**/*.{ts,tsx}", "pages/**/*.{ts,tsx}", "proxy.ts", "next.config.{ts,js}"]
+  }
+}

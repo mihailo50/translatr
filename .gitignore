@@ -78,3 +78,9 @@ logs/
 tmp/
 temp/
 *.tmp
+
+# Prettier
+.prettier-cache
+
+# Knip
+.knip

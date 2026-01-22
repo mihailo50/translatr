@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import AuroraBackground from '../../../components/ui/AuroraBackground';
-import { resetPassword } from '../actions';
-import { Mail, ArrowRight, Loader2, ArrowLeft, CheckCircle } from 'lucide-react';
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import AuroraBackground from "../../../components/ui/AuroraBackground";
+import { resetPassword } from "../actions";
+import { Mail, ArrowRight, Loader2, ArrowLeft, CheckCircle } from "lucide-react";
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -19,18 +19,17 @@ export default function ForgotPasswordPage() {
 
     const formData = new FormData(e.currentTarget);
     try {
-        const result = await resetPassword(null, formData);
-        
-        if (result?.error) {
-            setError(result.error);
-        } else if (result?.success) {
-            setSuccess(true);
-        }
-    } catch (e) {
-        console.error(e);
-        setError('An unexpected error occurred');
+      const result = await resetPassword(null, formData);
+
+      if (result?.error) {
+        setError(result.error);
+      } else if (result?.success) {
+        setSuccess(true);
+      }
+    } catch (_e) {
+      setError("An unexpected error occurred");
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -38,10 +37,9 @@ export default function ForgotPasswordPage() {
     <AuroraBackground showOrbs={true}>
       <div className="flex min-h-screen items-center justify-center p-4">
         <div className="glass-strong w-full max-w-md p-8 rounded-3xl border-t-2 border-l border-r border-white/20 relative overflow-hidden">
-          
           {/* Back Button */}
           <button
-            onClick={() => router.push('/auth/login')}
+            onClick={() => router.push("/auth/login")}
             className="absolute top-6 left-6 text-white/60 hover:text-white transition-colors"
           >
             <ArrowLeft size={20} />
@@ -52,15 +50,22 @@ export default function ForgotPasswordPage() {
               {/* Header */}
               <div className="mb-8 text-center">
                 <h1 className="text-3xl font-bold text-white mb-2">Reset Password</h1>
-                <p className="text-white/50">Enter your email and we'll send you a reset link.</p>
+                <p className="text-white/50">
+                  Enter your email and we&apos;ll send you a reset link.
+                </p>
               </div>
 
               {/* Form */}
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="group">
-                  <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">Email</label>
+                  <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">
+                    Email
+                  </label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-indigo transition-colors" size={20} />
+                    <Mail
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-indigo transition-colors"
+                      size={20}
+                    />
                     <input
                       name="email"
                       type="email"
@@ -94,12 +99,12 @@ export default function ForgotPasswordPage() {
 
                 <div className="text-center mt-6">
                   <p className="text-sm text-white/50">
-                    Remember your password?{' '}
-                    <a 
-                      href="/auth/login" 
+                    Remember your password?{" "}
+                    <a
+                      href="/auth/login"
                       onClick={(e) => {
                         e.preventDefault();
-                        router.push('/auth/login');
+                        router.push("/auth/login");
                       }}
                       className="text-aurora-indigo hover:text-aurora-pink transition-colors font-medium cursor-pointer"
                     >
@@ -118,10 +123,11 @@ export default function ForgotPasswordPage() {
                 </div>
                 <h2 className="text-2xl font-bold text-white mb-3">Check Your Email</h2>
                 <p className="text-white/70 mb-8">
-                  We've sent a password reset link to your email address. Please check your inbox and click the link to reset your password.
+                  We&apos;ve sent a password reset link to your email address. Please check your
+                  inbox and click the link to reset your password.
                 </p>
                 <button
-                  onClick={() => router.push('/auth/login')}
+                  onClick={() => router.push("/auth/login")}
                   className="w-full py-3 px-4 bg-gradient-to-r from-aurora-indigo to-aurora-purple hover:from-aurora-indigo/90 hover:to-aurora-purple/90 text-white font-semibold rounded-xl shadow-lg shadow-aurora-indigo/25 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
                 >
                   <ArrowLeft size={18} /> Back to Login

@@ -1,15 +1,15 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState, useRef } from 'react';
-import { createClient } from '../../utils/supabase/client';
-import { useRouter } from 'next/navigation';
-import ContactRequestBanner from './ContactRequestBanner';
-import { acceptContactRequest, declineContactRequest } from '../../actions/contacts';
+import React, { useEffect, useState, useRef } from "react";
+import { createClient } from "../../utils/supabase/client";
+import { useRouter } from "next/navigation";
+import ContactRequestBanner from "./ContactRequestBanner";
+import { acceptContactRequest, declineContactRequest } from "../../actions/contacts";
 
 interface ContactRequestNotification {
   id: string;
   recipient_id: string;
-  type: 'contact_request';
+  type: "contact_request";
   content: {
     sender_name: string;
     preview: string;
@@ -42,22 +42,24 @@ export default function GlobalContactRequestHandler() {
 
   useEffect(() => {
     const setupRequestListener = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user || !mountedRef.current) return;
 
       // Fetch initial unread contact request notifications
       const { data: existingRequests } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('recipient_id', user.id)
-        .eq('type', 'contact_request')
-        .eq('is_read', false)
-        .order('created_at', { ascending: false })
+        .from("notifications")
+        .select("*")
+        .eq("recipient_id", user.id)
+        .eq("type", "contact_request")
+        .eq("is_read", false)
+        .order("created_at", { ascending: false })
         .limit(1);
 
       if (existingRequests && existingRequests.length > 0 && mountedRef.current) {
         const latestRequest = existingRequests[0] as ContactRequestNotification;
-        
+
         if (!processedRequestIdsRef.current.has(latestRequest.id)) {
           processedRequestIdsRef.current.add(latestRequest.id);
           setIncomingRequest(latestRequest);
@@ -70,28 +72,28 @@ export default function GlobalContactRequestHandler() {
       const channel = supabase
         .channel(channelName)
         .on(
-          'postgres_changes',
+          "postgres_changes",
           {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'notifications',
+            event: "INSERT",
+            schema: "public",
+            table: "notifications",
             filter: `recipient_id=eq.${user.id}`,
           },
           async (payload) => {
             if (!mountedRef.current) return;
-            
-            const notification = payload.new as any;
-            
-            if (notification.type === 'contact_request' && !notification.is_read) {
-              const requestNotif = notification as ContactRequestNotification;
-              
+
+            const notification = payload.new as ContactRequestNotification;
+
+            if (notification.type === "contact_request" && !notification.is_read) {
+              const requestNotif = notification;
+
               // Avoid processing the same request twice
               if (processedRequestIdsRef.current.has(requestNotif.id)) {
                 return;
               }
-              
+
               processedRequestIdsRef.current.add(requestNotif.id);
-              
+
               setIncomingRequest(requestNotif);
               setShowBanner(true);
             }
@@ -104,16 +106,16 @@ export default function GlobalContactRequestHandler() {
       const notifUpdatesChannel = supabase
         .channel(notifUpdatesChannelName)
         .on(
-          'postgres_changes',
+          "postgres_changes",
           {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'notifications',
+            event: "UPDATE",
+            schema: "public",
+            table: "notifications",
             filter: `recipient_id=eq.${user.id}`,
           },
           async (payload) => {
             if (!mountedRef.current) return;
-            const updated = payload.new as any;
+            const updated = payload.new as { id?: string; is_read?: boolean };
             // If the current incoming request notification was marked read, close banner
             if (incomingRequest && updated?.id === incomingRequest.id && updated?.is_read) {
               clearIncomingRequestUI();
@@ -121,16 +123,16 @@ export default function GlobalContactRequestHandler() {
           }
         )
         .on(
-          'postgres_changes',
+          "postgres_changes",
           {
-            event: 'DELETE',
-            schema: 'public',
-            table: 'notifications',
+            event: "DELETE",
+            schema: "public",
+            table: "notifications",
             filter: `recipient_id=eq.${user.id}`,
           },
           async (payload) => {
             if (!mountedRef.current) return;
-            const deleted = payload.old as any;
+            const deleted = payload.old as { id?: string };
             if (incomingRequest && deleted?.id === incomingRequest.id) {
               clearIncomingRequestUI();
             }
@@ -141,48 +143,51 @@ export default function GlobalContactRequestHandler() {
       return () => {
         try {
           channel.unsubscribe();
-        } catch (e) {
+        } catch (_e) {
           // Ignore unsubscribe errors
         }
         try {
           notifUpdatesChannel.unsubscribe();
-        } catch (e) {
+        } catch (_e) {
           // Ignore unsubscribe errors
         }
         try {
           supabase.removeChannel(channel);
-        } catch (e) {
+        } catch (_e) {
           // Ignore removeChannel errors
         }
         try {
           supabase.removeChannel(notifUpdatesChannel);
-        } catch (e) {
+        } catch (_e) {
           // Ignore removeChannel errors
         }
       };
     };
 
     const cleanup = setupRequestListener();
-    
+
     return () => {
-      cleanup.then(cleanupFn => cleanupFn?.());
+      cleanup.then((cleanupFn) => cleanupFn?.());
     };
-  }, [supabase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase]); // incomingRequest is intentionally omitted - it's managed by state updates
 
   const handleAccept = async () => {
     if (!incomingRequest) return;
-    
+
     // Get the relationship ID from contacts table
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
 
     // Find the contact relationship
     const { data: contact } = await supabase
-      .from('contacts')
-      .select('id')
-      .eq('user_id', incomingRequest.related_id)
-      .eq('contact_id', user.id)
-      .eq('status', 'pending')
+      .from("contacts")
+      .select("id")
+      .eq("user_id", incomingRequest.related_id)
+      .eq("contact_id", user.id)
+      .eq("status", "pending")
       .single();
 
     if (contact?.id) {
@@ -190,37 +195,39 @@ export default function GlobalContactRequestHandler() {
       if (result.success) {
         // Mark notification as read (fire and forget for speed)
         const markReadPromise1 = supabase
-          .from('notifications')
+          .from("notifications")
           .update({ is_read: true, read_at: new Date().toISOString() })
-          .eq('id', incomingRequest.id)
+          .eq("id", incomingRequest.id)
           .select();
-        Promise.resolve(markReadPromise1).catch((err: any) => {
-          console.error('Error marking contact request notification as read:', err);
+        Promise.resolve(markReadPromise1).catch((_err: unknown) => {
+          // Error marking contact request notification as read - silently handle
         });
-        
+
         // Navigate to contacts page (immediate)
-        router.push('/contacts');
+        router.push("/contacts");
       }
     }
-    
+
     // Clear banner
     clearIncomingRequestUI();
   };
 
   const handleDecline = async () => {
     if (!incomingRequest) return;
-    
+
     // Get the relationship ID from contacts table
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
 
     // Find the contact relationship
     const { data: contact } = await supabase
-      .from('contacts')
-      .select('id')
-      .eq('user_id', incomingRequest.related_id)
-      .eq('contact_id', user.id)
-      .eq('status', 'pending')
+      .from("contacts")
+      .select("id")
+      .eq("user_id", incomingRequest.related_id)
+      .eq("contact_id", user.id)
+      .eq("status", "pending")
       .single();
 
     if (contact?.id) {
@@ -228,16 +235,16 @@ export default function GlobalContactRequestHandler() {
       if (result.success) {
         // Mark notification as read (fire and forget for speed)
         const markReadPromise2 = supabase
-          .from('notifications')
+          .from("notifications")
           .update({ is_read: true, read_at: new Date().toISOString() })
-          .eq('id', incomingRequest.id)
+          .eq("id", incomingRequest.id)
           .select();
-        Promise.resolve(markReadPromise2).catch((err: any) => {
-          console.error('Error marking contact request notification as read:', err);
+        Promise.resolve(markReadPromise2).catch((_err: unknown) => {
+          // Error marking contact request notification as read - silently handle
         });
       }
     }
-    
+
     // Clear banner
     clearIncomingRequestUI();
   };
