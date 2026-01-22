@@ -772,7 +772,7 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
         const checkConnectionState = () => {
             if (!isMountedRef.current) return;
             
-            if (room.state === 'disconnected' && room.connectionState === 'disconnected') {
+            if (room.state === 'disconnected') {
                 // Connection failed - check if it was intentional
                 const lastError = (room as any).lastError;
                 if (lastError && lastError instanceof Error) {
