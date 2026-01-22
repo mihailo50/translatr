@@ -1152,8 +1152,10 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
             audio={false}
             onDisconnected={(reason) => {
                 // Silent disconnect for hidden listener
-                if (reason && !reason.includes('client') && !reason.includes('user')) {
-                    console.warn('Hidden LiveKit listener disconnected:', reason);
+                // DisconnectReason is an enum, convert to string for comparison
+                const reasonStr = reason ? String(reason) : '';
+                if (reasonStr && !reasonStr.includes('client') && !reasonStr.includes('user')) {
+                    console.warn('Hidden LiveKit listener disconnected:', reasonStr);
                 }
                 onDisconnect(false);
             }}
@@ -1209,8 +1211,10 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
             audio={true}
             onDisconnected={(reason) => {
                 // Only show error if it's not user-initiated
-                if (reason && !reason.includes('client') && !reason.includes('user')) {
-                    console.warn('LiveKit disconnected:', reason);
+                // DisconnectReason is an enum, convert to string for comparison
+                const reasonStr = reason ? String(reason) : '';
+                if (reasonStr && !reasonStr.includes('client') && !reasonStr.includes('user')) {
+                    console.warn('LiveKit disconnected:', reasonStr);
                 }
                 onDisconnect(false);
             }}
