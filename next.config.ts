@@ -64,19 +64,29 @@ const nextConfig: NextConfig = {
 
     const cspDirectives = [
       // Default source: deny everything by default
-      "default-src 'self'",
+      // In dev, allow HTTP for local network access (localhost and network IPs)
+      isProduction ? "default-src 'self'" : "default-src 'self' http://localhost:* http://*:*",
       // Scripts: allow unsafe-inline for Next.js hydration (required), Vercel Live feedback, and blob: as fallback for workers
       `script-src ${scriptSrc} https://vercel.live blob:`,
       // Workers: allow self and blob URLs (LiveKit uses blob URLs for Web Workers)
       "worker-src 'self' blob:",
       // Styles: self and inline (Tailwind and component styles require inline)
-      "style-src 'self' 'unsafe-inline'",
+      // In dev, also allow HTTP for local network access
+      isProduction 
+        ? "style-src 'self' 'unsafe-inline'"
+        : "style-src 'self' 'unsafe-inline' http://localhost:* http://*:*",
       // Images: self, data URIs, blob URIs, Supabase Storage, Google Auth avatars, Google APIs, placeholder images, and Vercel assets
       "img-src 'self' data: blob: https://*.supabase.co https://storage.supabase.co https://*.googleusercontent.com https://*.googleapis.com https://picsum.photos https://fastly.picsum.photos https://vercel.com https://*.vercel.com https://grainy-gradients.vercel.app",
       // Fonts: self and data URIs
-      "font-src 'self' data:",
+      // In dev, also allow HTTP for local network access
+      isProduction
+        ? "font-src 'self' data:"
+        : "font-src 'self' data: http://localhost:* http://*:*",
       // Connect: self, Supabase API, and LiveKit (WebSocket and HTTPS)
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co wss://*.livekit.cloud https://*.livekit.cloud",
+      // In dev, also allow ws:// and http:// for local WebSocket connections
+      isProduction
+        ? "connect-src 'self' https://*.supabase.co wss://*.supabase.co wss://*.livekit.cloud https://*.livekit.cloud"
+        : "connect-src 'self' http://localhost:* ws://localhost:* ws://*:* http://*:* https://*.supabase.co wss://*.supabase.co wss://*.livekit.cloud https://*.livekit.cloud",
       // Frame sources: allow Vercel Live for development/preview feedback
       "frame-src 'self' https://vercel.live",
       // Media: self, blob, and Supabase Storage (for voice messages, videos)
@@ -89,8 +99,9 @@ const nextConfig: NextConfig = {
       "form-action 'self'",
       // Frame ancestors: deny (prevent embedding in iframes)
       "frame-ancestors 'none'",
-      // Upgrade insecure requests (force HTTPS)
-      "upgrade-insecure-requests",
+      // Only upgrade insecure requests in production (where HTTPS is available)
+      // In dev, allow HTTP for local network access
+      ...(isProduction ? ["upgrade-insecure-requests"] : []),
     ];
 
     return [

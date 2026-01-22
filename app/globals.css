@@ -33,15 +33,21 @@ input:focus {
     box-shadow: none !important;
 }
 
-  :root {
-    --background: #020205;
-    --foreground: #ededed;
+:root {
+  --background: #020205;
+  --foreground: #ededed;
 }
 
 body {
   background: radial-gradient(circle at 50% 0%, #0a0a15 0%, #020205 100%);
   color: var(--foreground);
   font-family: var(--font-inter), 'Inter', sans-serif;
+}
+
+/* CSS Loading Test - Remove this comment if styles are working */
+html {
+  /* This ensures CSS is being processed */
+  min-height: 100%;
 }
 
 @keyframes aurora-1 {
@@ -157,10 +163,21 @@ body {
 
 /* Base body styles */
 @layer base {
+  html {
+    /* Ensure HTML allows scrolling */
+    overflow-y: auto;
+    overflow-x: hidden;
+    height: 100%;
+  }
+  
   body {
     @apply antialiased;
     font-family: var(--font-inter), 'Inter', sans-serif;
     transition: background-color 0.3s ease, color 0.3s ease;
+    /* Explicitly ensure body allows scrolling (no overflow-hidden) */
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 100%;
   }
   
   /* Headings use brand font (Space Grotesk) */
