@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { LiveKitRoom, useTracks, VideoTrack, useLocalParticipant, useRemoteParticipants, useRoomContext, useIsSpeaking } from '@livekit/components-react';
 import type { TrackReferenceOrPlaceholder, TrackReference } from '@livekit/components-react';
-import { Track, ExternalE2EEKeyProvider, RoomOptions, RoomEvent, RemoteParticipant } from 'livekit-client';
+import { Track, ExternalE2EEKeyProvider, RoomOptions, RoomEvent, RemoteParticipant, DisconnectReason } from 'livekit-client';
 import { ShieldCheck, Mic, MicOff, Video, VideoOff, PhoneOff, MonitorUp, MonitorOff, XSquare } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -709,12 +709,14 @@ const CallContent = ({ roomName, roomType, callType, onDisconnect, userId, onPar
     useEffect(() => {
         if (!room || !isMountedRef.current) return;
         
-        const handleDisconnected = (reason?: string) => {
+        const handleDisconnected = (reason?: DisconnectReason) => {
             if (!isMountedRef.current) return;
             
             // Only show error if it's not a user-initiated disconnect
-            if (reason && !reason.includes('client') && !reason.includes('user')) {
-                console.warn('LiveKit disconnected:', reason);
+            // DisconnectReason is an enum, convert to string for comparison
+            const reasonStr = reason ? String(reason) : '';
+            if (reasonStr && !reasonStr.includes('client') && !reasonStr.includes('user')) {
+                console.warn('LiveKit disconnected:', reasonStr);
                 // Don't show toast for normal disconnections
             }
             onDisconnect(false);
