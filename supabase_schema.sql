@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     display_name TEXT,
     email TEXT, -- Denormalized from auth.users for easier queries
     bio TEXT,
+    avatar_url TEXT, -- User profile picture
     preferred_language TEXT NOT NULL DEFAULT 'en',
     theme TEXT NOT NULL DEFAULT 'aurora' CHECK (theme IN ('aurora', 'midnight')),
     status TEXT NOT NULL DEFAULT 'offline' CHECK (status IN ('online', 'offline', 'away', 'invisible')),
@@ -248,6 +249,35 @@ CREATE INDEX IF NOT EXISTS idx_hidden_messages_room_user ON hidden_messages(room
 CREATE INDEX IF NOT EXISTS idx_hidden_messages_message_id ON hidden_messages(message_id);
 
 -- =====================================================
+-- 6.5. QUANTUMLINKS TABLE
+-- =====================================================
+-- Stores pinned chats/rooms/spaces for each user (QuantumLinks feature)
+-- Allows users to pin their most important conversations for quick access
+CREATE TABLE IF NOT EXISTS quantumlinks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+    room_id TEXT, -- Pinned room/chat (nullable if linking to space)
+    space_id UUID, -- Pinned space (nullable if linking to room, references spaces.id if spaces table exists)
+    position INTEGER NOT NULL DEFAULT 0, -- Order/position in pinned list (lower = higher priority)
+    label TEXT, -- Custom label/name for the link (optional)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Ensure at least one of room_id or space_id is provided
+    CONSTRAINT quantumlinks_has_target CHECK (
+        (room_id IS NOT NULL) OR (space_id IS NOT NULL)
+    ),
+    -- Prevent duplicate pins (same user, same room/space)
+    UNIQUE(user_id, room_id, space_id)
+);
+
+-- Indexes for quantumlinks
+CREATE INDEX IF NOT EXISTS idx_quantumlinks_user_id ON quantumlinks(user_id);
+CREATE INDEX IF NOT EXISTS idx_quantumlinks_room_id ON quantumlinks(room_id) WHERE room_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_quantumlinks_space_id ON quantumlinks(space_id) WHERE space_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_quantumlinks_user_position ON quantumlinks(user_id, position ASC);
+CREATE INDEX IF NOT EXISTS idx_quantumlinks_user_created ON quantumlinks(user_id, created_at DESC);
+
+-- =====================================================
 -- 6. ROW LEVEL SECURITY (RLS) POLICIES
 -- =====================================================
 
@@ -258,6 +288,7 @@ ALTER TABLE room_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE hidden_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE quantumlinks ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
 -- PROFILES POLICIES
@@ -439,6 +470,43 @@ CREATE POLICY "Users can delete own hidden messages"
     USING (auth.uid() = user_id);
 
 -- =====================================================
+-- QUANTUMLINKS POLICIES
+-- =====================================================
+
+-- Users can read their own quantumlinks
+DROP POLICY IF EXISTS "Users can read own quantumlinks" ON quantumlinks;
+CREATE POLICY "Users can read own quantumlinks"
+    ON quantumlinks FOR SELECT
+    USING (auth.uid() = user_id);
+
+-- Users can create their own quantumlinks
+DROP POLICY IF EXISTS "Users can create own quantumlinks" ON quantumlinks;
+CREATE POLICY "Users can create own quantumlinks"
+    ON quantumlinks FOR INSERT
+    WITH CHECK (
+        auth.uid() = user_id
+        AND (
+            -- If pinning a room, user must be a member
+            (room_id IS NOT NULL AND public.is_room_member(room_id, auth.uid()))
+            OR
+            -- If pinning a space, check membership (if spaces table exists)
+            (space_id IS NOT NULL)
+        )
+    );
+
+-- Users can update their own quantumlinks (for reordering, renaming)
+DROP POLICY IF EXISTS "Users can update own quantumlinks" ON quantumlinks;
+CREATE POLICY "Users can update own quantumlinks"
+    ON quantumlinks FOR UPDATE
+    USING (auth.uid() = user_id);
+
+-- Users can delete their own quantumlinks
+DROP POLICY IF EXISTS "Users can delete own quantumlinks" ON quantumlinks;
+CREATE POLICY "Users can delete own quantumlinks"
+    ON quantumlinks FOR DELETE
+    USING (auth.uid() = user_id);
+
+-- =====================================================
 -- 7. FUNCTIONS & TRIGGERS
 -- =====================================================
 
@@ -522,6 +590,28 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Function to check if user is a member of a room (bypasses RLS for storage policies)
 -- NOTE: Already defined above as SECURITY DEFINER `public.is_room_member(text, uuid)`.
+
+-- Function to get the next position for a user's pinned items (QuantumLinks)
+CREATE OR REPLACE FUNCTION public.get_next_quantumlink_position(p_user_id UUID)
+RETURNS INTEGER
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE(MAX(position), -1) + 1
+  FROM public.quantumlinks
+  WHERE user_id = p_user_id;
+$$;
+
+REVOKE ALL ON FUNCTION public.get_next_quantumlink_position(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_next_quantumlink_position(UUID) TO authenticated;
+
+-- Trigger to auto-update updated_at for quantumlinks
+DROP TRIGGER IF EXISTS update_quantumlinks_updated_at ON quantumlinks;
+CREATE TRIGGER update_quantumlinks_updated_at
+    BEFORE UPDATE ON quantumlinks
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
 
 -- =====================================================
 -- 8. STORAGE BUCKETS & POLICIES
@@ -630,6 +720,7 @@ COMMENT ON TABLE room_members IS 'Chat room membership tracking';
 COMMENT ON TABLE messages IS 'Chat messages with translation support';
 COMMENT ON TABLE notifications IS 'User notifications for messages, contact requests, etc.';
 COMMENT ON TABLE hidden_messages IS 'Tracks messages hidden per-user (for per-user chat clearing)';
+COMMENT ON TABLE quantumlinks IS 'QuantumLinks: User-pinned chats/rooms/spaces for quick access';
 
 COMMENT ON COLUMN messages.translations IS 'JSONB object mapping language codes to translated text';
 COMMENT ON COLUMN messages.metadata IS 'JSONB object containing encryption data (iv, encrypted) and attachment metadata';

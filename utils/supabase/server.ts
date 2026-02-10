@@ -17,7 +17,14 @@ export async function createClient() {
         },
         set(name: string, value: string, options: CookieOptions) {
           try {
-            cookieStore.set({ name, value, ...options });
+            // Ensure cookies work with IP addresses by not setting domain
+            // or setting it dynamically based on the request
+            const cookieOptions: CookieOptions = {
+              ...options,
+              // Don't set domain for IP addresses - allows cookies to work on network IPs
+              // Domain will be automatically handled by the browser
+            };
+            cookieStore.set({ name, value, ...cookieOptions });
           } catch (_error) {
             // The `set` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing user sessions.

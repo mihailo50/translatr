@@ -442,7 +442,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const isActive = (hasContent || isRecording) && !isSending;
 
   return (
-    <div className="absolute bottom-4 left-4 right-4 z-[50] pointer-events-none flex flex-col items-center">
+    <div className="absolute bottom-4 left-4 right-4 z-[50] pointer-events-none flex flex-col items-center pb-[safe-area-inset-bottom] sm:pb-0">
       {attachment && (
         <div className="pointer-events-auto self-start mb-2 ml-2 glass p-2 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 border border-white/10 shadow-lg relative z-[60]">
           <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center overflow-hidden">
@@ -509,12 +509,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
       <form
         onSubmit={handleSend}
-        className="w-full pointer-events-auto p-2 rounded-full flex items-center gap-2 max-w-4xl mx-auto border-t border-white/5 border-x border-b border-white/10 shadow-2xl relative z-[50]"
-        style={{
-          background: "rgba(10, 10, 20, 0.8)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
-        }}
+        className="aurora-glass-premium w-full pointer-events-auto p-2 rounded-2xl flex items-center gap-2 max-w-4xl mx-auto border-t border-white/10 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.5)] relative z-[50]"
       >
         <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} />
 
@@ -524,7 +519,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
             aria-label={isUploading ? "Uploading file" : "Attach file"}
-            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/10 text-white/50 hover:text-aurora-indigo transition-colors min-w-[44px] min-h-[44px]"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center hover:bg-white/10 text-white/50 hover:text-aurora-indigo transition-colors min-w-[44px] min-h-[44px]"
           >
             {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
           </button>
@@ -605,7 +600,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
                 }}
                 placeholder={isSending ? "Encrypting & Sending..." : "Message..."}
                 disabled={isSending || disabled || isRecording}
-                className="w-full bg-white/[0.03] border border-white/5 rounded-2xl focus:ring-1 focus:ring-indigo-500/30 focus:shadow-[0_0_30px_rgba(99,102,241,0.15)] focus:bg-white/[0.06] focus:border-indigo-500/40 text-white placeholder-white/30 px-3 py-2 text-base h-10 pr-8 transition-all duration-500 ease-out outline-none"
+                className="aurora-input w-full rounded-xl px-3 py-2 text-base h-10 pr-8 focus:ring-1 focus:ring-indigo-500/50"
                 autoComplete="off"
               />
               <div
@@ -622,7 +617,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
               onClick={startRecording}
               disabled={isSending || disabled || isRecording}
               aria-label={isRecording ? "Recording voice message" : "Record voice message"}
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 shrink-0 min-w-[44px] min-h-[44px] ${
+              className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all duration-300 shrink-0 min-w-[44px] min-h-[44px] ${
                 isRecording
                   ? "bg-red-500 text-white animate-pulse"
                   : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white"
@@ -639,7 +634,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
               aria-label="Send message"
               className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 shrink-0 relative min-w-[44px] min-h-[44px] ${
                 isActive
-                  ? "bg-white text-aurora-indigo hover:scale-105 shadow-[0_0_20px_rgba(99,102,241,0.4)] cursor-pointer send-button-glow"
+                  ? "bg-white text-indigo-600 hover:scale-105 shadow-[0_0_20px_rgba(99,102,241,0.5)] cursor-pointer send-button-glow"
                   : "bg-white/5 text-white/20 cursor-not-allowed"
               }`}
             >

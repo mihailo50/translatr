@@ -11,6 +11,15 @@ const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
 const port = 3000;
 
+// In development, disable SSL certificate validation for self-signed certificates
+// This allows the server to make HTTPS requests to Supabase and other services
+// when using self-signed certificates locally
+if (dev) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  console.log('⚠️  SSL certificate validation disabled for development');
+  console.log('   This allows self-signed certificates to be accepted');
+}
+
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
@@ -33,18 +42,32 @@ const certPath = path.join(__dirname, 'cert.pem');
 const keyPath = path.join(__dirname, 'key.pem');
 
 // Check if certificates exist, if not, generate them
-async function ensureCertificates() {
+// Also regenerate if FORCE_REGENERATE_CERTS env var is set
+function ensureCertificates() {
   const localIP = getLocalIP();
-  const shouldRegenerate = !fs.existsSync(certPath) || !fs.existsSync(keyPath);
+  const forceRegenerate = process.env.FORCE_REGENERATE_CERTS === 'true';
+  const shouldRegenerate = forceRegenerate || !fs.existsSync(certPath) || !fs.existsSync(keyPath);
   
   if (shouldRegenerate) {
+    // Delete existing certificates if forcing regeneration
+    if (forceRegenerate) {
+      if (fs.existsSync(certPath)) {
+        fs.unlinkSync(certPath);
+        console.log('🗑️  Deleted existing certificate');
+      }
+      if (fs.existsSync(keyPath)) {
+        fs.unlinkSync(keyPath);
+        console.log('🗑️  Deleted existing private key');
+      }
+    }
     console.log('⚠️  Generating self-signed certificates for HTTPS...');
     console.log('   (This is normal for local development)');
     
     try {
       // Generate self-signed certificate with IP address in SAN
+      // selfsigned.generate is synchronous, not async
       const attrs = [{ name: 'commonName', value: 'localhost' }];
-      const pems = await selfsigned.generate(attrs, {
+      const pems = selfsigned.generate(attrs, {
         keySize: 2048,
         days: 365,
         algorithm: 'sha256',
@@ -80,8 +103,8 @@ async function ensureCertificates() {
   }
 }
 
-app.prepare().then(async () => {
-  await ensureCertificates();
+app.prepare().then(() => {
+  ensureCertificates();
 
   const httpsOptions = {
     key: fs.readFileSync(keyPath),
@@ -123,16 +146,27 @@ app.prepare().then(async () => {
     }
   });
 
-  // Create HTTP server to redirect to HTTPS
-  // Note: HTTP server is created but not started - only HTTPS is used
-  const _httpServer = createHttpServer((req, res) => {
+  // Create HTTP server on port 3001 to redirect to HTTPS
+  const httpRedirectPort = 3001;
+  const httpServer = createHttpServer((req, res) => {
     const localIP = getLocalIP();
-    const host = req.headers.host || `${localIP}:${port}`;
-    const httpsUrl = `https://${host}${req.url}`;
+    const host = req.headers.host?.replace(`:${httpRedirectPort}`, '') || localIP;
+    const httpsUrl = `https://${host}:${port}${req.url}`;
     
     // Redirect HTTP to HTTPS
     res.writeHead(301, { 'Location': httpsUrl });
     res.end();
+  });
+
+  // Start HTTP redirect server
+  httpServer.listen(httpRedirectPort, hostname, (err) => {
+    if (err) {
+      console.warn(`⚠️  Could not start HTTP redirect server on port ${httpRedirectPort}:`, err.message);
+    } else {
+      const localIP = getLocalIP();
+      console.log(`> HTTP redirect server on http://localhost:${httpRedirectPort} -> https://localhost:${port}`);
+      console.log(`> HTTP redirect server on http://${localIP}:${httpRedirectPort} -> https://${localIP}:${port}`);
+    }
   });
 
   // Start HTTPS server

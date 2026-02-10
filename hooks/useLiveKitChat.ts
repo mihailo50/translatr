@@ -77,6 +77,7 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
 
   useEffect(() => {
     let mounted = true;
+    let connectTimeout: NodeJS.Timeout | null = null;
 
     const connectToRoom = async () => {
       // Avoid reconnecting if a room already exists or connection is in progress
@@ -209,6 +210,10 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
                   const keyToUse = encryptionKey || (await deriveKey(roomId));
                   if (keyToUse) {
                     contentText = await decryptData(data.text, data.iv, keyToUse);
+                  } else {
+                    // Encryption not available - message might be plaintext or we can't decrypt
+                    // Try to use the text as-is (might be plaintext if encryption was disabled)
+                    contentText = data.text;
                   }
                 }
 
@@ -310,11 +315,25 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
     };
 
     if (roomId && userName && !roomRef.current) {
-      connectToRoom();
+      // Delay connection until after UI paints for better perceived performance
+      // Use requestIdleCallback if available, otherwise setTimeout
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        requestIdleCallback(() => {
+          connectToRoom();
+        }, { timeout: 100 });
+      } else {
+        // Fallback: delay by one frame (16ms) to allow UI to paint
+        connectTimeout = setTimeout(() => {
+          connectToRoom();
+        }, 16);
+      }
     }
 
     return () => {
       // Cleaning up LiveKit connection
+      if (connectTimeout) {
+        clearTimeout(connectTimeout);
+      }
       mounted = false;
       connectingRef.current = false;
 
@@ -392,11 +411,20 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
               let text = rowWithSender.original_text as string;
               if (isEncrypted && iv) {
                 try {
-                  text = await decryptData(
-                    rowWithSender.original_text as string,
-                    iv,
-                    encryptionKey
-                  );
+                  if (encryptionKey) {
+                    text = await decryptData(
+                      rowWithSender.original_text as string,
+                      iv,
+                      encryptionKey
+                    );
+                  } else {
+                    // Encryption not available - try to use as plaintext
+                    try {
+                      text = atob(rowWithSender.original_text as string);
+                    } catch {
+                      text = rowWithSender.original_text as string;
+                    }
+                  }
                 } catch (_e) {
                   text = "[Encrypted message - decryption failed]";
                 }
@@ -459,18 +487,18 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
   // Fast Client-Side Messaging
   const sendRealtimeMessage = useCallback(
     async (text: string, lang: string = "en", attachment?: ChatMessage["attachment"]) => {
-      if (!roomRef.current || !isConnected || !encryptionKey) return null;
+      if (!roomRef.current || !isConnected) return null;
 
       const msgId = crypto.randomUUID();
 
-      // Encrypt content
-      const { cipher, iv } = await encryptData(text, encryptionKey);
-
+      // Encrypt content if encryption is available
+      const encryptionResult = await encryptData(text, encryptionKey);
+      const isEncrypted = encryptionResult !== null;
       const payload = {
         type: "CHAT_MESSAGE",
-        text: cipher, // Send ciphertext
-        iv: iv,
-        isEncrypted: true,
+        text: encryptionResult?.cipher || text, // Send ciphertext if encrypted, plaintext otherwise
+        iv: encryptionResult?.iv || "",
+        isEncrypted: isEncrypted,
         lang,
         id: msgId,
         senderId: userId,
@@ -513,8 +541,8 @@ export const useLiveKitChat = (roomId: string, userId: string, userName: string)
       // Return encrypted payload data to be used by server persistence if needed
       return {
         id: msgId,
-        encryptedText: cipher,
-        iv: iv,
+        encryptedText: payload.text,
+        iv: payload.iv,
         timestamp: payload.timestamp,
       };
     },

@@ -8,6 +8,7 @@ interface GoogleAuthButtonProps {
   isLoading?: boolean;
   disabled?: boolean;
   text?: string;
+  className?: string;
 }
 
 const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
@@ -15,13 +16,14 @@ const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
   isLoading = false,
   disabled = false,
   text = "Continue with Google",
+  className = "",
 }) => {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={isLoading || disabled}
-      className="w-full bg-white/[0.05] hover:bg-white/[0.08] backdrop-blur-xl border border-white/10 rounded-xl text-white font-medium py-3 px-4 flex items-center justify-center gap-3 transition-all duration-300 hover:shadow-[0_0_20px_rgba(255,255,255,0.1)] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:bg-white/[0.05] disabled:hover:shadow-none"
+      className={`w-full flex items-center justify-center gap-3 ${className}`}
     >
       {isLoading ? (
         <Loader2 className="w-5 h-5 animate-spin" />

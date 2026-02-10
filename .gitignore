@@ -3,12 +3,8 @@
 # dependencies
 /node_modules
 /.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+.pnp.js
+.yarn/install-state.gz
 
 # testing
 /coverage
@@ -19,30 +15,20 @@
 
 # production
 /build
+/dist
 
 # misc
 .DS_Store
-
-# SSL certificates (self-signed for local dev only)
 *.pem
-cert.pem
-key.pem
 
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-.env.local
+# local env files
 .env*.local
-.env.production
-.env.development
-
-# custom dev server (local HTTPS only, not for production)
-server.js
+.env
 
 # vercel
 .vercel
@@ -51,36 +37,20 @@ server.js
 *.tsbuildinfo
 next-env.d.ts
 
-# Bundle analyzer output
-.next/analyze/
-.analyze/
+# electron
+/dist
+/out
 
-# IDE and editor files
+# certificates
+cert.pem
+key.pem
+
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.project
-.classpath
-.settings/
 
-# OS files
+# OS
 Thumbs.db
-.AppleDouble
-.LSOverride
-
-# Logs
-logs/
-*.log
-
-# Temporary files
-tmp/
-temp/
-*.tmp
-
-# Prettier
-.prettier-cache
-
-# Knip
-.knip

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Bell, Check, MessageSquare, UserPlus, Info, Lock } from "lucide-react";
+import { Bell, Check, MessageSquare, UserPlus, Info, Lock, Users } from "lucide-react";
 import Image from "next/image";
 import { createClient } from "../../utils/supabase/client";
 import { toast } from "sonner";
@@ -44,6 +44,8 @@ export default function NotificationBell() {
         return <MessageSquare size={14} className="text-aurora-indigo" />;
       case "contact_request":
         return <UserPlus size={14} className="text-aurora-pink" />;
+      case "space_invite":
+        return <Users size={14} className="text-indigo-400" />;
       default:
         return <Info size={14} className="text-white/60" />;
     }

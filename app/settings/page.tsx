@@ -8,6 +8,7 @@ import {
   updateSubscription,
 } from "../../actions/settings";
 import { useTheme } from "../../components/contexts/ThemeContext";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import {
   User,
   Save,
@@ -18,10 +19,16 @@ import {
   CreditCard,
   CheckCircle2,
   Check,
+  Sliders,
 } from "lucide-react";
 import { toast } from "sonner";
+import Image from "next/image";
+import { uploadAvatar as uploadAvatarUtil, deleteAvatar } from "../../utils/avatarUpload";
+import { uploadAvatarAction } from "../../actions/settings";
+import { Camera, X as XIcon } from "lucide-react";
 
 interface ProfileData {
+  avatar_url?: string | null;
   id: string;
   display_name: string;
   email: string;
@@ -44,7 +51,7 @@ const LANGUAGES = [
   { code: "hi", label: "Hindi" },
 ];
 
-export default function SettingsPage() {
+function SettingsPage() {
   const { theme: appTheme, setTheme: setAppTheme } = useTheme();
 
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -56,6 +63,8 @@ export default function SettingsPage() {
   const [bio, setBio] = useState("");
   const [language, setLanguage] = useState("en");
   const [localTheme, setLocalTheme] = useState<"aurora" | "midnight">("aurora");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   const [isDirty, setIsDirty] = useState(false);
 
@@ -69,10 +78,12 @@ export default function SettingsPage() {
     const init = async () => {
       const data = await getProfile();
       if (data?.profile && data?.user) {
-        setProfile({ ...data.profile, email: data.user.email });
+        const profileData = { ...data.profile, email: data.user.email };
+        setProfile(profileData);
         setDisplayName(data.profile.display_name || "");
         setBio(data.profile.bio || "");
         setLanguage(data.profile.preferred_language || "en");
+        setAvatarUrl(data.profile.avatar_url || null);
         // Use profile data if available, but app state takes precedence if changed in session
         const savedTheme = data.profile.theme || "aurora";
         setLocalTheme(savedTheme);
@@ -90,14 +101,111 @@ export default function SettingsPage() {
       displayName !== (profile.display_name || "") ||
       bio !== (profile.bio || "") ||
       language !== (profile.preferred_language || "en") ||
-      localTheme !== (profile.theme || "aurora");
+      localTheme !== (profile.theme || "aurora") ||
+      avatarUrl !== (profile.avatar_url || null);
 
     setIsDirty(hasChanged);
-  }, [displayName, bio, language, localTheme, profile]);
+  }, [displayName, bio, language, localTheme, avatarUrl, profile]);
 
   const handleThemeChange = (newTheme: "aurora" | "midnight") => {
     setLocalTheme(newTheme);
     setAppTheme(newTheme); // Apply instantly
+  };
+
+  // Handle Avatar Upload
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      // Reset input if no file selected
+      e.target.value = "";
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    try {
+      if (!profile?.id) {
+        toast.error("User not found");
+        e.target.value = "";
+        setIsUploadingAvatar(false);
+        return;
+      }
+
+      // Upload avatar
+      const { url, error } = await uploadAvatarUtil(file, profile.id);
+
+      if (error || !url) {
+        toast.error(error || "Failed to upload avatar");
+        e.target.value = "";
+        setIsUploadingAvatar(false);
+        return;
+      }
+
+      // Update profile with new avatar URL
+      const formData = new FormData();
+      formData.append("avatar_url", url);
+      const result = await uploadAvatarAction(formData);
+
+      if (result.success) {
+        // Delete old avatar if exists (after successful update)
+        if (profile.avatar_url && profile.avatar_url !== url) {
+          try {
+            await deleteAvatar(profile.avatar_url);
+          } catch (deleteError) {
+            // Silently handle deletion errors - avatar is already updated
+            // Only log in development
+            if (process.env.NODE_ENV === "development") {
+              console.warn("Failed to delete old avatar:", deleteError);
+            }
+          }
+        }
+
+        setAvatarUrl(url);
+        if (profile) {
+          setProfile({ ...profile, avatar_url: url });
+        }
+        toast.success("Avatar updated successfully");
+      } else {
+        toast.error(result.error || "Failed to update avatar");
+      }
+    } catch (error) {
+      // Always log errors for debugging, but they'll be minified in production
+      console.error("Avatar upload error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to upload avatar");
+    } finally {
+      setIsUploadingAvatar(false);
+      // Reset input
+      e.target.value = "";
+    }
+  };
+
+  // Handle Avatar Remove
+  const handleAvatarRemove = async () => {
+    if (!profile?.avatar_url) return;
+
+    setIsUploadingAvatar(true);
+    try {
+      // Delete from storage
+      await deleteAvatar(profile.avatar_url);
+
+      // Update profile
+      const formData = new FormData();
+      formData.append("avatar_url", "");
+      const result = await uploadAvatarAction(formData);
+
+      if (result.success) {
+        setAvatarUrl(null);
+        if (profile) {
+          setProfile({ ...profile, avatar_url: null });
+        }
+        toast.success("Avatar removed successfully");
+      } else {
+        toast.error(result.error || "Failed to remove avatar");
+      }
+    } catch (error) {
+      toast.error("Failed to remove avatar");
+    } finally {
+      setIsUploadingAvatar(false);
+    }
   };
 
   // Handle Save
@@ -108,6 +216,7 @@ export default function SettingsPage() {
       formData.append("bio", bio);
       formData.append("preferred_language", language);
       formData.append("theme", localTheme);
+      formData.append("avatar_url", avatarUrl || "");
 
       const result = await updateProfile(formData);
 
@@ -121,6 +230,7 @@ export default function SettingsPage() {
             bio,
             preferred_language: language,
             theme: localTheme,
+            avatar_url: avatarUrl,
           });
         }
       } else {
@@ -167,47 +277,32 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#020205] relative overflow-hidden">
-      {/* Nebula Background Layers */}
-      <div className="fixed inset-0 z-0 pointer-events-none">
-        {/* Top-Right Nebula */}
-        <div className="absolute top-[-20%] right-[-10%] w-[800px] h-[800px] bg-indigo-600/10 rounded-full blur-[120px] animate-pulse" />
-        {/* Bottom-Left Nebula */}
-        <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[100px] animate-pulse delay-1000" />
-      </div>
-
-      {/* Content Container */}
-      <div className="relative z-10 max-w-4xl mx-auto space-y-8 pb-10 pt-8 px-4 md:px-8">
-        {/* Header Actions */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-white/70 mb-2 relative z-10">
-              Settings
-            </h1>
-            <p className="text-white/40 text-lg relative z-10 mb-10">
-              Manage your identity and preferences.
-            </p>
-          </div>
-
-          <button
-            onClick={handleSave}
-            disabled={!isDirty || isPending}
-            className={`
+    <div className="flex-1 overflow-y-auto p-4 md:p-6 scrollbar-thin">
+      {/* Title Block */}
+      <div className="w-full max-w-5xl mx-auto flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-display font-bold text-white tracking-wide">Settings</h1>
+        <button
+          onClick={handleSave}
+          disabled={!isDirty || isPending}
+          className={`
             flex items-center gap-2 px-6 py-2.5 rounded-xl font-semibold shadow-lg transition-all duration-300
             ${
               isDirty && !isPending
-                ? "bg-gradient-to-r from-aurora-indigo to-aurora-purple text-white hover:scale-105 shadow-aurora-indigo/20"
+                ? "aurora-glass-premium hover:border-indigo-500/50 text-white hover:shadow-lg"
                 : "bg-white/5 text-white/30 cursor-not-allowed border border-white/5"
             }
           `}
-          >
-            {isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save size={20} />}
-            Save Changes
-          </button>
-        </div>
+        >
+          {isPending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save size={20} />}
+          Save Changes
+        </button>
+      </div>
+
+      {/* Content Grid */}
+      <div className="w-full max-w-5xl mx-auto space-y-8">
 
         {/* Profile Section */}
-        <section className="relative z-10 bg-white/[0.02] backdrop-blur-2xl border border-white/5 rounded-3xl p-8 shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+        <section className="aurora-glass-premium rounded-3xl p-8">
           <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
             <User
               className={localTheme === "midnight" ? "text-white" : "text-aurora-indigo"}
@@ -219,16 +314,63 @@ export default function SettingsPage() {
           <div className="flex flex-col md:flex-row gap-8 items-start">
             {/* Avatar Section */}
             <div className="flex flex-col items-center gap-4 flex-shrink-0">
-              <div className="p-1 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 shadow-[0_0_30px_rgba(99,102,241,0.3)]">
-                <div className="w-24 h-24 rounded-full bg-[#050510]/80 flex items-center justify-center text-2xl font-bold text-white border-4 border-[#020205] overflow-hidden">
-                  {profile?.display_name?.[0]?.toUpperCase() || "?"}
+              <div className="relative group">
+                <div className="p-1 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 shadow-[0_0_30px_rgba(99,102,241,0.3)]">
+                  <div className="w-24 h-24 rounded-full bg-[#050510]/80 flex items-center justify-center text-2xl font-bold text-white ring-4 ring-slate-950 overflow-hidden relative">
+                    {avatarUrl ? (
+                      <Image
+                        src={avatarUrl}
+                        alt={profile?.display_name || "Avatar"}
+                        width={96}
+                        height={96}
+                        className="w-full h-full object-cover"
+                        unoptimized
+                      />
+                    ) : (
+                      <span>{profile?.display_name?.[0]?.toUpperCase() || "?"}</span>
+                    )}
+                  </div>
                 </div>
+                {/* Upload Overlay */}
+                <label
+                  htmlFor="avatar-upload"
+                  className="absolute inset-0 rounded-full bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
+                >
+                  {isUploadingAvatar ? (
+                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                  ) : (
+                    <Camera className="w-6 h-6 text-white" />
+                  )}
+                </label>
+                <input
+                  id="avatar-upload"
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/webp"
+                  onChange={handleAvatarUpload}
+                  disabled={isUploadingAvatar}
+                  className="hidden"
+                />
+                {/* Remove Button */}
+                {avatarUrl && (
+                  <button
+                    onClick={handleAvatarRemove}
+                    disabled={isUploadingAvatar}
+                    className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-red-500/80 hover:bg-red-500 border-2 border-[#020205] flex items-center justify-center transition-colors disabled:opacity-50"
+                    title="Remove avatar"
+                  >
+                    <XIcon className="w-4 h-4 text-white" />
+                  </button>
+                )}
               </div>
+              <p className="text-xs text-white/40 text-center max-w-[120px]">
+                Click to upload avatar
+              </p>
             </div>
 
             {/* Editable Fields */}
             <div className="flex-1 w-full space-y-6">
-              <div className="group">
+              <div className="space-y-6">
+                <div>
                 <label className="text-xs uppercase tracking-widest text-indigo-400/80 font-bold mb-2 block">
                   Display Name
                 </label>
@@ -236,12 +378,12 @@ export default function SettingsPage() {
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 transition-all focus:bg-white/[0.08] focus:border-indigo-500/50 focus:shadow-[0_0_20px_rgba(99,102,241,0.2)] focus:outline-none"
+                  className="aurora-input w-full rounded-xl px-4 py-3"
                   placeholder="Enter your display name"
                 />
               </div>
 
-              <div className="group">
+                <div>
                 <label className="text-xs uppercase tracking-widest text-indigo-400/80 font-bold mb-2 block">
                   Bio
                 </label>
@@ -249,16 +391,17 @@ export default function SettingsPage() {
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   rows={3}
-                  className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/20 transition-all focus:bg-white/[0.08] focus:border-indigo-500/50 focus:shadow-[0_0_20px_rgba(99,102,241,0.2)] focus:outline-none resize-none"
+                  className="aurora-input w-full rounded-xl px-4 py-3 resize-none"
                   placeholder="Tell us about yourself"
                 />
+                </div>
               </div>
             </div>
           </div>
         </section>
 
         {/* Subscription Section */}
-        <section className="relative z-10 bg-white/[0.02] backdrop-blur-2xl border border-white/10 rounded-3xl p-8 shadow-[0_20px_50px_rgba(0,0,0,0.5)] relative overflow-hidden">
+        <section className="aurora-glass-premium rounded-3xl p-8 relative overflow-hidden">
           {/* Inner Glow */}
           <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent opacity-50 pointer-events-none" />
 
@@ -352,9 +495,9 @@ export default function SettingsPage() {
         </section>
 
         {/* Preferences Section */}
-        <section className="glass rounded-3xl p-8 border border-white/5">
+        <section className="aurora-glass-premium rounded-3xl p-8">
           <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-            <Sparkles
+            <Sliders
               className={localTheme === "midnight" ? "text-white" : "text-aurora-purple"}
               size={24}
             />
@@ -376,15 +519,15 @@ export default function SettingsPage() {
                       key={lang.code}
                       onClick={() => setLanguage(lang.code)}
                       className={`
-                                    relative group p-4 rounded-2xl border transition-all duration-300 flex flex-col items-center justify-center gap-2
+                                    relative group p-4 rounded-2xl transition-all duration-300 flex flex-col items-center justify-center gap-2 min-w-0 w-full
                                     ${
                                       isActive
-                                        ? "bg-indigo-600/20 border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
-                                        : "bg-white/[0.02] border-white/5 hover:bg-white/[0.05] hover:border-white/10"
+                                        ? "aurora-glass-base border-indigo-500/50 shadow-[0_0_20px_rgba(99,102,241,0.2)]"
+                                        : "aurora-glass-base hover:border-indigo-500/30"
                                     }
                                 `}
                     >
-                      <span className={`font-medium ${isActive ? "text-white" : "text-white/70"}`}>
+                      <span className={`font-medium text-sm text-center ${isActive ? "text-white" : "text-white/70"}`}>
                         {lang.label}
                       </span>
                       {isActive && (
@@ -405,11 +548,11 @@ export default function SettingsPage() {
                 <button
                   onClick={() => handleThemeChange("aurora")}
                   className={`
-                            relative group p-4 rounded-2xl border transition-all duration-300 flex flex-col items-center gap-3 overflow-hidden
+                            relative group p-4 rounded-2xl transition-all duration-300 flex flex-col items-center gap-3 overflow-hidden
                             ${
                               localTheme === "aurora"
-                                ? "bg-indigo-500/20 border-indigo-400/50 shadow-[0_0_25px_rgba(99,102,241,0.2)]"
-                                : "bg-white/[0.02] border-white/5 hover:bg-white/[0.05] hover:border-white/10"
+                                ? "aurora-glass-base border-indigo-500/50 shadow-[0_0_25px_rgba(99,102,241,0.2)]"
+                                : "aurora-glass-base hover:border-indigo-500/30"
                             }
                         `}
                 >
@@ -420,11 +563,11 @@ export default function SettingsPage() {
                 <button
                   onClick={() => handleThemeChange("midnight")}
                   className={`
-                            relative group p-4 rounded-2xl border transition-all duration-300 flex flex-col items-center gap-3 overflow-hidden
+                            relative group p-4 rounded-2xl transition-all duration-300 flex flex-col items-center gap-3 overflow-hidden
                             ${
                               localTheme === "midnight"
-                                ? "bg-indigo-500/20 border-indigo-400/50 shadow-[0_0_25px_rgba(99,102,241,0.2)]"
-                                : "bg-white/[0.02] border-white/5 hover:bg-white/[0.05] hover:border-white/10"
+                                ? "aurora-glass-base border-indigo-500/50 shadow-[0_0_25px_rgba(99,102,241,0.2)]"
+                                : "aurora-glass-base hover:border-indigo-500/30"
                             }
                         `}
                 >
@@ -437,8 +580,7 @@ export default function SettingsPage() {
         </section>
 
         {/* Danger Zone */}
-        <section className="mt-12 p-1 rounded-3xl bg-gradient-to-r from-red-500/20 to-orange-500/20">
-          <div className="bg-red-950/10 backdrop-blur-2xl border border-red-500/10 rounded-[20px] p-6 flex flex-col md:flex-row items-center justify-between gap-6 shadow-[inset_0_0_50px_rgba(220,38,38,0.05)]">
+        <section className="aurora-glass-base rounded-3xl p-6 border-red-500/20 bg-red-500/5 flex flex-col md:flex-row items-center justify-between gap-6">
             <div>
               <h3 className="text-lg font-bold text-red-200/90 mb-1">Sign Out</h3>
               <p className="text-sm text-red-200/70">
@@ -452,9 +594,17 @@ export default function SettingsPage() {
               <LogOut size={20} />
               Sign Out
             </button>
-          </div>
         </section>
       </div>
     </div>
   );
 }
+
+// Wrap the component with ProtectedRoute
+const SettingsPageWithProtection = () => (
+  <ProtectedRoute>
+    <SettingsPage />
+  </ProtectedRoute>
+);
+
+export default SettingsPageWithProtection;

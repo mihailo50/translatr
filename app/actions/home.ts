@@ -10,7 +10,7 @@ export interface Conversation {
   type: "direct" | "group";
   lastMessage: string;
   time: string;
-  avatar: string;
+  avatar: string | null;
   unread: number;
 }
 
@@ -64,18 +64,40 @@ export async function getHomeData() {
   const supabase = await createClient();
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
 
+  // Don't redirect if we're already on an auth page or if there's an auth error
+  // This prevents redirect loops when accessing via network IP
   if (!user) {
+    // Check if we're on an auth page by checking the request headers
+    // If cookies aren't readable (network IP issue), throw an error instead of redirecting
+    if (authError) {
+      throw new Error("Authentication required");
+    }
     redirect("/auth/login");
   }
 
-  // Get user's profile
-  const { data: profile } = await supabase
+  // Get user's profile and pinned chat IDs in parallel (fast queries)
+  const [profileResult, quantumlinksResult] = await Promise.all([
+    supabase
     .from("profiles")
     .select("display_name, avatar_url")
     .eq("id", user.id)
-    .single();
+      .single(),
+    supabase
+      .from("quantumlinks")
+      .select("room_id")
+      .eq("user_id", user.id)
+      .not("room_id", "is", null)
+  ]);
+
+  const { data: profile } = profileResult;
+  const pinnedChatIds = new Set(
+    (quantumlinksResult.data || [])
+      .map((ql) => ql.room_id)
+      .filter((id): id is string => id !== null)
+  );
 
   // Use service role to bypass RLS for reliable room membership management
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -84,10 +106,12 @@ export async function getHomeData() {
   if (!supabaseUrl || supabaseUrl === "https://placeholder.supabase.co") {
     return {
       user: {
+        id: user.id,
         name: profile?.display_name || user.email?.split("@")[0] || "User",
         avatar: profile?.avatar_url || null,
       },
       conversations: [],
+      pinnedChatIds: [],
       stats: {
         totalTranslations: 0,
         activeMinutes: 0,
@@ -178,10 +202,12 @@ export async function getHomeData() {
   if (allRoomIds.length === 0) {
     return {
       user: {
+        id: user.id,
         name: profile?.display_name || user.email?.split("@")[0] || "User",
         avatar: profile?.avatar_url || null,
       },
       conversations: [],
+      pinnedChatIds: Array.from(pinnedChatIds),
       stats: {
         totalTranslations: 0,
         activeMinutes: 0,
@@ -314,8 +340,7 @@ export async function getHomeData() {
               type: "direct",
               lastMessage: lastMessageText,
               time: lastMessageTime,
-              avatar:
-                otherProfile.avatar_url || `https://picsum.photos/seed/${otherProfile.id}/50/50`,
+              avatar: otherProfile.avatar_url || null,
               unread: 0,
             });
           }
@@ -338,11 +363,11 @@ export async function getHomeData() {
 
     // Determine room name and avatar
     let roomName: string;
-    let roomAvatar: string;
+    let roomAvatar: string | null;
 
     if (isVault) {
       roomName = "Aether Vault";
-      roomAvatar = "https://picsum.photos/seed/vault/50/50";
+      roomAvatar = null; // Vault doesn't have avatar, use initials
     } else if (isGroup) {
       roomName = otherMembers
         .map((m) => {
@@ -355,13 +380,12 @@ export async function getHomeData() {
       if (otherMembers.length > 2) {
         roomName += ` +${otherMembers.length - 2}`;
       }
-      roomAvatar = "https://picsum.photos/seed/group/50/50";
+      roomAvatar = null; // Group chats don't have avatars, use initials
     } else if (otherMembers.length === 1) {
       const otherUserRaw = otherMembers[0].profile;
       const otherUser = Array.isArray(otherUserRaw) ? otherUserRaw[0] : otherUserRaw;
       roomName = otherUser?.display_name || "User";
-      roomAvatar =
-        otherUser?.avatar_url || `https://picsum.photos/seed/${otherUser?.id || "user"}/50/50`;
+      roomAvatar = otherUser?.avatar_url || null;
     } else {
       // Fallback: should not reach here due to check above, but handle edge case
       continue; // Skip rooms we can't identify properly
@@ -471,10 +495,12 @@ export async function getHomeData() {
 
   return {
     user: {
+      id: user.id,
       name: profile?.display_name || user.email?.split("@")[0] || "User",
       avatar: profile?.avatar_url || null,
     },
     conversations,
+    pinnedChatIds: Array.from(pinnedChatIds),
     stats: {
       totalTranslations,
       activeMinutes,

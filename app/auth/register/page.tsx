@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
 import AuroraBackground from "../../../components/ui/AuroraBackground";
 import GoogleAuthButton from "../../../components/ui/GoogleAuthButton";
 import { signup } from "../actions";
-import { Mail, Lock, ShieldCheck, Loader2, ArrowRight, Globe, Eye, EyeOff } from "lucide-react";
+import { Mail, Lock, ShieldCheck, Loader2, ArrowRight, Globe, Eye, EyeOff, ChevronDown, Check } from "lucide-react";
 import { createClient } from "../../../utils/supabase/client";
 
 const LANGUAGES = [
@@ -28,92 +29,25 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
 
-  // Aggressive autofill fix using JavaScript
+  // Language Dropdown State
+  const [isLanguageOpen, setIsLanguageOpen] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState(LANGUAGES[0]);
+  const languageRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
   useEffect(() => {
-    const forceAutofillStyles = () => {
-      if (!formRef.current || typeof document === "undefined") return;
-
-      const inputs = formRef.current.querySelectorAll(
-        'input[type="email"], input[type="password"], input[type="text"]'
-      );
-      inputs.forEach((input) => {
-        const htmlInput = input as HTMLInputElement;
-
-        // Always apply styles to inputs that could be autofilled
-        // This ensures autofilled inputs get the dark theme matching login page
-        // bg-white/5 = rgba(255, 255, 255, 0.05)
-        htmlInput.style.setProperty("background-color", "rgba(255, 255, 255, 0.05)", "important");
-        htmlInput.style.setProperty(
-          "-webkit-box-shadow",
-          "0 0 0 1000px rgba(255, 255, 255, 0.05) inset",
-          "important"
-        );
-        htmlInput.style.setProperty(
-          "box-shadow",
-          "0 0 0 1000px rgba(255, 255, 255, 0.05) inset",
-          "important"
-        );
-        htmlInput.style.setProperty("-webkit-text-fill-color", "white", "important");
-        htmlInput.style.setProperty("color", "white", "important");
-        htmlInput.style.setProperty("caret-color", "white", "important");
-        htmlInput.style.setProperty(
-          "transition",
-          "background-color 500000s ease-in-out 0s",
-          "important"
-        );
-      });
-    };
-
-    // Run immediately and on various events
-    forceAutofillStyles();
-
-    // Watch for autofill events
-    const observer = new MutationObserver(() => {
-      forceAutofillStyles();
-    });
-
-    if (formRef.current) {
-      observer.observe(formRef.current, {
-        childList: true,
-        subtree: true,
-        attributes: true,
-        attributeFilter: ["class", "style"],
-      });
-
-      // Add event listeners to all inputs
-      const inputs = formRef.current.querySelectorAll("input");
-      inputs.forEach((input) => {
-        input.addEventListener("animationstart", forceAutofillStyles);
-        input.addEventListener("focus", forceAutofillStyles);
-        input.addEventListener("blur", forceAutofillStyles);
-        input.addEventListener("input", forceAutofillStyles);
-        input.addEventListener("change", forceAutofillStyles);
-      });
-    }
-
-    // Periodic check as fallback
-    const interval = setInterval(forceAutofillStyles, 100);
-
-    // Copy ref value to avoid stale closure warning
-    const formElement = formRef.current;
-
-    return () => {
-      observer.disconnect();
-      clearInterval(interval);
-      if (formElement) {
-        const inputs = formElement.querySelectorAll("input");
-        inputs.forEach((input) => {
-          input.removeEventListener("animationstart", forceAutofillStyles);
-          input.removeEventListener("focus", forceAutofillStyles);
-          input.removeEventListener("blur", forceAutofillStyles);
-          input.removeEventListener("input", forceAutofillStyles);
-          input.removeEventListener("change", forceAutofillStyles);
-        });
+    function handleClickOutside(event: MouseEvent) {
+      if (languageRef.current && !languageRef.current.contains(event.target as Node)) {
+        setIsLanguageOpen(false);
       }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
+
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -121,13 +55,14 @@ export default function RegisterPage() {
     setError(null);
 
     const formData = new FormData(e.currentTarget);
+    formData.set("preferred_language", selectedLanguage.code);
+
     try {
       const result = await signup(null, formData);
 
       if (result?.error) {
         setError(result.error);
       } else if (result?.success) {
-        // Use Next.js router for proper navigation
         const target = result.redirect || "/auth/verify-email";
         router.push(target);
       }
@@ -155,7 +90,6 @@ export default function RegisterPage() {
         setError(error.message);
         setIsGoogleLoading(false);
       }
-      // User will be redirected to Google, no need to set loading to false
     } catch (_e) {
       setError("Failed to initiate Google sign-up");
       setIsGoogleLoading(false);
@@ -165,122 +99,148 @@ export default function RegisterPage() {
   return (
     <AuroraBackground showOrbs={true}>
       <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="glass-strong w-full max-w-md p-8 rounded-3xl border-t-2 border-l border-r border-white/20 relative overflow-hidden">
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          className="aurora-glass-premium w-full max-w-md p-8 rounded-3xl shadow-2xl relative overflow-hidden"
+        >
           <div className="mb-8 text-center">
-            <h1 className="text-3xl font-bold text-white mb-2">Join Translatr</h1>
-            <p className="text-white/50">Start your real-time translation journey.</p>
+            <h1 className="text-3xl font-display font-bold text-white tracking-wide text-glow text-center mb-2">Join Aether</h1>
+            <p className="text-slate-400 text-sm text-center mb-8">Begin your journey into seamless communication</p>
           </div>
 
-          <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-4">
-              <div className="group">
-                <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">
+          <form onSubmit={handleSubmit} className="flex flex-col gap-5 w-full">
+              {/* Email Input */}
+              <div className="relative group w-full">
+                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider ml-1 mb-1.5 block">
                   Email
                 </label>
                 <div className="relative">
                   <Mail
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-indigo transition-colors"
-                    size={20}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-400 transition-colors pointer-events-none"
                   />
                   <input
                     name="email"
                     type="email"
                     placeholder="you@example.com"
-                    autoComplete="off"
-                    data-lpignore="true"
-                    data-form-type="other"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-aurora-indigo/50 focus:border-transparent transition-all"
+                    autoComplete="email"
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-xl pl-12 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
                     required
                   />
                 </div>
               </div>
 
-              <div className="group">
-                <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">
+              {/* Custom Language Dropdown */}
+              <div className="group relative w-full" ref={languageRef}>
+                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider ml-1 mb-1.5 block">
                   Preferred Language
                 </label>
-                <div className="relative">
+                
+                {/* HIDDEN INPUT FOR FORM DATA */}
+                <input type="hidden" name="preferred_language" value={selectedLanguage.code} />
+
+                {/* TRIGGER */}
+                <div 
+                  onClick={() => setIsLanguageOpen(!isLanguageOpen)}
+                  className={`
+                    relative w-full bg-slate-900/50 border rounded-xl py-3 pl-12 pr-4 text-white cursor-pointer transition-all flex items-center
+                    ${isLanguageOpen ? 'border-indigo-500/50 ring-1 ring-indigo-500/50' : 'border-white/10 hover:border-white/20'}
+                  `}
+                >
                   <Globe
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-indigo transition-colors"
-                    size={20}
+                    className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 transition-colors pointer-events-none ${isLanguageOpen ? 'text-indigo-400' : 'text-slate-400'}`}
                   />
-                  <select
-                    name="preferred_language"
-                    className="w-full appearance-none bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-white focus:outline-none focus:ring-2 focus:ring-aurora-indigo/50 focus:border-transparent transition-all cursor-pointer"
-                    defaultValue="en"
-                  >
-                    {LANGUAGES.map((lang) => (
-                      <option key={lang.code} value={lang.code} className="bg-slate-900">
-                        {lang.label}
-                      </option>
-                    ))}
-                  </select>
+                  <span className="text-sm">{selectedLanguage.label}</span>
+                  <ChevronDown 
+                    size={16} 
+                    className={`absolute right-4 top-1/2 -translate-y-1/2 text-white/40 transition-transform duration-300 pointer-events-none ${isLanguageOpen ? 'rotate-180' : ''}`} 
+                  />
                 </div>
+
+                {/* DROPDOWN MENU */}
+                {isLanguageOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-2 p-1 bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] z-50 max-h-60 overflow-y-auto scrollbar-thin">
+                    {LANGUAGES.map((lang) => (
+                      <div
+                        key={lang.code}
+                        onClick={() => {
+                          setSelectedLanguage(lang);
+                          setIsLanguageOpen(false);
+                        }}
+                        className={`
+                          px-4 py-2.5 rounded-lg text-sm cursor-pointer transition-all flex items-center justify-between group
+                          ${selectedLanguage.code === lang.code 
+                              ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/20' 
+                              : 'text-white/70 hover:bg-white/10 hover:text-white border border-transparent'}
+                        `}
+                      >
+                        {lang.label}
+                        {selectedLanguage.code === lang.code && <Check size={14} className="text-indigo-400" />}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="group">
-                <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">
+              {/* Password Input */}
+              <div className="relative group w-full">
+                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider ml-1 mb-1.5 block">
                   Password
                 </label>
                 <div className="relative">
                   <Lock
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-purple transition-colors"
-                    size={20}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-400 transition-colors pointer-events-none"
                   />
                   <input
                     name="password"
                     type={showPassword ? "text" : "password"}
                     placeholder="Min 8 characters"
-                    autoComplete="off"
-                    data-lpignore="true"
-                    data-form-type="other"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-10 text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-aurora-purple/50 focus:border-transparent transition-all"
+                    autoComplete="new-password"
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-xl pl-12 pr-10 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
                     required
                     minLength={8}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors focus:outline-none"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors focus:outline-none"
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
               </div>
-
-              <div className="group">
-                <label className="block text-xs font-medium text-white/60 mb-1.5 ml-1 uppercase tracking-wider">
+              
+              {/* Confirm Password Input */}
+              <div className="relative group w-full">
+                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider ml-1 mb-1.5 block">
                   Confirm Password
                 </label>
                 <div className="relative">
                   <ShieldCheck
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40 group-focus-within:text-aurora-pink transition-colors"
-                    size={20}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-indigo-400 transition-colors pointer-events-none"
                   />
                   <input
                     name="confirmPassword"
                     type={showConfirmPassword ? "text" : "password"}
                     placeholder="Confirm password"
-                    autoComplete="off"
-                    data-lpignore="true"
-                    data-form-type="other"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-10 text-white placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-aurora-pink/50 focus:border-transparent transition-all"
+                    autoComplete="new-password"
+                    className="w-full bg-slate-900/50 border border-white/10 rounded-xl pl-12 pr-10 py-3 text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all"
                     required
                     minLength={8}
                   />
-                  <button
+                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors focus:outline-none"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors focus:outline-none"
                   >
                     {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
               </div>
-            </div>
 
             {error && (
-              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-200 text-sm text-center">
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-200 text-sm text-center">
                 {error}
               </div>
             )}
@@ -288,7 +248,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 px-4 bg-gradient-to-r from-aurora-indigo to-aurora-pink hover:from-aurora-indigo/90 hover:to-aurora-pink/90 text-white font-semibold rounded-xl shadow-lg shadow-aurora-indigo/25 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_30px_rgba(99,102,241,0.5)] transition-all transform active:scale-[0.98] flex items-center justify-center gap-2"
             >
               {isLoading ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -299,26 +259,24 @@ export default function RegisterPage() {
               )}
             </button>
 
-            {/* Divider */}
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-white/10"></div>
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="">Or continue with</span>
-              </div>
+            <div className="flex items-center gap-4 w-full my-2">
+              <div className="flex-1 border-t border-white/10"></div>
+              <span className="text-xs uppercase tracking-widest text-slate-500">Or continue with</span>
+              <div className="flex-1 border-t border-white/10"></div>
             </div>
 
-            {/* Google Sign-Up Button */}
-            <GoogleAuthButton
-              onClick={handleGoogleSignUp}
-              isLoading={isGoogleLoading}
-              disabled={isLoading}
-              text="Continue with Google"
-            />
+            <div className="aurora-glass-base w-full rounded-xl overflow-hidden hover:bg-white/5 transition-colors">
+              <GoogleAuthButton
+                className="w-full py-3 px-4 text-slate-200"
+                onClick={handleGoogleSignUp}
+                isLoading={isGoogleLoading}
+                disabled={isLoading}
+                text="Continue with Google"
+              />
+            </div>
 
-            <div className="text-center mt-6">
-              <p className="text-sm text-white/50">
+            <div className="text-center mt-8">
+              <p className="text-sm text-slate-400">
                 Already have an account?{" "}
                 <a
                   href="/auth/login"
@@ -326,14 +284,14 @@ export default function RegisterPage() {
                     e.preventDefault();
                     router.push("/auth/login");
                   }}
-                  className="text-aurora-indigo hover:text-aurora-pink transition-colors font-medium cursor-pointer"
+                  className="font-medium text-indigo-400 hover:text-indigo-300 transition-colors"
                 >
                   Sign In
                 </a>
               </p>
             </div>
           </form>
-        </div>
+        </motion.div>
       </div>
     </AuroraBackground>
   );

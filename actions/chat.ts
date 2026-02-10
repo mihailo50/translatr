@@ -4,6 +4,7 @@ import OpenAI from "openai";
 import { RoomServiceClient, DataPacket_Kind } from "livekit-server-sdk";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "../utils/supabase/server";
+import { randomUUID } from "crypto";
 
 interface AttachmentData {
   url: string;
@@ -510,5 +511,133 @@ export async function clearChatForUser(roomId: string) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Failed to clear chat";
     return { success: false, error: errorMessage };
+  }
+}
+
+export async function createConversation({
+  participants,
+  groupName,
+  initialMessage,
+}: {
+  participants: string[];
+  groupName?: string;
+  initialMessage?: string;
+}): Promise<{ chatId?: string; error?: string }> {
+  "use server";
+
+  const supabase = await createServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { error: "Unauthorized" };
+  }
+
+  // Add the current user to the participants list if not already there
+  const allParticipantIds = Array.from(new Set([...participants, user.id]));
+
+  if (allParticipantIds.length < 2) {
+    return { error: "A conversation requires at least two participants." };
+  }
+
+  const isGroup = allParticipantIds.length > 2 || !!groupName;
+  let roomId = "";
+
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+     if (!supabaseUrl || !supabaseServiceKey) {
+          throw new Error("Server config error")
+        }
+    const serviceSupabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    if (isGroup) {
+      // --- Create a new Group Chat ---
+      if (!groupName) {
+        return { error: "Group name is required for group chats." };
+      }
+      
+      // Generate a unique room ID for the group
+      const groupRoomId = `group_${randomUUID()}`;
+      
+      const { data: newRoom, error: newRoomError } = await serviceSupabase
+        .from("rooms")
+        .insert({
+          id: groupRoomId,
+          name: groupName,
+          room_type: 'group',
+        })
+        .select("id")
+        .single();
+
+      if (newRoomError) throw newRoomError;
+      roomId = newRoom.id;
+
+    } else {
+      // --- Create or find a Direct Message chat ---
+      const otherUserId = allParticipantIds.find(p => p !== user.id);
+      if (!otherUserId) return { error: "Could not determine the other participant." };
+
+      // Create a deterministic room ID for DMs to prevent duplicates
+      const sortedIds = [user.id, otherUserId].sort();
+      const dmRoomId = `direct_${sortedIds[0]}_${sortedIds[1]}`;
+      
+      // Check if this room already exists
+       const { data: existingRoom, error: checkError } = await serviceSupabase
+        .from("rooms")
+        .select("id")
+        .eq("id", dmRoomId)
+        .maybeSingle();
+
+      if(checkError) throw checkError;
+
+      if (existingRoom) {
+        roomId = existingRoom.id;
+      } else {
+        // Create the room if it doesn't exist
+        const { data: newDmRoom, error: newDmError } = await serviceSupabase
+          .from("rooms")
+          .insert({ id: dmRoomId, room_type: 'direct' })
+          .select("id")
+          .single();
+        if (newDmError) throw newDmError;
+        roomId = newDmRoom.id;
+      }
+    }
+
+    if (!roomId) {
+        throw new Error("Failed to create or find a room.");
+    }
+
+    // --- Add all participants to the room_members table ---
+    const memberRecords = allParticipantIds.map(pid => ({ room_id: roomId, profile_id: pid }));
+    const { error: memberError } = await serviceSupabase
+      .from("room_members")
+      .upsert(memberRecords, { onConflict: 'room_id,profile_id' });
+
+    if (memberError) {
+      // Don't fail if members already exist, but log other errors
+      console.error("Error adding members to room:", memberError.message);
+    }
+    
+    // --- Send initial message if provided ---
+    if (initialMessage && initialMessage.trim().length > 0) {
+       const { data: senderProfile } = await serviceSupabase.from("profiles").select("display_name").eq("id", user.id).single();
+       
+       await sendMessageAction(
+         initialMessage,
+         roomId,
+         user.id,
+         senderProfile?.display_name || "New User"
+       );
+    }
+
+    return { chatId: roomId };
+
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
+    console.error("Create Conversation Error:", errorMessage);
+    return { error: `Failed to create conversation: ${errorMessage}` };
   }
 }

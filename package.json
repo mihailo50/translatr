@@ -1,7 +1,10 @@
 {
   "name": "translatr",
   "version": "0.1.0",
+  "description": "Aether - The Borderless Workspace. Real-time translation chat application.",
+  "author": "Aether",
   "private": true,
+  "main": "electron/main.js",
   "browserslist": {
     "production": [
       "defaults",
@@ -17,9 +20,10 @@
     ]
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node server.js",
     "dev:secure": "node server.js",
     "dev:http": "next dev -H 0.0.0.0",
+    "dev:regenerate-certs": "FORCE_REGENERATE_CERTS=true node server.js",
     "build": "next build",
     "build:analyze": "ANALYZE=true next build",
     "start": "next start",
@@ -31,13 +35,24 @@
     "knip": "knip",
     "knip:fix": "knip --fix",
     "quality": "npm run lint && npm run format:check && npm run type-check && npm run knip",
-    "prepare": "husky"
+    "prepare": "husky",
+    "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "dist": "set CSC_IDENTITY_AUTO_DISCOVERY=false && next build && electron-builder",
+    "build:installers": "node scripts/build-installers.js",
+    "compress:installers": "node scripts/compress-installers.js",
+    "build:installers:compressed": "npm run build:installers && npm run compress:installers",
+    "upload:installers": "node scripts/upload-installers.js",
+    "update:download-urls": "node scripts/update-metadata-urls.js",
+    "test:download": "node scripts/test-download.js",
+    "verify:downloads": "node scripts/verify-setup.js",
+    "check:buckets": "node scripts/check-buckets.js"
   },
   "dependencies": {
     "@livekit/components-react": "^2.9.17",
     "@livekit/components-styles": "^1.2.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.87.3",
+    "framer-motion": "^12.29.0",
     "livekit-client": "^2.16.1",
     "livekit-server-sdk": "^2.15.0",
     "lucide-react": "^0.561.0",
@@ -49,11 +64,18 @@
     "zod": "^4.2.1"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.985.0",
+    "@electron/rebuild": "^4.0.3",
     "@next/bundle-analyzer": "^16.0.10",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "archiver": "^7.0.1",
+    "baseline-browser-mapping": "^2.9.19",
+    "concurrently": "^9.2.1",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.4.0",
     "eslint": "^9",
     "eslint-config-next": "16.0.10",
     "eslint-plugin-unused-imports": "^4.3.0",
@@ -63,6 +85,73 @@
     "prettier": "^3.8.1",
     "selfsigned": "^5.4.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.aether.translatr",
+    "productName": "Aether",
+    "directories": {
+      "output": "dist"
+    },
+    "asar": true,
+    "nodeGypRebuild": false,
+    "files": [
+      "electron/**/*",
+      ".next/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".next",
+        "to": ".next",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/logo/aether-favicon/android-chrome-512x512.png"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "public/logo/aether-favicon/apple-touch-icon.png",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/logo/aether-favicon/android-chrome-512x512.png",
+      "category": "Network"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

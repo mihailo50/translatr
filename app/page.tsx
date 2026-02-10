@@ -1,16 +1,67 @@
-import React from "react";
+"use client";
+
+import React, { useState, useEffect } from "react";
 import { getHomeData } from "./actions/home";
+import { getPinnedChats } from "./actions/quantumlinks";
 import HomePageClient from "./components/HomePageClient";
+import { Conversation } from "./actions/home";
 
-// Middleware handles auth checks at the edge, so we can use revalidate for better caching
-// Revalidate every 60 seconds to keep data fresh while allowing some caching
-export const revalidate = 60;
+export default function HomePage() {
+  const [homeData, setHomeData] = useState<{
+    user: {
+      id: string;
+      name: string;
+      avatar: string | null;
+    };
+    conversations: Conversation[];
+    pinnedChatIds: string[];
+  } | null>(null);
+  const [pinnedChats, setPinnedChats] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export default async function HomePage() {
-  // Auth check is handled by middleware.ts at the edge
-  // If we reach here, user is authenticated (middleware already verified)
-  // Fetch data directly without redundant auth check
-  const homeData = await getHomeData();
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch home data and full pinned chats in parallel for instant loading
+        const [data, pinned] = await Promise.all([
+          getHomeData(),
+          getPinnedChats()
+        ]);
+        setHomeData(data);
+        setPinnedChats(pinned);
+      } catch (error) {
+        // Error logging handled by logger utility in production
+        if (process.env.NODE_ENV === "development") {
+          console.error("Failed to fetch home data:", error);
+        }
+        // If auth error, redirect to login (but only if not already there)
+        if (error instanceof Error && error.message === "Authentication required") {
+          const currentPath = window.location.pathname;
+          if (!currentPath.startsWith("/auth/")) {
+            window.location.href = "/auth/login";
+          }
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  return <HomePageClient homeData={homeData} />;
+    fetchData();
+  }, []);
+
+  return (
+    <>
+      {loading ? (
+        <div></div>
+      ) : homeData ? (
+        <HomePageClient 
+          homeData={homeData} 
+          initialPinnedChatIds={new Set(homeData.pinnedChatIds)}
+          initialPinnedChats={pinnedChats}
+        />
+      ) : (
+        <div>No data found</div>
+      )}
+    </>
+  );
 }

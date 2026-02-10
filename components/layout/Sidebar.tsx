@@ -1,10 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { NavItem } from "../../types";
-import { MessageSquare, Settings, Users, Globe, X, Moon, Sun } from "lucide-react";
+import { MessageSquare, Settings, Users, Globe, X, Moon, Sun, Download } from "lucide-react";
 import { useTheme } from "../contexts/ThemeContext";
 import UserFooter from "./UserFooter";
 import { AetherLogo } from "../ui/AetherLogo";
@@ -18,6 +18,7 @@ const navItems: NavItem[] = [
   { label: "Chats", href: "/", icon: MessageSquare },
   { label: "Contacts", href: "/contacts", icon: Users },
   { label: "Translate", href: "/translate", icon: Globe },
+  { label: "Download", href: "/download", icon: Download },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -25,6 +26,67 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const router = useRouter();
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
+  const [isHovering, setIsHovering] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const hoverStartTime = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+
+  // Handle hover start
+  const handleMouseEnter = () => {
+    setIsHovering(true);
+    hoverStartTime.current = Date.now();
+  };
+
+  // Handle hover end
+  const handleMouseLeave = () => {
+    setIsHovering(false);
+    hoverStartTime.current = null;
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+  };
+
+  // Continuous rotation animation that accelerates
+  useEffect(() => {
+    if (!isHovering) {
+      setRotation(0);
+      return;
+    }
+
+    const animate = () => {
+      if (hoverStartTime.current) {
+        const hoverDuration = (Date.now() - hoverStartTime.current) / 1000; // in seconds
+        // Accelerate rotation: starts slow, gets faster over time
+        // Formula: rotation speed increases exponentially
+        // Base speed: 1 rotation per 2 seconds
+        // Max speed after 3 seconds: 1 rotation per 0.3 seconds
+        const baseSpeed = 2; // seconds per rotation (slower = higher number)
+        const maxSpeed = 0.3; // seconds per rotation at max speed
+        const accelerationTime = 3; // seconds to reach max speed
+        
+        // Calculate current speed (interpolate between base and max)
+        const currentSpeed = Math.max(
+          maxSpeed,
+          baseSpeed - ((hoverDuration / accelerationTime) * (baseSpeed - maxSpeed))
+        );
+        
+        // Update rotation based on elapsed time and current speed
+        const newRotation = (hoverDuration / currentSpeed) * 360;
+        setRotation(newRotation);
+      }
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    };
+  }, [isHovering]);
 
   const handleNavigation = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     e.preventDefault();
@@ -64,14 +126,26 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
               router.push("/");
               if (window.innerWidth < 768) onClose();
             }}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
           >
-            <Image
-              src="/logo/logo.svg"
-              alt="Aether"
-              width={58}
-              height={58}
-              className="w-[57.6px] h-[57.6px]"
-            />
+            <div className="relative w-[57.6px] h-[57.6px] flex-shrink-0">
+              <Image
+                src="/logo/logo.svg"
+                alt="Aether"
+                width={58}
+                height={58}
+                className="w-[57.6px] h-[57.6px]"
+                loading="eager"
+                priority
+                style={{
+                  transform: `rotate(${rotation}deg)`,
+                  transition: isHovering ? 'none' : 'transform 0.3s ease-out',
+                  transformOrigin: 'center center',
+                  willChange: isHovering ? 'transform' : 'auto',
+                }}
+              />
+            </div>
             <AetherLogo />
           </div>
           <button

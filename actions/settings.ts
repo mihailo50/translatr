@@ -61,6 +61,82 @@ export async function signOutAction() {
 }
 
 /**
+ * Upload avatar image to Supabase storage
+ */
+export async function uploadAvatar(formData: FormData) {
+  try {
+    const supabase = await createServerClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const file = formData.get("avatar") as File;
+    if (!file) {
+      return { success: false, error: "No file provided" };
+    }
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      return { success: false, error: "File must be an image" };
+    }
+
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      return { success: false, error: "Image size must be less than 5MB" };
+    }
+
+    // Generate unique filename
+    const fileExt = file.name.split(".").pop();
+    const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+
+    // Upload to Supabase storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from("avatars")
+      .upload(fileName, file, {
+        cacheControl: "3600",
+        upsert: true, // Replace existing avatar
+      });
+
+    if (uploadError) {
+      return { success: false, error: uploadError.message };
+    }
+
+    // Get public URL
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("avatars").getPublicUrl(fileName);
+
+    // Update profile with new avatar URL
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({
+        avatar_url: publicUrl,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id);
+
+    if (updateError) {
+      return { success: false, error: updateError.message };
+    }
+
+    revalidatePath("/settings");
+    revalidatePath("/", "layout");
+    return { success: true, avatarUrl: publicUrl, url: publicUrl };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to upload avatar",
+    };
+  }
+}
+
+/**
  * Update user profile
  */
 export async function updateProfile(formData: FormData) {
@@ -79,16 +155,28 @@ export async function updateProfile(formData: FormData) {
     const bio = formData.get("bio") as string;
     const preferredLanguage = formData.get("preferred_language") as string;
     const theme = formData.get("theme") as "aurora" | "midnight";
+    const avatarUrl = formData.get("avatar_url") as string | null;
+
+    const updateData: {
+      display_name?: string | null;
+      bio?: string | null;
+      preferred_language?: string;
+      theme?: "aurora" | "midnight";
+      avatar_url?: string | null;
+      updated_at: string;
+    } = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (displayName !== null) updateData.display_name = displayName || null;
+    if (bio !== null) updateData.bio = bio || null;
+    if (preferredLanguage) updateData.preferred_language = preferredLanguage;
+    if (theme) updateData.theme = theme;
+    if (avatarUrl !== null) updateData.avatar_url = avatarUrl || null;
 
     const { error } = await supabase
       .from("profiles")
-      .update({
-        display_name: displayName || null,
-        bio: bio || null,
-        preferred_language: preferredLanguage || "en",
-        theme: theme || "aurora",
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq("id", user.id);
 
     if (error) {
@@ -102,6 +190,61 @@ export async function updateProfile(formData: FormData) {
     return {
       success: false,
       error: error instanceof Error ? error.message : "Failed to update profile",
+    };
+  }
+}
+
+/**
+ * Upload avatar and update profile
+ */
+export async function uploadAvatarAction(formData: FormData) {
+  try {
+    const supabase = await createServerClient();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const avatarUrl = formData.get("avatar_url") as string;
+
+    if (!avatarUrl) {
+      return { success: false, error: "Avatar URL is required" };
+    }
+
+    // Get current profile to delete old avatar
+    const { data: currentProfile } = await supabase
+      .from("profiles")
+      .select("avatar_url")
+      .eq("id", user.id)
+      .single();
+
+    // Update profile with new avatar URL
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        avatar_url: avatarUrl,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id);
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    // Note: Old avatar deletion should be handled client-side after successful upload
+    // to avoid blocking the update if deletion fails
+
+    revalidatePath("/settings");
+    revalidatePath("/", "layout");
+    return { success: true, avatarUrl };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to upload avatar",
     };
   }
 }

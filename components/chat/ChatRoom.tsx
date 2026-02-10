@@ -22,6 +22,8 @@ import {
   ArrowLeft,
   ChevronDown,
   ShieldCheck,
+  Hash,
+  Lock,
 } from "lucide-react";
 import { useLiveKitChat } from "../../hooks/useLiveKitChat";
 import { useUserStatus, UserStatus } from "../../hooks/useUserStatus";
@@ -78,7 +80,7 @@ export interface Participant {
 
 export interface RoomDetails {
   id: string;
-  room_type: "direct" | "group";
+  room_type: "direct" | "group" | "channel";
   name: string;
   members_count: number;
   participants?: Participant[];
@@ -90,6 +92,11 @@ interface ChatRoomProps {
   userName: string;
   userPreferredLanguage?: string;
   roomDetails: RoomDetails;
+  // Channel-specific props (optional for backward compatibility)
+  channelId?: string;
+  spaceId?: string;
+  spaceName?: string;
+  canWrite?: boolean; // Defaults to true if not provided
 }
 
 const ChatRoom: React.FC<ChatRoomProps> = ({
@@ -98,6 +105,10 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   userName,
   userPreferredLanguage = "en",
   roomDetails,
+  channelId,
+  spaceId,
+  spaceName,
+  canWrite = true, // Default to true for backward compatibility
 }) => {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -490,6 +501,9 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
 
   // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
   // This is a critical React rule - hooks must be called unconditionally
+  // Use channelId if present, otherwise use roomId (for backward compatibility)
+  const effectiveRoomId = channelId || roomId;
+  
   const {
     isConnected,
     messages,
@@ -497,7 +511,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     room: liveKitChatRoom,
     sendRealtimeMessage,
     reloadMessages,
-  } = useLiveKitChat(roomId, userId, userName);
+  } = useLiveKitChat(effectiveRoomId, userId, userName);
   const [callRecords, setCallRecords] = useState<
     Array<{
       id: string;
@@ -714,6 +728,11 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   const [activeCallToken, setActiveCallToken] = useState<string | null>(null);
   const [activeCallUrl, setActiveCallUrl] = useState<string | null>(null);
   const [activeCallType, setActiveCallType] = useState<"audio" | "video">("audio");
+  // Voice channel state
+  const [isVoiceChannel, setIsVoiceChannel] = useState(false);
+  const [voiceChannelId, setVoiceChannelId] = useState<string | null>(null);
+  const [voiceChannelName, setVoiceChannelName] = useState<string | null>(null);
+  const [voiceSpaceId, setVoiceSpaceId] = useState<string | null>(null);
   const [incomingCaller, setIncomingCaller] = useState("");
   const [callType, setCallType] = useState<"audio" | "video">("audio");
   const [showCallBanner, setShowCallBanner] = useState(false);
@@ -1094,8 +1113,78 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
     stopRingback(); // Stop ringback if caller cancels/disconnects
     stopRingtone(); // Stop ringtone if receiver disconnects
     updateUserStatus("online"); // Revert status
+    
+    // If it's a voice channel, just disconnect without signaling termination
+    if (isVoiceChannel) {
+      setActiveCallToken(null);
+      setActiveCallUrl(null);
+      setIsVoiceChannel(false);
+      setVoiceChannelId(null);
+      setVoiceChannelName(null);
+      setVoiceSpaceId(null);
+      return;
+    }
+    
     handleEndCall(shouldSignalTerminate);
   };
+
+  // Join voice channel function - exposed for use by ChannelSidebar or other components
+  const joinVoiceChannel = async (channelId: string, spaceId: string, channelName: string) => {
+    try {
+      // Get token for the voice channel
+      const response = await fetch("/api/livekit/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          room_id: channelId,
+          user_id: userId,
+          username: userName,
+        }),
+      });
+
+      if (!response.ok) {
+        toast.error("Failed to join voice channel");
+        return;
+      }
+
+      const { token } = await response.json();
+      const wsUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL;
+
+      if (!token || !wsUrl) {
+        toast.error("Server configuration error");
+        return;
+      }
+
+      // Set voice channel state (no ringing, immediate connection)
+      setActiveCallToken(token);
+      setActiveCallUrl(wsUrl);
+      setActiveCallType("audio"); // Voice channels are audio-only by default
+      setIsVoiceChannel(true);
+      setVoiceChannelId(channelId);
+      setVoiceChannelName(channelName);
+      setVoiceSpaceId(spaceId);
+      setCallStartTime(Date.now());
+      callStartTimeRef.current = Date.now();
+
+      updateUserStatus("in-call");
+      toast.success(`Joined ${channelName}`);
+    } catch (error) {
+      console.error("Error joining voice channel:", error);
+      toast.error("Failed to join voice channel");
+    }
+  };
+
+  // Expose joinVoiceChannel via window for external access (e.g., ChannelSidebar)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).joinVoiceChannel = joinVoiceChannel;
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        delete (window as any).joinVoiceChannel;
+      }
+    };
+  }, [userId, userName, updateUserStatus]);
 
   // ----------------------------
 
@@ -2132,7 +2221,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
   return (
     <div
       ref={chatRoomRef}
-      className="relative w-full h-full flex flex-col overflow-hidden rounded-3xl border border-white/5 bg-[#03030b] isolate z-0"
+      className="relative w-full h-full flex flex-col overflow-hidden rounded-3xl isolate z-0 bg-transparent"
       onMouseMove={handleMouseMove}
       style={
         {
@@ -2197,16 +2286,9 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
       )}
 
       {/* --- FLOATING PANE HEADER --- */}
-      <div className="">
-        <div className="relative h-20 flex items-center mx-2 sm:mx-4 my-2 rounded-2xl border border-white/5 bg-white/[0.02] backdrop-blur-md floating-header-pane shadow-lg shadow-black/20">
-          {/* AURORA ANIMATION LAYER: Pulls from your globals.css */}
-          <div className="absolute inset-0 pointer-events-none overflow-hidden">
-            <div className="absolute top-[-40%] left-[-10%] w-[250px] h-[250px] bg-indigo-500/15 blur-[60px] rounded-full animate-aurora-1" />
-            <div className="absolute bottom-[-40%] right-[-10%] w-[250px] h-[250px] bg-purple-500/15 blur-[60px] rounded-full animate-aurora-2" />
-          </div>
-
+      <header className="flex-none mx-2 mt-2 mb-1 md:mx-4 md:mt-4 md:mb-2 p-3 md:p-4 aurora-glass-premium rounded-2xl flex items-center justify-between z-10 relative sticky top-0 bg-slate-950/40 backdrop-blur-2xl border-t border-white/20">
           {/* CONTENT: Full width on mobile, max-w-4xl on larger screens */}
-          <div className="max-w-4xl mx-auto w-full px-3 sm:px-6 flex items-center justify-between relative z-10">
+          <div className="max-w-4xl mx-auto w-full flex items-center justify-between relative z-10">
             {isSearchOpen ? (
               <div className="flex items-center w-full gap-3 animate-in fade-in slide-in-from-top-1">
                 <Search className="text-indigo-400 w-5 h-5" />
@@ -2235,18 +2317,23 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                   <button
                     onClick={handleBack}
                     aria-label="Go back to conversations"
-                    className="text-white/70 hover:text-white transition-colors shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                    className="p-2 rounded-xl hover:bg-white/10 text-white/70 hover:text-white transition-all shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
                   >
                     <ArrowLeft size={22} />
                   </button>
                   <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                    {roomDetails.room_type === "group" ? (
+                    {channelId ? (
+                      // Channel icon for space channels
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] shrink-0">
+                        <Hash size={18} className="sm:w-5 sm:h-5" />
+                      </div>
+                    ) : roomDetails.room_type === "group" ? (
                       <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] shrink-0">
                         <Users size={18} className="sm:w-5 sm:h-5" />
                       </div>
                     ) : (
                       <div className="relative shrink-0">
-                        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-indigo-500/40 to-purple-500/40 p-[1px]">
+                        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-indigo-500/40 to-purple-500/40 p-[1px] ring-2 ring-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.3)]">
                           <div className="w-full h-full rounded-full bg-[#03030b] flex items-center justify-center overflow-hidden">
                             {roomDetails.participants?.[0]?.avatar ? (
                               <Image
@@ -2255,10 +2342,11 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                                 height={40}
                                 className="w-full h-full object-cover"
                                 alt=""
+                                unoptimized
                               />
                             ) : (
                               <span className="text-white text-xs font-bold">
-                                {roomDetails.name[0]}
+                                {roomDetails.participants?.[0]?.name?.[0]?.toUpperCase() || roomDetails.name?.[0]?.toUpperCase() || "?"}
                               </span>
                             )}
                           </div>
@@ -2271,15 +2359,21 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
-                      <h2 className="text-white font-bold text-sm sm:text-base tracking-tight leading-none mb-1 flex items-center gap-1 sm:gap-2 min-w-0">
+                      <h2 className="text-white font-display font-semibold tracking-wide text-sm sm:text-base leading-none mb-1 flex items-center gap-1 sm:gap-2 min-w-0">
                         <span className="truncate min-w-0">
                           {(() => {
+                            // Channel mode: show channel name with # prefix
+                            if (channelId) {
+                              return `# ${roomDetails.name || "channel"}`;
+                            }
+                            // Direct message mode
                             if (
                               roomDetails.room_type === "direct" &&
                               roomDetails.participants?.[0]?.name
                             ) {
                               return roomDetails.participants[0].name;
                             }
+                            // Group or fallback
                             if (
                               roomDetails.name &&
                               roomDetails.name !== "Loading..." &&
@@ -2305,13 +2399,18 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                         </div>
                       </h2>
                       <div className="flex items-center gap-1.5">
-                        {roomDetails.room_type === "group" ? (
+                        {channelId && spaceName ? (
+                          // Channel mode: show space name
+                          <span className="text-xs text-slate-400 truncate">
+                            {spaceName}
+                          </span>
+                        ) : roomDetails.room_type === "group" ? (
                           <div className="relative" ref={groupListRef}>
                             <button
                               onClick={() => setIsGroupMembersOpen(!isGroupMembersOpen)}
                               className="flex items-center gap-1.5 hover:text-white transition-colors"
                             >
-                              <span className="text-xs font-medium text-indigo-400 flex items-center gap-1.5">
+                              <span className="text-xs text-slate-400 flex items-center gap-1.5">
                                 <span className="w-1 h-1 bg-indigo-400 rounded-full"></span>
                                 {roomDetails.members_count} members ({onlineGroupMembers.length}{" "}
                                 online)
@@ -2343,7 +2442,9 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                                                 alt=""
                                               />
                                             ) : (
-                                              m.name[0]
+                                              <span className="text-white font-bold">
+                                                {m.name?.[0]?.toUpperCase() || "?"}
+                                              </span>
                                             )}
                                           </div>
                                           <div
@@ -2377,8 +2478,8 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                  {!isBlocked && (
+                <div className="flex items-center gap-1 shrink-0">
+                  {!isBlocked && roomDetails.room_type !== "channel" && (
                     <>
                       {hasActiveCallToJoin && activeCallTypeToJoin ? (
                         <button
@@ -2393,14 +2494,14 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                           <button
                             onClick={() => handleStartCall("audio")}
                             aria-label="Start audio call"
-                            className="p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-green-400 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                            className="p-2.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all hover:scale-105 active:scale-95"
                           >
                             <Phone size={18} className="sm:w-5 sm:h-5" />
                           </button>
                           <button
                             onClick={() => handleStartCall("video")}
                             aria-label="Start video call"
-                            className="p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-indigo-400 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                            className="p-2.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all hover:scale-105 active:scale-95"
                           >
                             <Video size={18} className="sm:w-5 sm:h-5" />
                           </button>
@@ -2414,7 +2515,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                     <button
                       onClick={() => setIsSearchOpen(true)}
                       aria-label="Search messages"
-                      className="p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-white transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      className="p-2.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all hover:scale-105 active:scale-95"
                       title="Search Messages"
                     >
                       <Search size={18} />
@@ -2424,7 +2525,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                       aria-label={
                         isNotificationsMuted ? "Unmute notifications" : "Mute notifications"
                       }
-                      className="p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-white transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      className="p-2.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all hover:scale-105 active:scale-95"
                       title={isNotificationsMuted ? "Unmute Notifications" : "Mute Notifications"}
                     >
                       {isNotificationsMuted ? (
@@ -2438,7 +2539,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                       aria-label={
                         isTranslationEnabled ? "Translation enabled" : "Enable translation"
                       }
-                      className="p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-white transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      className="p-2.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all hover:scale-105 active:scale-95"
                       title={isTranslationEnabled ? "Translation On" : "Translate Messages"}
                     >
                       <Languages
@@ -2449,7 +2550,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                     <button
                       onClick={() => setIsMediaDrawerOpen(true)}
                       aria-label="Open media and files"
-                      className="p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-white transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                      className="p-2.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all hover:scale-105 active:scale-95"
                       title="Media & Files"
                     >
                       <ImageIcon size={18} />
@@ -2457,7 +2558,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                     {roomDetails.room_type === "direct" && (
                       <button
                         onClick={handleBlockToggle}
-                        className="p-2 hover:bg-white/5 rounded-lg transition-colors"
+                        className="p-2.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all hover:scale-105 active:scale-95"
                         disabled={isBlocked && !blockedByMe}
                         title={isBlocked && blockedByMe ? "Unblock User" : "Block User"}
                       >
@@ -2474,26 +2575,28 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                     {roomDetails.room_type === "group" && (
                       <button
                         onClick={() => setIsGroupMembersOpen(true)}
-                        className="p-2 hover:bg-white/5 rounded-lg text-white/60 hover:text-indigo-400 transition-colors"
+                        className="p-2.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all hover:scale-105 active:scale-95"
                         title="Group Info"
                       >
                         <Users size={18} />
                       </button>
                     )}
                     <div className="w-px h-5 bg-white/10 mx-1" />
+                    {roomDetails.room_type !== "channel" && (
                     <button
                       onClick={handleClearChat}
-                      className="p-2 hover:bg-white/5 rounded-lg text-red-400/60 hover:text-red-400 transition-colors"
+                      className="p-2.5 rounded-xl hover:bg-white/10 text-red-400/60 hover:text-red-400 transition-all hover:scale-105 active:scale-95"
                       title="Clear Chat"
                     >
                       <Trash2 size={18} />
                     </button>
+                    )}
                   </div>
 
                   {/* Mobile-only: Show muted indicator and three-dots menu */}
                   {isNotificationsMuted && (
                     <div
-                      className="md:hidden p-1.5 rounded-lg text-red-400"
+                      className="md:hidden p-2 rounded-xl text-red-400"
                       title="Notifications muted for this chat"
                     >
                       <BellOff size={18} />
@@ -2502,7 +2605,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                   <button
                     ref={menuRef}
                     onClick={() => setIsMenuOpen(!isMenuOpen)}
-                    className={`md:hidden p-1.5 sm:p-2 hover:bg-white/5 rounded-lg text-white/60 transition-colors ${isMenuOpen ? "bg-white/5 text-white" : ""}`}
+                    className={`md:hidden p-2 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-all ${isMenuOpen ? "bg-white/10 text-white" : ""}`}
                   >
                     <MoreVertical size={18} className="sm:w-5 sm:h-5" />
                   </button>
@@ -2619,12 +2722,14 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
                           </button>
                         )}
                         <div className="h-px bg-white/10 my-1 mx-2" />
+                        {roomDetails.room_type !== "channel" && (
                         <button
                           onClick={handleClearChat}
                           className="w-full text-left px-4 py-3.5 hover:bg-white/5 transition-colors text-red-400/80 hover:text-red-400 text-sm flex items-center gap-3"
                         >
                           <Trash2 size={16} /> Clear Chat
                         </button>
+                        )}
                       </div>,
                       document.body
                     )}
@@ -2632,7 +2737,7 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
               </>
             )}
           </div>
-        </div>
+      </header>
 
         {/* CSS INJECTION: Spatial Nebula Animations */}
         <style
@@ -2716,7 +2821,6 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         `,
           }}
         />
-      </div>
 
       <MessageList
         messages={filteredMessages}
@@ -2725,20 +2829,34 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         userPreferredLanguage={userPreferredLanguage}
         isTranslationEnabled={isTranslationEnabled}
         isNotificationsOpen={isNotificationsOpen}
-        isGroup={roomDetails.room_type === "group"}
+        isGroup={roomDetails.room_type === "group" || roomDetails.room_type === "channel"}
         roomName={roomDetails.name}
         roomParticipants={roomDetails.participants || []}
       />
 
-      {/* Input with Fast P2P Send */}
+      {/* Read-Only Mode Banner */}
+      {!canWrite && (
+        <div className="mx-2 md:mx-4 mb-2 p-4 aurora-glass-base rounded-xl border border-amber-500/20 bg-amber-500/5">
+          <div className="flex items-center gap-3">
+            <Lock className="w-5 h-5 text-amber-400 shrink-0" />
+            <p className="text-sm text-amber-200 font-medium">
+              You do not have permission to post in this channel.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Input with Fast P2P Send - Only show if user can write */}
+      {canWrite && (
       <MessageInput
-        roomId={roomId}
+          roomId={channelId || roomId} // Use channelId if present, otherwise fallback to roomId
         userId={userId}
         userName={userName}
         isConnected={isConnected}
         disabled={isBlocked}
         sendRealtimeMessage={sendRealtimeMessage} // Pass the P2P function
       />
+      )}
 
       {/* Call Notification Banner */}
       {showCallBanner && incomingCaller && (
@@ -2776,13 +2894,16 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         <CallOverlay
           token={activeCallToken}
           serverUrl={activeCallUrl}
-          roomName={roomDetails.name}
-          roomType={roomDetails.room_type}
+          roomName={isVoiceChannel ? (voiceChannelName || roomDetails.name) : roomDetails.name}
+          roomType={isVoiceChannel ? "channel" : roomDetails.room_type}
           callType={activeCallType}
           onDisconnect={handleCallDisconnect}
           userPreferredLanguage={userPreferredLanguage}
           userId={userId}
-          hidden={isCaller && isCallModalOpen} // Hide overlay while caller waits for answer
+          hidden={isCaller && isCallModalOpen && !isVoiceChannel} // Hide overlay while caller waits for answer (but not for voice channels)
+          isVoiceChannel={isVoiceChannel}
+          channelName={voiceChannelName}
+          spaceName={spaceName}
           onParticipantJoined={() => {
             // When a participant joins the call room, stop ringback (fallback if call_accepted signal failed)
             if (isCaller && ringbackRef.current) {
@@ -2826,12 +2947,14 @@ const ChatRoom: React.FC<ChatRoomProps> = ({
         />
       )}
 
-      <MediaDrawer
-        isOpen={isMediaDrawerOpen}
-        onClose={() => setIsMediaDrawerOpen(false)}
-        messages={messages}
-        roomName={roomDetails.name}
-      />
+      {isMediaDrawerOpen && (
+        <MediaDrawer
+          isOpen={isMediaDrawerOpen}
+          onClose={() => setIsMediaDrawerOpen(false)}
+          messages={messages}
+          roomName={roomDetails.name}
+        />
+      )}
 
       {/* Clear Chat Confirmation Modal */}
       <ConfirmModal

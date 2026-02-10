@@ -4,6 +4,11 @@ import "./globals.css";
 import AppShell from "../components/layout/AppShell";
 import { ThemeProvider } from "../components/contexts/ThemeContext";
 import { NotificationProvider } from "../components/contexts/NotificationContext";
+import { AuthProvider } from '@/components/contexts/AuthContext';
+import { VoiceChannelProvider } from "../components/contexts/VoiceChannelContext";
+import { ErrorSuppressor } from "../components/utils/ErrorSuppressor";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+import GlobalSpaceInviteHandler from "../components/spaces/GlobalSpaceInviteHandler";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -31,35 +36,24 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
 
-        <link rel="icon" href="/logo/aether-favicon/logo.ico" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-            // Suppress MutationObserver errors from third-party libraries
-            if (typeof window !== 'undefined') {
-              const originalError = console.error;
-              console.error = function(...args) {
-                const errorMsg = args.join(' ');
-                // Suppress specific MutationObserver error from third-party libraries
-                if (errorMsg.includes("Failed to execute 'observe' on 'MutationObserver'") && 
-                    errorMsg.includes("parameter 1 is not of type 'Node'")) {
-                  return; // Silently ignore this specific error
-                }
-                originalError.apply(console, args);
-              };
-            }
-         `,
-          }}
-        />
+        <link rel="icon" href="/logo/aether-favicon/favicon.ico" />
       </head>
       <body
         className={`${inter.variable} ${spaceGrotesk.variable} antialiased bg-[#0B0D12] selection:bg-indigo-500/30`}
       >
-        <ThemeProvider>
-          <NotificationProvider>
-            <AppShell>{children}</AppShell>
-          </NotificationProvider>
-        </ThemeProvider>
+        <ErrorSuppressor />
+        <ErrorBoundary>
+          <ThemeProvider>
+            <NotificationProvider>
+              <AuthProvider>
+                <VoiceChannelProvider>
+                <GlobalSpaceInviteHandler />
+                <AppShell>{children}</AppShell>
+                </VoiceChannelProvider>
+              </AuthProvider>
+            </NotificationProvider>
+          </ThemeProvider>
+        </ErrorBoundary>
       </body>
     </html>
   );

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import Image from "next/image";
 import { X, Image as ImageIcon, FileText, Download } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { ChatMessage } from "../../hooks/useLiveKitChat";
 
 interface MediaDrawerProps {
@@ -24,21 +25,32 @@ const MediaDrawer: React.FC<MediaDrawerProps> = ({ isOpen, onClose, messages, ro
   };
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className={`absolute inset-0 bg-[#020205]/60 backdrop-blur-xl z-40 transition-opacity duration-300 ${
-          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-        }`}
-        onClick={onClose}
-      />
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          {/* Backdrop */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+            className="fixed inset-0 bg-[#020205]/60 backdrop-blur-xl z-[60] pointer-events-auto"
+            onClick={onClose}
+          />
 
-      {/* Drawer */}
-      <div
-        className={`absolute inset-y-0 right-0 z-50 w-80 bg-[#050510]/95 backdrop-blur-2xl border-l border-white/10 shadow-2xl transform transition-transform duration-300 ease-out flex flex-col ${
-          isOpen ? "translate-x-0" : "translate-x-full"
-        }`}
-      >
+          {/* Drawer */}
+          <motion.div
+            initial={{ x: "100%", opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: "100%", opacity: 0 }}
+            transition={{
+              type: "spring",
+              damping: 30,
+              stiffness: 300,
+              mass: 0.8,
+            }}
+            className="fixed top-0 right-0 z-[70] w-80 m-4 h-[calc(100vh-2rem)] aurora-glass-deep rounded-3xl border border-white/10 shadow-2xl flex flex-col pointer-events-auto"
+          >
         {/* Header */}
         <div className="p-6 border-b border-white/10 flex items-center justify-between">
           <div>
@@ -81,7 +93,7 @@ const MediaDrawer: React.FC<MediaDrawerProps> = ({ isOpen, onClose, messages, ro
                             href={!hasFailed && !isBlobUrl ? item.attachment?.url : undefined}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className={`relative aspect-square rounded-lg overflow-hidden border border-white/10 group cursor-zoom-in bg-black/20 ${hasFailed || isBlobUrl ? "pointer-events-none" : ""}`}
+                            className={`aurora-glass-base relative aspect-square rounded-lg overflow-hidden hover:border-indigo-500/50 transition-colors group cursor-zoom-in ${hasFailed || isBlobUrl ? "pointer-events-none" : ""}`}
                           >
                             {hasFailed || isBlobUrl ? (
                               <div className="w-full h-full flex flex-col items-center justify-center bg-black/40 text-white/40">
@@ -129,7 +141,7 @@ const MediaDrawer: React.FC<MediaDrawerProps> = ({ isOpen, onClose, messages, ro
                           href={item.attachment?.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex items-center gap-3 p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-colors group"
+                          className="aurora-glass-base flex items-center gap-3 p-3 rounded-xl hover:border-indigo-500/50 transition-colors group"
                         >
                           <div className="p-2 rounded-lg bg-aurora-indigo/20 text-aurora-indigo">
                             <FileText size={18} />
@@ -154,8 +166,10 @@ const MediaDrawer: React.FC<MediaDrawerProps> = ({ isOpen, onClose, messages, ro
             </div>
           )}
         </div>
-      </div>
-    </>
+      </motion.div>
+        </>
+      )}
+    </AnimatePresence>
   );
 };
 

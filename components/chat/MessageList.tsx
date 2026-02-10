@@ -97,7 +97,7 @@ const MessageList: React.FC<MessageListProps> = ({
   return (
     <div
       className={`flex-1 overflow-y-auto px-4 pt-6 pb-24 scrollbar-none relative transition-all duration-300 ${
-        isNotificationsOpen ? "scale-[0.98] blur-[2px]" : "scale-100 blur-0"
+        isNotificationsOpen ? "sm:scale-[0.98] sm:blur-[2px]" : "scale-100 blur-0"
       }`}
     >
       {/* NO MORE SPACERS NEEDED: Sticky header handles the offset */}

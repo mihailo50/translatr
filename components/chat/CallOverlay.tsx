@@ -36,7 +36,7 @@ interface CallOverlayProps {
   token: string;
   serverUrl: string;
   roomName: string;
-  roomType: "direct" | "group";
+  roomType: "direct" | "group" | "channel";
   callType: "audio" | "video";
   onDisconnect: (shouldSignalTerminate: boolean) => void;
   userPreferredLanguage?: string;
@@ -44,6 +44,9 @@ interface CallOverlayProps {
   onParticipantJoined?: () => void;
   onCallAccepted?: (callId?: string) => void;
   hidden?: boolean; // When true, overlay is mounted but invisible (used for caller waiting state)
+  isVoiceChannel?: boolean; // True when this is a voice channel call
+  channelName?: string | null; // Channel name for voice channels
+  spaceName?: string | null; // Space name for voice channels
 }
 
 // Speaking indicator wrapper for video tiles
@@ -351,14 +354,20 @@ const CallContent = ({
   userId,
   onParticipantJoined,
   onCallAccepted,
+  isVoiceChannel = false,
+  channelName,
+  spaceName,
 }: {
   roomName: string;
-  roomType: "direct" | "group";
+  roomType: "direct" | "group" | "channel";
   callType: "audio" | "video";
   onDisconnect: (s: boolean) => void;
   userId?: string;
   onParticipantJoined?: () => void;
   onCallAccepted?: (callId?: string) => void;
+  isVoiceChannel?: boolean;
+  channelName?: string | null;
+  spaceName?: string | null;
 }) => {
   const { localParticipant } = useLocalParticipant();
   const remoteParticipants = useRemoteParticipants();
@@ -925,6 +934,12 @@ const CallContent = ({
   };
 
   const handleHangup = async () => {
+    // Voice channels don't send call_ended signals - just disconnect
+    if (isVoiceChannel) {
+      onDisconnect(false);
+      return;
+    }
+    
     // If direct call, send call_ended signal via call room's data channel
     if (roomType === "direct" && room && room.localParticipant && userId) {
       try {
@@ -1002,7 +1017,18 @@ const CallContent = ({
       <div className="relative z-50 h-16 flex items-center justify-between px-6 border-b border-white/10 bg-[#050510]/60 backdrop-blur-xl">
         <div className="flex items-center gap-3">
           <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+          {isVoiceChannel && channelName ? (
+            <div className="flex flex-col">
+              <span className="text-white font-semibold tracking-wide text-base">
+                #{channelName}
+              </span>
+              {spaceName && (
+                <span className="text-white/60 text-xs font-light">{spaceName}</span>
+              )}
+            </div>
+          ) : (
           <span className="text-white/90 font-light tracking-wide text-base">{roomName}</span>
+          )}
           <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-green-500/10 border border-green-500/20">
             <ShieldCheck size={10} className="text-green-400" />
             <span className="text-[10px] text-green-400 font-bold uppercase tracking-wider">
@@ -1207,11 +1233,12 @@ const CallContent = ({
           {isScreenShareEnabled ? <XSquare size={18} /> : <MonitorUp size={18} />}
         </button>
 
-        {/* End Call Button */}
+        {/* End Call / Disconnect Button */}
         <button
           onClick={handleHangup}
-          aria-label="End call"
+          aria-label={isVoiceChannel ? "Disconnect from voice channel" : "End call"}
           className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center bg-red-500 shadow-[0_0_30px_rgba(239,68,68,0.3)] text-white transition-all hover:scale-110 min-w-[44px] min-h-[44px]"
+          title={isVoiceChannel ? "Disconnect" : "End Call"}
         >
           <PhoneOff size={18} />
         </button>
@@ -1232,6 +1259,9 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
   onParticipantJoined,
   onCallAccepted,
   hidden = false,
+  isVoiceChannel = false,
+  channelName,
+  spaceName,
 }) => {
   // Setup E2EE for Video with Quality Settings
   const roomOptions = useMemo<RoomOptions>(() => {
@@ -1395,6 +1425,9 @@ const CallOverlay: React.FC<CallOverlayProps> = ({
           userId={userId}
           onParticipantJoined={onParticipantJoined}
           onCallAccepted={onCallAccepted}
+          isVoiceChannel={isVoiceChannel}
+          channelName={channelName}
+          spaceName={spaceName}
         />
       </LiveKitRoom>
     </div>,

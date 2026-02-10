@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { createClient } from "../../utils/supabase/server";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -41,21 +42,11 @@ export async function login(prevState: unknown, formData: FormData) {
     return { error: error.message };
   }
 
-  // Handle redirect: try/catch for Next.js internal redirect, or return path for client
-  try {
-    // In a real server environment this throws 'NEXT_REDIRECT'
-    // In a client environment, this might do nothing or fail.
-    // We return a specialized object for the client to handle if needed.
-    redirect("/");
-  } catch (e) {
-    if ((e as Error).message === "NEXT_REDIRECT") throw e;
-    // Fallback for client handling
-    if (typeof window !== "undefined") {
-      window.location.href = "/";
-      return { success: true };
-    }
-  }
-  return { success: true, redirect: "/" };
+  // Revalidate the root path to ensure session is refreshed
+  revalidatePath("/");
+  
+  // Server-side redirect - this will throw NEXT_REDIRECT which Next.js handles
+  redirect("/");
 }
 
 export async function signup(prevState: unknown, formData: FormData) {

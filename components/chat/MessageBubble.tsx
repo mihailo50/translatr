@@ -34,7 +34,7 @@ const ImageViewerModal = ({ src, onClose }: { src: string; onClose: () => void }
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[10000] bg-black/95 flex items-center justify-center animate-in fade-in duration-200 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center animate-in fade-in duration-200 backdrop-blur-sm"
       onClick={onClose}
     >
       <div className="absolute top-4 right-4 z-10">
@@ -80,7 +80,7 @@ const ViewOnceModal = ({ src, onClose }: { src: string; onClose: () => void }) =
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[10000] bg-black/95 flex items-center justify-center animate-in fade-in duration-300 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center animate-in fade-in duration-300 backdrop-blur-sm"
       onClick={onClose}
     >
       <div className="absolute top-6 right-6">
@@ -285,25 +285,10 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({
            ${message.text ? "px-5 py-3" : "p-1.5"}
            ${
              message.isMe
-               ? "text-white rounded-tr-sm"
-               : "text-white/90 rounded-tl-sm hover:bg-[#1a1a20]/90"
+               ? "bg-gradient-to-br from-indigo-600/80 to-purple-600/80 backdrop-blur-md border border-white/20 text-white shadow-[0_4px_15px_rgba(99,102,241,0.3)] rounded-tr-sm"
+               : "aurora-glass-base text-slate-200 rounded-tl-sm hover:bg-[#1a1a20]/90"
            }
           `}
-          style={
-            message.isMe
-              ? {
-                  background:
-                    "linear-gradient(to bottom right, rgba(79, 70, 229, 0.9), rgba(147, 51, 234, 0.9), rgba(79, 70, 229, 0.9))",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
-                  boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.3)",
-                }
-              : {
-                  background: "rgba(26, 26, 32, 0.8)",
-                  backdropFilter: "blur(10px)",
-                  WebkitBackdropFilter: "blur(10px)",
-                  border: "1px solid rgba(255, 255, 255, 0.05)",
-                }
-          }
           onClick={(e) => {
             // Don't toggle if clicking on interactive elements
             const target = e.target as HTMLElement;

@@ -29,7 +29,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import CreateGroupModal from "../../components/chat/CreateGroupModal";
 
-export default function ContactsPage() {
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+
+function ContactsPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
@@ -411,36 +413,36 @@ export default function ContactsPage() {
 
   return (
     <>
-      <div className="h-full w-full flex flex-col bg-transparent max-w-6xl mx-auto">
-        {/* Header with Glass Container */}
-        <div className="p-4 md:p-6 sticky top-0 z-40 backdrop-blur-xl border-b border-white/5 bg-white/5 rounded-2xl">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/70 tracking-tight mb-1">
-                Contacts
-              </h1>
-              <p className="text-white/50 text-sm">Manage your circle.</p>
+      <div className="flex-1 h-full flex flex-col overflow-hidden relative bg-transparent">
+        {/* Header */}
+        <header className="shrink-0 h-16 border-b border-white/5">
+          <div className="w-full max-w-5xl mx-auto px-4 md:px-6 flex items-center justify-between h-full">
+            <div className="border-l-2 border-indigo-500 pl-4">
+              <h1 className="text-xl font-display font-bold text-white tracking-wide">Contacts</h1>
             </div>
-            <button
-              onClick={() => setIsCreateGroupOpen(true)}
-              className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)] hover:shadow-[0_0_30px_rgba(99,102,241,0.6)] rounded-xl px-4 py-2 flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
-            >
-              <Users size={18} />
-              <Plus size={14} className="bg-white/20 rounded-full p-0.5" />
-              <span className="hidden sm:inline">Create Group</span>
-            </button>
+          <button
+            onClick={() => setIsCreateGroupOpen(true)}
+              className="aurora-glass-base hover:border-indigo-500/30 hover:shadow-lg text-white rounded-xl px-4 py-2 flex items-center gap-2 transition-all"
+          >
+            <Users size={18} />
+              <Plus size={14} />
+            <span className="hidden sm:inline">Create Group</span>
+          </button>
           </div>
-        </div>
+        </header>
 
-        {/* Glass Pill Tabs - Segmented Control */}
-        <div className="px-4 md:px-6 pt-4 md:pt-6">
-          <div className="bg-white/5 p-1 rounded-full border border-white/10 grid grid-cols-3 gap-1 md:flex md:w-fit mb-6 backdrop-blur-md">
+        {/* Content Area - Scrollable */}
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
+          <div className="w-full max-w-5xl mx-auto p-4 md:p-6 space-y-6 bg-transparent">
+            {/* Glass Pill Tabs - Segmented Control */}
+            <div>
+              <div className="aurora-glass-base p-1 rounded-full grid grid-cols-3 gap-1 md:flex w-full md:w-fit">
             <button
               onClick={() => setActiveTab("friends")}
               className={`px-3 md:px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
                 activeTab === "friends"
-                  ? "bg-indigo-500/20 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)] border border-indigo-500/30"
-                  : "text-white/50 hover:text-white hover:bg-white/5 border border-transparent"
+                  ? "bg-white/10 text-white shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
             >
               <span className="truncate">My Contacts</span>
@@ -449,8 +451,8 @@ export default function ContactsPage() {
               onClick={() => setActiveTab("requests")}
               className={`px-3 md:px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
                 activeTab === "requests"
-                  ? "bg-indigo-500/20 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)] border border-indigo-500/30"
-                  : "text-white/50 hover:text-white hover:bg-white/5 border border-transparent"
+                  ? "bg-white/10 text-white shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
             >
               <span className="truncate">Requests</span>
@@ -464,26 +466,23 @@ export default function ContactsPage() {
               onClick={() => setActiveTab("search")}
               className={`px-3 md:px-4 py-2.5 rounded-full text-xs md:text-sm font-semibold transition-all duration-300 flex items-center justify-center gap-2 ${
                 activeTab === "search"
-                  ? "bg-indigo-500/20 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)] border border-indigo-500/30"
-                  : "text-white/50 hover:text-white hover:bg-white/5 border border-transparent"
+                  ? "bg-white/10 text-white shadow-md"
+                  : "text-slate-400 hover:text-slate-200"
               }`}
             >
               <UserPlus size={14} className="md:w-4 md:h-4 flex-shrink-0" />
               <span className="truncate hidden sm:inline">Add Contact</span>
               <span className="truncate sm:hidden">Add</span>
             </button>
-          </div>
-        </div>
-
-        {/* Content Area */}
-        <div className="flex-1 overflow-y-auto px-4 md:px-6 pb-24 md:pb-6">
+              </div>
+            </div>
           {/* --- VIEW: SEARCH --- */}
           {activeTab === "search" && (
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              {/* Search Input - Liquid Glass */}
-              <div className="relative group max-w-3xl mx-auto w-full">
+              {/* Search Input */}
+              <div className="relative group w-full">
                 <Search
-                  className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-indigo-400 group-focus-within:scale-110 transition-all duration-300"
+                  className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-indigo-400 transition-all duration-300"
                   size={18}
                 />
                 <input
@@ -491,7 +490,7 @@ export default function ContactsPage() {
                   placeholder="Search by display name or email..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 md:pl-12 pr-4 py-3 md:py-3.5 bg-white/[0.03] border border-white/5 rounded-2xl text-white placeholder-white/30 transition-all duration-300 focus:bg-white/[0.07] focus:border-indigo-500/40 focus:shadow-[0_0_20px_rgba(99,102,241,0.15)] focus:ring-0 focus:outline-none text-sm md:text-base"
+                  className="w-full aurora-glass-base h-12 pl-10 md:pl-12 pr-4 rounded-2xl text-slate-200 placeholder-slate-500 transition-all duration-300 focus:border-indigo-500/40 focus:shadow-[0_0_20px_rgba(99,102,241,0.15)] focus:ring-0 focus:outline-none text-sm md:text-base"
                   autoFocus
                 />
                 {isPending && (
@@ -507,33 +506,31 @@ export default function ContactsPage() {
                 {searchResults.map((user, index) => (
                   <div
                     key={user.id}
-                    className="group p-4 rounded-2xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.06] hover:border-white/10 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                    className="group aurora-glass-base p-3.5 rounded-2xl transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 duration-300 hover:border-indigo-500/30 hover:shadow-lg"
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
                     <div className="flex items-center gap-4">
-                      {/* Avatar with Gradient Ring */}
-                      <div className="p-[1px] rounded-full bg-gradient-to-tr from-indigo-500/50 to-purple-500/50 flex-shrink-0">
-                        <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-base font-bold text-white overflow-hidden border-2 border-[#020205]">
+                      {/* Avatar */}
+                      <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-sm font-bold text-white overflow-hidden border-2 border-white/20 flex-shrink-0">
                           {user.avatar_url ? (
                             <Image
                               src={user.avatar_url}
                               alt={user.display_name || "?"}
-                              width={48}
-                              height={48}
+                            width={40}
+                            height={40}
                               className="w-full h-full object-cover"
                             />
                           ) : (
                             (user.display_name?.[0] || user.email?.[0] || "?").toUpperCase()
                           )}
-                        </div>
                       </div>
 
                       {/* Text Content */}
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-base font-medium text-white/90 group-hover:text-white truncate">
+                        <h3 className="font-semibold text-slate-200 truncate">
                           {user.display_name || "Unknown"}
                         </h3>
-                        <p className="text-xs text-white/40 group-hover:text-white/60 truncate">
+                        <p className="text-xs text-slate-400 font-mono truncate">
                           {user.email}
                         </p>
                       </div>
@@ -543,7 +540,7 @@ export default function ContactsPage() {
                         <button
                           onClick={() => handleSendRequest(user.id)}
                           disabled={isPending}
-                          className="p-2.5 rounded-xl bg-white/5 text-white/70 hover:bg-indigo-500 hover:text-white hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] transition-all flex-shrink-0"
+                          className="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 transition-all flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <UserPlus size={18} />
                         </button>
@@ -579,7 +576,7 @@ export default function ContactsPage() {
           {/* --- VIEW: FRIENDS --- */}
           {activeTab === "friends" &&
             (loading ? (
-              <div className="flex justify-center py-20">
+              <div className="flex justify-center items-center min-h-[200px]">
                 <Loader2 className="animate-spin text-aurora-indigo w-8 h-8" />
               </div>
             ) : friends.length > 0 ? (
@@ -593,25 +590,23 @@ export default function ContactsPage() {
                   return (
                     <div
                       key={friend.id}
-                      className="group p-4 rounded-2xl bg-white/[0.02] border border-white/5 hover:bg-white/[0.06] hover:border-white/10 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 duration-300 relative"
+                      className="group aurora-glass-base p-3.5 rounded-2xl transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 duration-300 relative hover:border-indigo-500/30 hover:shadow-lg"
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
                       <div className="flex items-start justify-between mb-3">
-                        {/* Avatar with Gradient Ring */}
-                        <div className="p-[1px] rounded-full bg-gradient-to-tr from-indigo-500/50 to-purple-500/50 flex-shrink-0">
-                          <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-base font-bold text-white overflow-hidden border-2 border-[#020205]">
+                        {/* Avatar */}
+                        <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-sm font-bold text-white overflow-hidden border-2 border-white/20 flex-shrink-0">
                             {friend.avatar_url ? (
                               <Image
                                 src={friend.avatar_url}
-                                width={48}
-                                height={48}
+                              width={40}
+                              height={40}
                                 alt=""
                                 className="w-full h-full object-cover"
                               />
                             ) : (
                               (friend.display_name?.[0] || "?").toUpperCase()
                             )}
-                          </div>
                         </div>
                         <div
                           className={`w-2.5 h-2.5 rounded-full border border-white/10 ${getPresenceColor(presenceStatus)} flex-shrink-0`}
@@ -620,17 +615,17 @@ export default function ContactsPage() {
                         />
                       </div>
 
-                      <h3 className="text-base font-medium text-white/90 group-hover:text-white truncate mb-1">
+                      <h3 className="font-semibold text-slate-200 truncate mb-1">
                         {friend.display_name}
                       </h3>
-                      <p className="text-xs text-white/40 group-hover:text-white/60 truncate mb-4">
+                      <p className="text-xs text-slate-400 font-mono truncate mb-4">
                         {friend.email}
                       </p>
 
                       <button
                         onClick={() => handleOpenChat(friend.id)}
                         disabled={isPending}
-                        className="w-full p-2.5 rounded-xl bg-white/5 text-white/70 hover:bg-indigo-500 hover:text-white hover:shadow-[0_0_15px_rgba(99,102,241,0.4)] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full p-2.5 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         <MessageSquare size={16} />
                         Message
@@ -640,10 +635,10 @@ export default function ContactsPage() {
                 })}
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center py-20 text-center opacity-60">
-                <Users size={64} className="mb-4 text-white/20" />
+              <div className="aurora-glass-base rounded-2xl p-12 text-center border-dashed border-white/10">
+                <Users size={64} className="mb-4 text-white/20 mx-auto" />
                 <h3 className="text-xl font-bold text-white mb-2">No contacts yet</h3>
-                <p className="max-w-md text-white/50 mb-6">
+                <p className="max-w-md text-white/50 mb-6 mx-auto">
                   Start building your network by searching for friends and colleagues.
                 </p>
                 <button
@@ -663,16 +658,16 @@ export default function ContactsPage() {
                   {requests.map((req, index) => (
                     <div
                       key={req.id}
-                      className="bg-indigo-500/[0.03] border border-indigo-500/10 p-4 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300"
+                      className="aurora-glass-base p-3.5 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300 hover:border-indigo-500/30 hover:shadow-lg"
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
-                      <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-white font-bold border border-white/10 overflow-hidden flex-shrink-0">
+                      <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-sm font-bold text-white overflow-hidden border-2 border-white/20 flex-shrink-0">
                         {req.avatar_url ? (
                           <Image
                             src={req.avatar_url}
                             alt=""
-                            width={48}
-                            height={48}
+                            width={40}
+                            height={40}
                             className="w-full h-full object-cover"
                           />
                         ) : (
@@ -680,21 +675,21 @@ export default function ContactsPage() {
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-bold text-white truncate">{req.display_name}</h3>
-                        <p className="text-xs text-white/50">Wants to connect</p>
+                        <h3 className="font-semibold text-slate-200 truncate">{req.display_name}</h3>
+                        <p className="text-xs text-slate-400 font-mono">Wants to connect</p>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <button
                           onClick={() => handleDecline(req.relationship_id)}
                           disabled={isPending}
-                          className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white hover:shadow-[0_0_20px_rgba(239,68,68,0.3)] transition-all duration-300 rounded-xl px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-all duration-300 rounded-xl px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <X size={18} />
                         </button>
                         <button
                           onClick={() => handleAccept(req.relationship_id)}
                           disabled={isPending}
-                          className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white hover:shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all duration-300 rounded-xl px-6 py-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/30 transition-all duration-300 rounded-xl px-6 py-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Accept
                         </button>
@@ -703,15 +698,16 @@ export default function ContactsPage() {
                   ))}
                 </div>
               ) : (
-                <div className="text-center py-20 text-white/40">
+                <div className="aurora-glass-base rounded-2xl p-12 text-center border-dashed border-white/10">
                   <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mx-auto mb-4">
                     <UserPlus size={32} className="opacity-50" />
                   </div>
-                  <p>No pending requests.</p>
+                  <p className="text-white/40">No pending requests.</p>
                 </div>
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
 
@@ -722,5 +718,12 @@ export default function ContactsPage() {
         friends={friends}
       />
     </>
+  );
+}
+export default function ContactsPage() {
+  return (
+    <ProtectedRoute>
+      <ContactsPageClient />
+    </ProtectedRoute>
   );
 }

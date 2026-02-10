@@ -14,11 +14,26 @@ if (process.env.ANALYZE === "true") {
 }
 
 const nextConfig: NextConfig = {
+  // Note: output: "export" is removed because:
+  // - proxy.ts (middleware) requires server-side runtime
+  // - API routes require server-side runtime
+  // - Server actions require server-side runtime
+  // - Supabase auth requires server-side runtime
+  // For Electron, Next.js will run as a server in production
+  
   // React Strict Mode: enables additional runtime checks and warnings
   reactStrictMode: true,
 
   // Compression: Enable Gzip/Brotli compression for text assets
   compress: true,
+
+  // Production optimizations
+  poweredByHeader: false, // Remove X-Powered-By header for security
+  generateEtags: true, // Enable ETags for better caching
+  // SWC minification is enabled by default in Next.js 16+
+  
+  // Transpile packages that might have issues with Turbopack
+  transpilePackages: [],
 
   // Note: SWC minification is enabled by default in Next.js 16+ (no need to specify)
 
@@ -63,6 +78,12 @@ const nextConfig: NextConfig = {
         hostname: "picsum.photos",
         pathname: "/**",
       },
+      // Avatar placeholder service
+      {
+        protocol: "https",
+        hostname: "avatar.vercel.sh",
+        pathname: "/**",
+      },
     ],
     // Image optimization settings
     formats: ["image/avif", "image/webp"],
@@ -91,21 +112,21 @@ const nextConfig: NextConfig = {
         ? "style-src 'self' 'unsafe-inline'"
         : "style-src 'self' 'unsafe-inline' http://localhost:* http://*:*",
       // Images: self, data URIs, blob URIs, Supabase Storage, Google Auth avatars, Google APIs, placeholder images, and Vercel assets
-      "img-src 'self' data: blob: https://*.supabase.co https://storage.supabase.co https://*.googleusercontent.com https://*.googleapis.com https://picsum.photos https://fastly.picsum.photos https://vercel.com https://*.vercel.com https://grainy-gradients.vercel.app",
-      // Fonts: self and data URIs
+      "img-src 'self' data: blob: https://*.supabase.co https://storage.supabase.co https://*.googleusercontent.com https://*.googleapis.com https://picsum.photos https://fastly.picsum.photos https://vercel.com https://*.vercel.com https://avatar.vercel.sh https://*.vercel.sh https://grainy-gradients.vercel.app",
+      // Fonts: self, data URIs, and Google Fonts (next/font/google uses these)
       // In dev, also allow HTTP for local network access
       isProduction
-        ? "font-src 'self' data:"
-        : "font-src 'self' data: http://localhost:* http://*:*",
-      // Connect: self, Supabase API, and LiveKit (WebSocket and HTTPS)
+        ? "font-src 'self' data: https://fonts.gstatic.com"
+        : "font-src 'self' data: https://fonts.gstatic.com http://localhost:* http://*:*",
+      // Connect: self, Supabase API, LiveKit, and Google Fonts API
       // In dev, also allow ws:// and http:// for local WebSocket connections
       isProduction
-        ? "connect-src 'self' https://*.supabase.co wss://*.supabase.co wss://*.livekit.cloud https://*.livekit.cloud"
-        : "connect-src 'self' http://localhost:* ws://localhost:* ws://*:* http://*:* https://*.supabase.co wss://*.supabase.co wss://*.livekit.cloud https://*.livekit.cloud",
+        ? "connect-src 'self' https://*.supabase.co wss://*.supabase.co wss://*.livekit.cloud https://*.livekit.cloud https://fonts.googleapis.com https://fonts.gstatic.com"
+        : "connect-src 'self' http://localhost:* ws://localhost:* ws://*:* http://*:* https://*.supabase.co wss://*.supabase.co wss://*.livekit.cloud https://*.livekit.cloud https://fonts.googleapis.com https://fonts.gstatic.com",
       // Frame sources: allow Vercel Live for development/preview feedback
       "frame-src 'self' https://vercel.live",
-      // Media: self, blob, and Supabase Storage (for voice messages, videos)
-      "media-src 'self' blob: https://*.supabase.co https://storage.supabase.co",
+      // Media: self, blob, data URIs, and Supabase Storage (for voice messages, videos)
+      "media-src 'self' blob: data: https://*.supabase.co https://storage.supabase.co",
       // Object/embed: deny (no Flash, plugins, etc.)
       "object-src 'none'",
       // Base URI: self only (prevent base tag injection)

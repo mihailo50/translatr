@@ -1,303 +1,265 @@
-import React from "react";
-import { createClient } from "../../../utils/supabase/server";
+"use client";
+
+import React, { useState, useEffect, use } from "react";
+import { createClient } from "../../../utils/supabase/client";
 import ChatRoom, { RoomDetails } from "../../../components/chat/ChatRoom";
-import { redirect } from "next/navigation";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
+import { useAuth } from "@/components/contexts/AuthContext";
+import { checkChannelPermission } from "@/actions/spaces";
+import { ShieldX, Lock } from "lucide-react";
 
-// Ensure this route is always dynamic (no static 404)
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export default function ChatRoomPage({ params }: { params: Promise<{ roomId: string }> }) {
+  const { user } = useAuth();
+  const [roomDetails, setRoomDetails] = useState<RoomDetails | null>(null);
+  const [profile, setProfile] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
+  const { roomId } = use(params);
 
-async function getRoomDetails(roomId: string, currentUserId: string): Promise<RoomDetails> {
-  const supabase = await createClient();
+  useEffect(() => {
+    if (!user) return;
 
-  // First, try to ensure current user is a member (this avoids RLS recursion)
-  // The INSERT policy allows users to insert themselves, so this should work
-  await supabase.from("room_members").insert({ room_id: roomId, profile_id: currentUserId });
+    const getRoomDetails = async (roomId: string, currentUserId: string): Promise<RoomDetails> => {
+      const supabase = createClient();
+      
+      // Check if user is already a member first
+      const { data: existingMember } = await supabase
+        .from("room_members")
+        .select("profile_id")
+        .eq("room_id", roomId)
+        .eq("profile_id", currentUserId)
+        .maybeSingle();
 
-  // Ignore duplicate key errors (user is already a member)
-  // Non-duplicate errors are ignored silently
-
-  // Now query members - user should be a member now, so RLS recursion should be avoided
-  const { data: members, error: membersError } = await supabase
-    .from("room_members")
-    .select("profile_id")
-    .eq("room_id", roomId);
-
-  // Check if there's an actual error with meaningful properties
-  if (membersError && typeof membersError === "object" && membersError !== null) {
-    const hasMessage =
-      "message" in membersError &&
-      typeof membersError.message === "string" &&
-      membersError.message.length > 0;
-    const hasCode =
-      "code" in membersError &&
-      typeof membersError.code === "string" &&
-      membersError.code.length > 0;
-
-    // Check if it's the RLS recursion error
-    const isRecursionError =
-      membersError.code === "42P17" || membersError.message?.includes("infinite recursion");
-
-    if (isRecursionError) {
-      // RLS recursion error - this means the SELECT policy is broken
-      // Try to work around it by using a simpler query or returning basic structure
-
-      // Try to fetch participant info directly from profiles table using room ID pattern
-      // For direct rooms, the room ID format is: direct_user1_user2
-      if (roomId.startsWith("direct_")) {
-        const parts = roomId.replace("direct_", "").split("_");
-        if (parts.length >= 2) {
-          const otherUserId = parts.find((id) => id !== currentUserId) || parts[1];
-          const { data: otherProfile } = await supabase
-            .from("profiles")
-            .select("id, display_name, email, avatar_url")
-            .eq("id", otherUserId)
-            .single();
-
-          if (otherProfile) {
-            return {
-              id: roomId,
-              room_type: "direct",
-              name: otherProfile.display_name || otherProfile.email?.split("@")[0] || "Unknown",
-              members_count: 2,
-              participants: [
-                {
-                  id: otherProfile.id,
-                  name: otherProfile.display_name || otherProfile.email?.split("@")[0] || "Unknown",
-                  avatar:
-                    otherProfile.avatar_url ||
-                    `https://picsum.photos/seed/${otherProfile.id}/50/50`,
-                  status: "offline",
-                },
-              ],
-            };
-          }
-        }
+      // Only insert if user is not already a member (RLS only allows INSERT, not UPDATE)
+      if (!existingMember) {
+        const { error: insertError } = await supabase
+          .from("room_members")
+          .insert({ room_id: roomId, profile_id: currentUserId });
+        
+        // Silently ignore 409 conflict or other errors - user might have been added concurrently
+        // Non-conflict errors are ignored to allow the page to continue loading
       }
 
-      // Fallback if we can't extract participant info
-      return {
-        id: roomId,
-        room_type: "direct",
-        name: "Unknown",
-        members_count: 0,
-        participants: [],
-      };
-    }
+      const { data: members, error: membersError } = await supabase
+        .from("room_members")
+        .select("profile_id")
+        .eq("room_id", roomId);
 
-    // For other errors, return basic structure
-    if (hasMessage || hasCode) {
-      return {
-        id: roomId,
-        room_type: "direct",
-        name: "Unknown",
-        members_count: 0,
-        participants: [],
-      };
-    }
-  }
+      if (membersError) {
+        return {
+          id: roomId,
+          room_type: "direct",
+          name: "Unknown",
+          members_count: 0,
+          participants: [],
+        };
+      }
 
-  if (!members || members.length === 0) {
-    // Room exists but current user isn't a member yet (common when second user opens the room)
-    // Try to add current user as a member - RLS allows users to insert themselves
-    const { error: insertError } = await supabase
-      .from("room_members")
-      .insert({ room_id: roomId, profile_id: currentUserId })
-      .select("profile_id")
-      .single();
+      if (!members || members.length === 0) {
+        return {
+          id: roomId,
+          room_type: "direct",
+          name: "Unknown",
+          members_count: 0,
+          participants: [],
+        };
+      }
 
-    if (insertError) {
-      // If insert failed (not a duplicate), return basic structure
-      // Even if insert failed, return basic structure so chat can still load
-      return {
-        id: roomId,
-        room_type: "direct",
-        name: "Unknown",
-        members_count: 0,
-        participants: [],
-      };
-    }
-
-    // If insert succeeded, query again to get all members
-    const { data: updatedMembers, error: queryError } = await supabase
-      .from("room_members")
-      .select("profile_id")
-      .eq("room_id", roomId);
-
-    if (queryError) {
-      return {
-        id: roomId,
-        room_type: "direct",
-        name: "Unknown",
-        members_count: 1,
-        participants: [],
-      };
-    }
-
-    // Use the updated members list
-    if (updatedMembers && updatedMembers.length > 0) {
-      // Continue with the rest of the logic using updatedMembers
-      const memberIds = updatedMembers.map((m) => m.profile_id);
-      const { data: profiles } = await supabase
+      const memberIds = members.map((m) => m.profile_id);
+      const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
         .select("id, display_name, email, avatar_url")
         .in("id", memberIds);
 
-      if (profiles && profiles.length > 0) {
-        const otherProfile = profiles.find((p) => p.id !== currentUserId);
-        if (otherProfile) {
-          return {
-            id: roomId,
-            room_type: "direct",
-            name: otherProfile.display_name || otherProfile.email?.split("@")[0] || "Unknown",
-            members_count: updatedMembers.length,
-            participants: [
-              {
-                id: otherProfile.id,
-                name: otherProfile.display_name || otherProfile.email?.split("@")[0] || "Unknown",
-                avatar:
-                  otherProfile.avatar_url || `https://picsum.photos/seed/${otherProfile.id}/50/50`,
-                status: "offline" as const,
-              },
-            ],
-          };
-        }
+      if (profilesError) {
+        return {
+          id: roomId,
+          room_type: members.length === 2 ? "direct" : "group",
+          name: "Unknown",
+          members_count: members.length,
+          participants: [],
+        };
       }
-    }
 
-    // Fallback if we still don't have members
-    return {
-      id: roomId,
-      room_type: "direct",
-      name: "Unknown",
-      members_count: 0,
-      participants: [],
-    };
-  }
+      const isDirect = members.length === 2;
+      const otherMemberId = members.find((m) => m.profile_id !== currentUserId)?.profile_id;
+      const otherProfile = profiles?.find((p) => p.id === otherMemberId);
 
-  // Fetch profile details for all members
-  const memberIds = members.map((m) => m.profile_id);
-  const { data: profiles, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, display_name, email, avatar_url")
-    .in("id", memberIds);
-
-  if (profilesError) {
-    // Return basic structure with member count
-    return {
-      id: roomId,
-      room_type: members.length === 2 ? "direct" : "group",
-      name: "Unknown",
-      members_count: members.length,
-      participants: [],
-    };
-  }
-
-  // Determine if it's a direct message (2 members) or group chat
-  const isDirect = members.length === 2;
-
-  // Get the other participant for direct messages
-  const otherMemberId = members.find((m) => m.profile_id !== currentUserId)?.profile_id;
-  const otherProfile = profiles?.find((p) => p.id === otherMemberId);
-
-  if (isDirect && otherProfile) {
-    return {
-      id: roomId,
-      room_type: "direct",
-      name: otherProfile.display_name || otherProfile.email?.split("@")[0] || "Unknown",
-      members_count: 2,
-      participants: [
-        {
-          id: otherProfile.id,
+      if (isDirect && otherProfile) {
+        return {
+          id: roomId,
+          room_type: "direct",
           name: otherProfile.display_name || otherProfile.email?.split("@")[0] || "Unknown",
-          avatar: otherProfile.avatar_url || `https://picsum.photos/seed/${otherProfile.id}/50/50`,
-          status: "offline", // Status will be updated by presence system
-        },
-      ],
+          members_count: 2,
+          participants: [
+            {
+              id: otherProfile.id,
+              name: otherProfile.display_name || otherProfile.email?.split("@")[0] || "Unknown",
+              avatar: otherProfile.avatar_url || null,
+              status: "offline",
+            },
+          ],
+        };
+      }
+
+      const participants = (profiles || []).map((profile) => ({
+        id: profile.id,
+        name: profile.display_name || profile.email?.split("@")[0] || "Unknown",
+        avatar: profile.avatar_url || null,
+        status: "offline" as const,
+      }));
+
+      const otherParticipants = participants.filter((p) => p.id !== currentUserId);
+      const displayName =
+        otherParticipants
+          .map((p) => p.name)
+          .slice(0, 2)
+          .join(", ") + (otherParticipants.length > 2 ? ` +${otherParticipants.length - 2}` : "");
+
+      return {
+        id: roomId,
+        room_type: "group",
+        name: displayName,
+        members_count: members.length,
+        participants,
+      };
     };
-  }
 
-  // Group chat - include ALL participants (including current user) for accurate online counts
-  const participants = (profiles || []).map((profile) => ({
-    id: profile.id,
-    name: profile.display_name || profile.email?.split("@")[0] || "Unknown",
-    avatar: profile.avatar_url || `https://picsum.photos/seed/${profile.id}/50/50`,
-    status: "offline" as const,
-  }));
+    const fetchData = async () => {
+      console.log("🟦 [CHAT PAGE] fetchData called", {
+        roomId,
+        userId: user.id,
+        timestamp: new Date().toISOString(),
+      });
+      
+      setLoading(true);
+      const supabase = createClient();
+      
+      // Check if this is a channel (check if room has space_id and room_type is "channel")
+      console.log("🟦 [CHAT PAGE] Checking if room exists and is a channel...");
+      const { data: roomData, error: roomDataError } = await supabase
+        .from("rooms")
+        .select("space_id, room_type")
+        .eq("id", roomId)
+        .maybeSingle();
+      
+      console.log("🟦 [CHAT PAGE] Room data query result:", {
+        roomData,
+        roomDataError,
+        hasRoomData: !!roomData,
+      });
+      
+      // Check if this is actually a channel (must have room_type="channel" AND space_id)
+      // If room doesn't exist or doesn't have these properties, it's a regular chat
+      const isChannel = roomData?.room_type === "channel" && roomData?.space_id;
+      console.log("🟦 [CHAT PAGE] Room type check:", {
+        isChannel,
+        roomType: roomData?.room_type,
+        hasSpaceId: !!roomData?.space_id,
+        spaceId: roomData?.space_id,
+      });
+      
+      // ONLY check channel permissions if it's actually a channel
+      // Regular chats (direct/group) don't need channel permission checks - allow access immediately
+      if (isChannel) {
+        console.log("🟦 [CHAT PAGE] This is a channel, checking permissions...");
+        const { hasAccess, error } = await checkChannelPermission(roomId, user.id);
+        console.log("🟦 [CHAT PAGE] Permission check result:", {
+          hasAccess,
+          error,
+        });
+        setHasPermission(hasAccess);
+        setPermissionError(error);
+        
+        if (!hasAccess) {
+          console.log("🟦 [CHAT PAGE] Access denied, stopping load");
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Regular chat (direct or group) - allow access without channel permission checks
+        // Room might not exist in rooms table, that's fine for regular chats
+        console.log("🟦 [CHAT PAGE] Not a channel (regular chat), allowing access");
+        setHasPermission(true);
+      }
+      
+      console.log("🟦 [CHAT PAGE] Fetching profile and room details...");
+      const [profileResult, roomDetailsResult] = await Promise.allSettled([
+        supabase.from("profiles").select("*").eq("id", user.id).single(),
+        getRoomDetails(roomId, user.id),
+      ]);
 
-  // For display name, use other participants (not current user)
-  const otherParticipants = participants.filter((p) => p.id !== currentUserId);
-  const displayName =
-    otherParticipants
-      .map((p) => p.name)
-      .slice(0, 2)
-      .join(", ") + (otherParticipants.length > 2 ? ` +${otherParticipants.length - 2}` : "");
+      console.log("🟦 [CHAT PAGE] Profile and room details fetched:", {
+        profileStatus: profileResult.status,
+        roomDetailsStatus: roomDetailsResult.status,
+        roomDetails: roomDetailsResult.status === "fulfilled" ? roomDetailsResult.value : null,
+      });
 
-  return {
-    id: roomId,
-    room_type: "group",
-    name: displayName,
-    members_count: members.length,
-    participants, // All participants including current user
-  };
-}
+      if (profileResult.status === "fulfilled") {
+        setProfile(profileResult.value.data);
+        console.log("🟦 [CHAT PAGE] Profile set");
+      } else {
+        console.log("🟦 [CHAT PAGE] Profile fetch failed:", profileResult.reason);
+      }
 
-export default async function ChatRoomPage({
-  params,
-}: {
-  params: { roomId: string } | Promise<{ roomId: string }>;
-}) {
-  // Turbopack/Next 16 may pass params as a Promise; handle both sync and async
-  const resolvedParams =
-    params && typeof params === "object" && "then" in params
-      ? await (params as Promise<{ roomId: string }>)
-      : (params as { roomId: string });
-  const roomId = resolvedParams?.roomId;
-
-  if (!roomId) {
-    // If roomId is missing, redirect to chats list or home
-    redirect("/chat");
-  }
-
-  // Auth check is handled by middleware.ts at the edge
-  // If we reach here, user is authenticated
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // User should always exist here due to middleware, but add safety check for TypeScript
-  if (!user) {
-    redirect("/auth/login");
-  }
-
-  // Fetch profile and room details in parallel for faster loading
-  const [profileResult, roomDetailsResult] = await Promise.allSettled([
-    supabase.from("profiles").select("*").eq("id", user.id).single(),
-    getRoomDetails(roomId, user.id),
-  ]);
-
-  const profile = profileResult.status === "fulfilled" ? profileResult.value.data : null;
-  const roomDetails =
-    roomDetailsResult.status === "fulfilled"
-      ? roomDetailsResult.value
-      : {
+      if (roomDetailsResult.status === "fulfilled") {
+        setRoomDetails(roomDetailsResult.value);
+        console.log("🟦 [CHAT PAGE] Room details set:", roomDetailsResult.value);
+      } else {
+        console.log("🟦 [CHAT PAGE] Room details fetch failed:", roomDetailsResult.reason);
+        setRoomDetails({
           id: roomId,
           room_type: "direct" as const,
           name: "Loading...",
           members_count: 0,
           participants: [],
-        };
+        });
+      }
+      setLoading(false);
+      console.log("🟦 [CHAT PAGE] fetchData completed, loading set to false");
+    };
+
+    fetchData();
+  }, [roomId, user]);
 
   return (
-    <div className="h-full w-full">
-      <ChatRoom
-        roomId={roomId}
-        roomDetails={roomDetails}
-        userId={user.id}
-        userName={profile?.display_name || user.email?.split("@")[0] || "Unknown"}
-        userPreferredLanguage={profile?.preferred_language || "en"}
-      />
-    </div>
+    <ProtectedRoute>
+      <div className="h-full w-full">
+        {loading || !roomDetails || !user ? (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-white/60">Loading...</div>
+          </div>
+        ) : hasPermission === false ? (
+          <div className="h-full flex items-center justify-center bg-[#020205]">
+            <div className="aurora-glass-deep rounded-2xl p-8 max-w-md w-full mx-4 text-center">
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center">
+                  <ShieldX className="w-8 h-8 text-red-400" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-white mb-2">Access Denied</h2>
+                  <p className="text-slate-400">
+                    {permissionError || "You do not have permission to view this channel."}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-slate-500 mt-4">
+                  <Lock className="w-4 h-4" />
+                  <span>This channel is private and restricted to specific roles.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <ChatRoom
+            roomId={roomId}
+            roomDetails={roomDetails}
+            userId={user.id}
+            userName={profile?.display_name || user.email?.split("@")[0] || "Unknown"}
+            userPreferredLanguage={profile?.preferred_language || "en"}
+          />
+        )}
+      </div>
+    </ProtectedRoute>
   );
 }

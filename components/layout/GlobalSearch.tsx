@@ -2,10 +2,17 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { Search, MessageSquare, Loader2, X } from "lucide-react";
 import { globalSearch, GlobalSearchResults } from "../../app/actions/search";
 
 export default function GlobalSearch() {
+  const pathname = usePathname();
+  
+  // Hide on Homepage (we already have a large search bar there)
+  if (pathname === '/' || pathname === '/home') {
+    return null;
+  }
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GlobalSearchResults | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -62,11 +69,11 @@ export default function GlobalSearch() {
   };
 
   return (
-    <div className="relative group w-full max-w-md hidden sm:block" ref={searchRef}>
+    <div className="relative group w-full max-w-md mx-auto hidden sm:block" ref={searchRef}>
       {/* Input Field */}
       <div className="relative z-50">
         <Search
-          className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${isOpen ? "text-aurora-indigo" : "text-white/30 group-focus-within:text-aurora-indigo"}`}
+          className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${isOpen ? "text-indigo-400" : "text-slate-400"}`}
         />
         <input
           type="text"
@@ -74,14 +81,11 @@ export default function GlobalSearch() {
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => query.length >= 2 && setIsOpen(true)}
           placeholder="Search messages, people..."
-          className={`
-                        w-full bg-white/5 border rounded-full py-2 pl-10 pr-10 text-sm text-white focus:outline-none focus:ring-2 focus:ring-aurora-indigo/50 transition-all
-                        ${isOpen ? "border-aurora-indigo/50 bg-black/40" : "border-white/10"}
-                    `}
+          className="w-full aurora-glass-base h-10 rounded-full pl-10 pr-10 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500/40 focus:shadow-[0_0_20px_rgba(99,102,241,0.15)] transition-all"
         />
 
         {isLoading ? (
-          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-aurora-indigo animate-spin" />
+          <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400 animate-spin" />
         ) : (
           query && (
             <button
@@ -89,7 +93,7 @@ export default function GlobalSearch() {
                 setQuery("");
                 setIsOpen(false);
               }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors"
             >
               <X size={14} />
             </button>
@@ -99,7 +103,7 @@ export default function GlobalSearch() {
 
       {/* Results Dropdown */}
       {isOpen && results && (
-        <div className="absolute top-full left-0 right-0 mt-2 glass-strong rounded-2xl border border-white/10 overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200 z-50">
+        <div className="absolute top-full left-0 right-0 mt-2 aurora-glass-deep rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 z-50">
           <div className="max-h-[400px] overflow-y-auto scrollbar-thin">
             {/* Users Section */}
             {results.users.length > 0 && (
@@ -111,7 +115,7 @@ export default function GlobalSearch() {
                   <button
                     key={user.id}
                     onClick={() => handleSelectUser(user.id)}
-                    className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-white/10 transition-colors text-left group/item"
+                    className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-white/5 hover:border-indigo-500/30 transition-colors text-left group/item"
                   >
                     <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center overflow-hidden border border-white/10 shrink-0">
                       {user.avatar_url ? (
@@ -149,7 +153,7 @@ export default function GlobalSearch() {
                   <button
                     key={msg.id}
                     onClick={() => handleSelectMessage(msg.room_id)}
-                    className="w-full flex items-start gap-3 p-2 rounded-xl hover:bg-white/10 transition-colors text-left group/item"
+                    className="w-full flex items-start gap-3 p-2 rounded-xl hover:bg-white/5 hover:border-indigo-500/30 transition-colors text-left group/item"
                   >
                     <div className="mt-1 p-1.5 rounded-lg bg-aurora-indigo/10 text-aurora-indigo shrink-0">
                       <MessageSquare size={14} />

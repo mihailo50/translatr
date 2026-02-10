@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { translateTextAction } from "../../actions/translate";
 import { getProfile } from "../../actions/settings";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import { Copy, Check, Languages, Sparkles, ArrowRightLeft, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -23,7 +24,7 @@ const LANGUAGES = [
   { code: "pl", label: "Polish" },
 ];
 
-export default function TranslatePage() {
+function TranslatePage() {
   // State
   const [inputText, setInputText] = useState("");
   const [debouncedText, setDebouncedText] = useState("");
@@ -105,29 +106,27 @@ export default function TranslatePage() {
   };
 
   return (
-    <div className="h-full w-full flex flex-col p-4 md:p-8 space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-white mb-1 flex items-center gap-2">
-            <Sparkles className="text-aurora-purple" size={24} />
-            Quick Translate
-          </h1>
-          <p className="text-white/50">Instant translation powered by AI.</p>
+    <div className="flex-1 h-full flex flex-col overflow-hidden relative bg-transparent">
+      {/* Content Area - Scrollable */}
+      <div className="flex-1 overflow-y-auto scrollbar-thin">
+        {/* Page Title */}
+        <div className="w-full max-w-5xl mx-auto pt-6 pb-4 px-4 md:px-6">
+          <h1 className="text-2xl font-display font-bold text-white tracking-wide">Translate</h1>
         </div>
-      </div>
+
+        <div className="w-full max-w-5xl mx-auto px-4 pb-8 md:px-6 flex flex-col gap-6">
 
       {/* Translation Container */}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 min-h-[500px]">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 min-h-[500px] relative">
         {/* --- INPUT AREA --- */}
-        <div className="glass-strong rounded-3xl p-6 flex flex-col gap-4 border border-white/10 relative group focus-within:border-aurora-indigo/50 transition-colors">
+        <div className="aurora-glass-premium rounded-3xl p-6 flex flex-col gap-4 relative group">
           {/* Controls */}
           <div className="flex items-center justify-between border-b border-white/5 pb-4">
             <div className="relative group/dropdown">
               <select
                 value={sourceLang}
                 onChange={(e) => setSourceLang(e.target.value)}
-                className="appearance-none bg-white/5 hover:bg-white/10 text-white pl-4 pr-10 py-2 rounded-xl font-medium focus:outline-none focus:ring-2 focus:ring-aurora-indigo/50 transition-all cursor-pointer border border-white/5"
+                className="appearance-none bg-slate-900/50 border border-white/10 text-slate-200 rounded-lg py-1.5 pl-3 pr-8 text-sm focus:ring-1 focus:ring-indigo-500/50 focus:outline-none transition-all cursor-pointer"
               >
                 <option value="auto" className="bg-slate-900">
                   Detect Language
@@ -140,12 +139,12 @@ export default function TranslatePage() {
               </select>
               <Languages
                 size={16}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 pointer-events-none"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
               />
             </div>
 
             {detectedLang && sourceLang === "auto" && (
-              <span className="text-xs text-aurora-indigo font-semibold px-3 py-1 bg-aurora-indigo/10 rounded-full animate-in fade-in">
+              <span className="text-xs text-indigo-400 font-semibold px-3 py-1 bg-indigo-500/10 rounded-full animate-in fade-in">
                 Detected: {getLanguageLabel(detectedLang)}
               </span>
             )}
@@ -156,21 +155,21 @@ export default function TranslatePage() {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Enter text to translate..."
-            className="flex-1 w-full bg-transparent border-none text-white text-lg md:text-xl placeholder-white/20 resize-none focus:ring-0 leading-relaxed scrollbar-thin"
+            className="flex-1 w-full bg-transparent border-none text-slate-200 text-lg md:text-xl placeholder-slate-500 resize-none focus:ring-0 focus:outline-none leading-relaxed scrollbar-thin"
             spellCheck="false"
             autoFocus
           />
 
           {/* Footer Tools */}
-          <div className="flex justify-between items-center text-white/30 pt-4 border-t border-white/5">
-            <span className="text-xs">{inputText.length} chars</span>
+          <div className="flex justify-between items-center text-slate-500 pt-4 border-t border-white/5">
+            <span className="text-xs font-mono">{inputText.length} chars</span>
             {inputText && (
               <button
                 onClick={() => {
                   setInputText("");
                   setOutputText("");
                 }}
-                className="p-2 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                className="p-2 text-slate-500 hover:text-slate-300 rounded-lg transition-colors"
                 title="Clear text"
               >
                 <RotateCcw size={16} />
@@ -184,14 +183,14 @@ export default function TranslatePage() {
           <button
             onClick={swapLanguages}
             disabled={!outputText}
-            className="p-3 rounded-full bg-slate-900 border border-white/20 text-white/70 hover:text-aurora-indigo hover:border-aurora-indigo shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-2.5 rounded-full bg-slate-900 border border-white/20 text-slate-400 hover:text-indigo-400 hover:border-indigo-500/50 shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ArrowRightLeft size={20} />
           </button>
         </div>
 
         {/* --- OUTPUT AREA --- */}
-        <div className="glass rounded-3xl p-6 flex flex-col gap-4 border border-white/5 relative overflow-hidden bg-white/[0.02]">
+        <div className="aurora-glass-premium rounded-3xl p-6 flex flex-col gap-4 relative overflow-hidden">
           {/* Background Loading Effect */}
           {isLoading && (
             <div
@@ -206,7 +205,7 @@ export default function TranslatePage() {
               <select
                 value={targetLang}
                 onChange={(e) => setTargetLang(e.target.value)}
-                className="appearance-none bg-aurora-indigo/10 hover:bg-aurora-indigo/20 text-aurora-indigo pl-4 pr-10 py-2 rounded-xl font-bold focus:outline-none focus:ring-2 focus:ring-aurora-indigo/50 transition-all cursor-pointer border border-aurora-indigo/20"
+                className="appearance-none bg-slate-900/50 border border-white/10 text-slate-200 rounded-lg py-1.5 pl-3 pr-8 text-sm focus:ring-1 focus:ring-indigo-500/50 focus:outline-none transition-all cursor-pointer"
               >
                 {LANGUAGES.map((l) => (
                   <option key={l.code} value={l.code} className="bg-slate-900 text-white">
@@ -216,7 +215,7 @@ export default function TranslatePage() {
               </select>
               <Languages
                 size={16}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-aurora-indigo/60 pointer-events-none"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
               />
             </div>
           </div>
@@ -231,7 +230,7 @@ export default function TranslatePage() {
               </div>
             ) : (
               <div
-                className={`text-lg md:text-xl leading-relaxed transition-colors duration-300 ${outputText ? "text-white" : "text-white/10"}`}
+                className={`text-lg md:text-xl leading-relaxed transition-colors duration-300 ${outputText ? "text-indigo-200" : "text-slate-500"}`}
               >
                 {outputText || "Translation will appear here..."}
               </div>
@@ -244,11 +243,11 @@ export default function TranslatePage() {
               onClick={handleCopy}
               disabled={!outputText}
               className={`
-                            flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all
+                            flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all
                             ${
                               isCopied
                                 ? "bg-green-500/20 text-green-400"
-                                : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                                : "text-slate-400 hover:bg-indigo-500/10 hover:text-indigo-400 disabled:opacity-30 disabled:cursor-not-allowed"
                             }
                         `}
             >
@@ -272,6 +271,17 @@ export default function TranslatePage() {
       `,
         }}
       />
+        </div>
+      </div>
     </div>
   );
 }
+
+// Wrap the component with ProtectedRoute
+const TranslatePageWithProtection = () => (
+  <ProtectedRoute>
+    <TranslatePage />
+  </ProtectedRoute>
+);
+
+export default TranslatePageWithProtection;
