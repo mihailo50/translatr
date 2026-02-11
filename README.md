@@ -14,7 +14,55 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The server will automatically try to use HTTPS with self-signed certificates. If certificate generation fails, it will automatically fall back to HTTP mode.
+
+### Development Server Options
+
+- **`npm run dev`** - Starts the server with HTTPS (auto-generates certificates if needed)
+- **`npm run dev:http`** - Forces HTTP mode (bypasses HTTPS entirely)
+- **`npm run dev:regenerate-certs`** - Forces regeneration of SSL certificates
+
+### Troubleshooting Certificate Issues
+
+If you encounter certificate generation errors:
+
+1. **Use HTTP mode** (easiest solution):
+
+   ```bash
+   npm run dev:http
+   ```
+
+   Or set the environment variable:
+
+   ```bash
+   USE_HTTP=true npm run dev
+   ```
+
+2. **Regenerate certificates**:
+
+   ```bash
+   npm run dev:regenerate-certs
+   ```
+
+3. **Delete existing certificates and retry**:
+
+   ```bash
+   # Delete cert files
+   rm cert.pem key.pem  # Linux/Mac
+   del cert.pem key.pem  # Windows
+
+   # Then run normally
+   npm run dev
+   ```
+
+4. **Reinstall dependencies**:
+   ```bash
+   npm install
+   ```
+
+The server will automatically fall back to HTTP if HTTPS certificate generation fails, so the project should start without errors in most cases.
+
+Open [http://localhost:3000](http://localhost:3000) or [https://localhost:3000](https://localhost:3000) with your browser to see the result.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

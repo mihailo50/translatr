@@ -22,7 +22,7 @@
   "scripts": {
     "dev": "node server.js",
     "dev:secure": "node server.js",
-    "dev:http": "next dev -H 0.0.0.0",
+    "dev:http": "USE_HTTP=true node server.js",
     "dev:regenerate-certs": "FORCE_REGENERATE_CERTS=true node server.js",
     "build": "next build",
     "build:analyze": "ANALYZE=true next build",
