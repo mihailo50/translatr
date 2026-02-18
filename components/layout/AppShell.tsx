@@ -8,10 +8,9 @@ import NotificationBell from "../ui/NotificationBell";
 import GlobalSearch from "./GlobalSearch";
 import SpaceRail from "../navigation/SpaceRail";
 import ChannelSidebar, { SpaceChannel } from "../navigation/ChannelSidebar";
-import SpaceSettingsModal from '../spaces/SpaceSettingsModal';
-import CreateSpaceModal from '../spaces/CreateSpaceModal';
-import { Menu, Home, X } from "lucide-react";
-import Image from "next/image";
+import SpaceSettingsModal from "../spaces/SpaceSettingsModal";
+import CreateSpaceModal from "../spaces/CreateSpaceModal";
+import { Menu } from "lucide-react";
 import { AetherLogo } from "../ui/AetherLogo";
 import { Toaster } from "sonner";
 import { getUserSpaces, getSpaceChannels, Space } from "../../actions/spaces";
@@ -60,7 +59,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const isSelectingSpaceRef = useRef(false); // Prevent clearing logic during space selection
   const pathname = usePathname();
   const router = useRouter();
-  
+
   // Log pathname changes
   useEffect(() => {
     console.log("🟠 [PATHNAME CHANGE] Pathname changed to:", pathname, {
@@ -69,7 +68,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
       isSelectingSpace: isSelectingSpaceRef.current,
     });
   }, [pathname, currentSpaceId]);
-  
+
   // Log currentSpaceId changes
   useEffect(() => {
     console.log("🔷 [STATE CHANGE] currentSpaceId changed:", {
@@ -99,7 +98,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   // Check if current page is a chat page (needs fixed layout)
   const isChatPage = pathname?.startsWith("/chat/");
   const chatRoomId = isChatPage ? pathname.split("/chat/")[1] : null;
-  
+
   // Check if current page is a space page
   const isSpacePage = pathname?.startsWith("/space/");
   const spacePageId = isSpacePage ? pathname.split("/space/")[1]?.split("/")[0] : null;
@@ -148,7 +147,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             .select("space_id")
             .eq("id", chatRoomId)
             .maybeSingle();
-          
+
           if (room?.space_id) {
             setChatRoomSpaceId(room.space_id);
             // Auto-select the space if we're in a chat that belongs to it
@@ -176,7 +175,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
       hasSpaces: spaces.length > 0,
       timestamp: new Date().toISOString(),
     });
-    
+
     if (!currentSpaceId) {
       console.log("🟪 [CHANNELS FETCH] No currentSpaceId, clearing channels");
       setChannels([]);
@@ -194,11 +193,11 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           channelCount: result.channels?.length || 0,
           error: result.error,
         });
-        
+
         if (result.channels) {
           setChannels(result.channels);
           // Find the current space to get admin status
-          const space = spaces.find(s => s.id === currentSpaceId);
+          const space = spaces.find((s) => s.id === currentSpaceId);
           setCurrentSpace(space || null);
           console.log("🟪 [CHANNELS FETCH] Channels and space set");
         } else if (result.error) {
@@ -216,61 +215,67 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   }, [currentSpaceId, spaces]);
 
   // Handle space selection
-  const handleSpaceSelect = useCallback(async (spaceId: string) => {
-    console.log("🔵 [SPACE SELECT] handleSpaceSelect called", {
-      spaceId,
-      currentPathname: pathname,
-      isHomePage,
-      isSelectingSpace: isSelectingSpaceRef.current,
-      currentSpaceId,
-      timestamp: new Date().toISOString(),
-    });
-    
-    // Mark that we're actively selecting a space to prevent clearing logic
-    isSelectingSpaceRef.current = true;
-    console.log("🔵 [SPACE SELECT] Set isSelectingSpaceRef.current = true");
-    
-    setCurrentSpaceId(spaceId);
-    console.log("🔵 [SPACE SELECT] Set currentSpaceId to:", spaceId);
-    
-    // On desktop, always show channel sidebar when space is selected
-    // On mobile, the SpaceRail drawer will close and ChannelSidebar will open separately
-    if (window.innerWidth >= 768) {
-      setIsChannelSidebarOpen(true); // Desktop: always visible
-      console.log("🔵 [SPACE SELECT] Desktop: Opening channel sidebar");
-    } else {
-      // Mobile: ChannelSidebar will be opened by the SpaceRail onSpaceSelect handler
-      // This ensures the SpaceRail drawer closes first, then ChannelSidebar opens
-      setIsChannelSidebarOpen(true);
-      console.log("🔵 [SPACE SELECT] Mobile: Opening channel sidebar");
-    }
-    
-    // Navigate to the space page (not to a channel)
-    // Only navigate if we're not already on this space's page
-    const isOnSpacePage = pathname === `/space/${spaceId}` || pathname.startsWith(`/space/${spaceId}/`);
-    const shouldNavigate = (isHomePage || pathname === "/") && !isOnSpacePage;
-    console.log("🔵 [SPACE SELECT] Navigation check:", {
-      shouldNavigate,
-      isHomePage,
-      pathname,
-      isOnSpacePage,
-    });
-    
-    if (shouldNavigate) {
-      const targetPath = `/space/${spaceId}`;
-      console.log("🔵 [SPACE SELECT] Navigating to space page:", targetPath);
-      router.push(targetPath);
-      console.log("🔵 [SPACE SELECT] router.push called, navigation initiated");
-    } else {
-      console.log("🔵 [SPACE SELECT] Skipping navigation (already on space page or not on homepage)");
-    }
-    
-    // Reset the flag after a short delay to allow state to settle
-    setTimeout(() => {
-      isSelectingSpaceRef.current = false;
-      console.log("🔵 [SPACE SELECT] Reset isSelectingSpaceRef.current = false (after 100ms)");
-    }, 100);
-  }, [isHomePage, pathname, router, currentSpaceId]);
+  const handleSpaceSelect = useCallback(
+    async (spaceId: string) => {
+      console.log("🔵 [SPACE SELECT] handleSpaceSelect called", {
+        spaceId,
+        currentPathname: pathname,
+        isHomePage,
+        isSelectingSpace: isSelectingSpaceRef.current,
+        currentSpaceId,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Mark that we're actively selecting a space to prevent clearing logic
+      isSelectingSpaceRef.current = true;
+      console.log("🔵 [SPACE SELECT] Set isSelectingSpaceRef.current = true");
+
+      setCurrentSpaceId(spaceId);
+      console.log("🔵 [SPACE SELECT] Set currentSpaceId to:", spaceId);
+
+      // On desktop, always show channel sidebar when space is selected
+      // On mobile, the SpaceRail drawer will close and ChannelSidebar will open separately
+      if (window.innerWidth >= 768) {
+        setIsChannelSidebarOpen(true); // Desktop: always visible
+        console.log("🔵 [SPACE SELECT] Desktop: Opening channel sidebar");
+      } else {
+        // Mobile: ChannelSidebar will be opened by the SpaceRail onSpaceSelect handler
+        // This ensures the SpaceRail drawer closes first, then ChannelSidebar opens
+        setIsChannelSidebarOpen(true);
+        console.log("🔵 [SPACE SELECT] Mobile: Opening channel sidebar");
+      }
+
+      // Navigate to the space page (not to a channel)
+      // Only navigate if we're not already on this space's page
+      const isOnSpacePage =
+        pathname === `/space/${spaceId}` || pathname.startsWith(`/space/${spaceId}/`);
+      const shouldNavigate = (isHomePage || pathname === "/") && !isOnSpacePage;
+      console.log("🔵 [SPACE SELECT] Navigation check:", {
+        shouldNavigate,
+        isHomePage,
+        pathname,
+        isOnSpacePage,
+      });
+
+      if (shouldNavigate) {
+        const targetPath = `/space/${spaceId}`;
+        console.log("🔵 [SPACE SELECT] Navigating to space page:", targetPath);
+        router.push(targetPath);
+        console.log("🔵 [SPACE SELECT] router.push called, navigation initiated");
+      } else {
+        console.log(
+          "🔵 [SPACE SELECT] Skipping navigation (already on space page or not on homepage)"
+        );
+      }
+
+      // Reset the flag after a short delay to allow state to settle
+      setTimeout(() => {
+        isSelectingSpaceRef.current = false;
+        console.log("🔵 [SPACE SELECT] Reset isSelectingSpaceRef.current = false (after 100ms)");
+      }, 100);
+    },
+    [isHomePage, pathname, router, currentSpaceId]
+  );
 
   // Handle home click (deselect space)
   const handleHomeClick = useCallback(() => {
@@ -278,37 +283,41 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
     setCurrentSpaceId(null);
     setChatRoomSpaceId(null); // Clear chat room space ID
     setIsChannelSidebarOpen(false);
-    router.push('/');
+    router.push("/");
   }, [router]);
 
   // Handle channel click - navigate to channel page
-  const handleChannelClick = useCallback((channelId: string) => {
-    console.log("🟣 [CHANNEL CLICK] handleChannelClick called", {
-      channelId,
-      currentPathname: pathname,
-      currentSpaceId,
-      timestamp: new Date().toISOString(),
-    });
-    
-    // Use currentSpaceId if available, otherwise try to extract from pathname
-    const spaceId = currentSpaceId || (pathname.startsWith("/space/") ? pathname.split("/")[2] : null);
-    
-    if (!spaceId) {
-      console.error("🟣 [CHANNEL CLICK] No spaceId available, cannot navigate");
-      toast.error("Unable to determine space");
-      return;
-    }
-    
-    const targetPath = `/space/${spaceId}/channel/${channelId}`;
-    console.log("🟣 [CHANNEL CLICK] Navigating to:", targetPath);
-    router.push(targetPath);
-    console.log("🟣 [CHANNEL CLICK] router.push called");
-    // Close channel sidebar on mobile after selection
-    if (window.innerWidth < 768) {
-      setIsChannelSidebarOpen(false);
-      console.log("🟣 [CHANNEL CLICK] Mobile: Closing channel sidebar");
-    }
-  }, [router, pathname, currentSpaceId]);
+  const handleChannelClick = useCallback(
+    (channelId: string) => {
+      console.log("🟣 [CHANNEL CLICK] handleChannelClick called", {
+        channelId,
+        currentPathname: pathname,
+        currentSpaceId,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Use currentSpaceId if available, otherwise try to extract from pathname
+      const spaceId =
+        currentSpaceId || (pathname.startsWith("/space/") ? pathname.split("/")[2] : null);
+
+      if (!spaceId) {
+        console.error("🟣 [CHANNEL CLICK] No spaceId available, cannot navigate");
+        toast.error("Unable to determine space");
+        return;
+      }
+
+      const targetPath = `/space/${spaceId}/channel/${channelId}`;
+      console.log("🟣 [CHANNEL CLICK] Navigating to:", targetPath);
+      router.push(targetPath);
+      console.log("🟣 [CHANNEL CLICK] router.push called");
+      // Close channel sidebar on mobile after selection
+      if (window.innerWidth < 768) {
+        setIsChannelSidebarOpen(false);
+        console.log("🟣 [CHANNEL CLICK] Mobile: Closing channel sidebar");
+      }
+    },
+    [router, pathname, currentSpaceId]
+  );
 
   // Handle add space
   const handleAddSpace = useCallback(() => {
@@ -316,19 +325,22 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
   }, []);
 
   // Handle create channel
-  const handleCreateChannel = useCallback((type: 'text' | 'audio' | 'video') => {
-    if (!currentSpaceId) return;
-    // TODO: Open create channel modal
-    toast.info(`Create ${type} channel feature coming soon`);
-  }, [currentSpaceId]);
+  const handleCreateChannel = useCallback(
+    (type: "text" | "audio" | "video") => {
+      if (!currentSpaceId) return;
+      // TODO: Open create channel modal
+      toast.info(`Create ${type} channel feature coming soon`);
+    },
+    [currentSpaceId]
+  );
 
   // Get current user to check ownership
   const { user } = useAuth();
   const [isSpaceOwner, setIsSpaceOwner] = useState(false);
-  
+
   // Get voice channel state - MUST be called before any conditional returns
   const { voiceChannel, leaveVoiceChannel } = useVoiceChannel();
-  
+
   // Check if user is owner of the space (separate from role in space_members)
   useEffect(() => {
     if (currentSpaceId && user?.id) {
@@ -337,14 +349,14 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           const { createClient } = await import("../../utils/supabase/client");
           const supabase = createClient();
           const { data: space } = await supabase
-            .from('spaces')
-            .select('owner_id')
-            .eq('id', currentSpaceId)
+            .from("spaces")
+            .select("owner_id")
+            .eq("id", currentSpaceId)
             .maybeSingle();
-          
+
           setIsSpaceOwner(space?.owner_id === user.id);
         } catch (error) {
-          console.error('Error checking space ownership:', error);
+          console.error("Error checking space ownership:", error);
           setIsSpaceOwner(false);
         }
       });
@@ -352,14 +364,14 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
       setIsSpaceOwner(false);
     }
   }, [currentSpaceId, user?.id]);
-  
+
   // Determine if user is admin for current space (owner or admin role)
-  const isAdmin = isSpaceOwner || currentSpace?.role === 'admin';
-  
+  const isAdmin = isSpaceOwner || currentSpace?.role === "admin";
+
   // Log user role when space is loaded
   useEffect(() => {
     if (currentSpace) {
-      console.log('🔴 [USER ROLE] Space loaded:', {
+      console.log("🔴 [USER ROLE] Space loaded:", {
         spaceId: currentSpace.id,
         spaceName: currentSpace.name,
         userRole: currentSpace.role,
@@ -395,7 +407,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
       isSelectingSpace: isSelectingSpaceRef.current,
       timestamp: new Date().toISOString(),
     });
-    
+
     // Add a small delay to prevent clearing during navigation
     const timeoutId = setTimeout(() => {
       const shouldClear = isHomePage && currentSpaceId === null && !isSelectingSpaceRef.current;
@@ -405,7 +417,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
         currentSpaceId,
         isSelectingSpace: isSelectingSpaceRef.current,
       });
-      
+
       if (shouldClear) {
         console.log("🟡 [CLEAR LOGIC 1] CLEARING space selection (isHomePage)");
         // Only clear if space is already null and we're not actively selecting
@@ -415,7 +427,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
         console.log("🟡 [CLEAR LOGIC 1] NOT clearing (conditions not met)");
       }
     }, 200); // Small delay to allow navigation to complete
-    
+
     return () => {
       console.log("🟡 [CLEAR LOGIC 1] Cleanup: clearing timeout");
       clearTimeout(timeoutId);
@@ -432,17 +444,18 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
       isSelectingSpace: isSelectingSpaceRef.current,
       timestamp: new Date().toISOString(),
     });
-    
+
     // Add a small delay to prevent clearing during navigation
     const timeoutId = setTimeout(() => {
-      const shouldClear = pathname === "/" && currentSpaceId === null && !isSelectingSpaceRef.current;
+      const shouldClear =
+        pathname === "/" && currentSpaceId === null && !isSelectingSpaceRef.current;
       console.log("🟡 [CLEAR LOGIC 2] Timeout executed, checking clear conditions:", {
         shouldClear,
         pathname,
         currentSpaceId,
         isSelectingSpace: isSelectingSpaceRef.current,
       });
-      
+
       if (shouldClear) {
         console.log("🟡 [CLEAR LOGIC 2] CLEARING space selection (pathname)");
         // Only clear if space is already null and we're not actively selecting
@@ -452,7 +465,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
         console.log("🟡 [CLEAR LOGIC 2] NOT clearing (conditions not met)");
       }
     }, 200); // Small delay to allow navigation to complete
-    
+
     return () => {
       console.log("🟡 [CLEAR LOGIC 2] Cleanup: clearing timeout");
       clearTimeout(timeoutId);
@@ -466,6 +479,14 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
     }
   }, [isChatPage, chatRoomSpaceId, isMobile]);
 
+  // MUST be before any conditional return - hooks must run in same order every render
+  const handleVoiceChannelDisconnect = useCallback(
+    (shouldSignalTerminate: boolean) => {
+      leaveVoiceChannel();
+    },
+    [leaveVoiceChannel]
+  );
+
   if (isPublicPage) {
     return (
       <>
@@ -474,10 +495,6 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
       </>
     );
   }
-
-  const handleVoiceChannelDisconnect = useCallback((shouldSignalTerminate: boolean) => {
-    leaveVoiceChannel();
-  }, [leaveVoiceChannel]);
 
   return (
     <ProtectedRoute>
@@ -498,7 +515,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             hidden={false} // Always visible for voice channels (no ringing)
           />
         )}
-        
+
         <div className="flex h-[100dvh] w-full bg-[#0B0D12]/50 overflow-hidden">
           {/* Desktop: Permanent Rail & Sidebar */}
           <aside className="hidden md:flex">
@@ -511,7 +528,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             />
             {showChannelSidebar && (
               <ChannelSidebar
-                spaceName={currentSpace?.name || 'Space'}
+                spaceName={currentSpace?.name || "Space"}
                 spaceAvatarUrl={currentSpace?.avatar_url || null}
                 spaceId={activeSpaceId || undefined}
                 isAdmin={isAdmin}
@@ -542,7 +559,10 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Drawer Content - SpaceRail Only */}
-                <div className="flex-1 overflow-y-auto overflow-x-visible" style={{ overflowX: 'visible' }}>
+                <div
+                  className="flex-1 overflow-y-auto overflow-x-visible"
+                  style={{ overflowX: "visible" }}
+                >
                   <SpaceRail
                     spaces={spaces}
                     activeSpaceId={activeSpaceId}
@@ -570,7 +590,7 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
           {/* ABSOLUTELY DO NOT RENDER when hamburger menu is open - ONLY show when menu is closed AND sidebar is explicitly opened */}
           {isMobile && !isMobileNavOpen && currentSpaceId && isChannelSidebarOpen && (
             <ChannelSidebar
-              spaceName={currentSpace?.name || 'Space'}
+              spaceName={currentSpace?.name || "Space"}
               spaceAvatarUrl={currentSpace?.avatar_url || null}
               spaceId={activeSpaceId || undefined}
               isAdmin={isAdmin}
@@ -601,63 +621,59 @@ const AppShell: React.FC<AppShellProps> = ({ children }) => {
             />
           )}
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col min-w-0 relative">
-        {/* Only show AppShell Header if NOT in a Chat Room or Space Page */}
-        {!isChatPage && !isSpacePage && (
-          <header className="sticky top-0 z-30 h-16 bg-[#0B0D12]/80 backdrop-blur-xl border-b border-white/10 flex items-center justify-between px-4 md:px-6 shrink-0">
-            <div className="flex items-center gap-4 flex-shrink-0">
-              {/* Mobile: Hamburger Menu */}
-              <button
-                onClick={() => {
-                  // FORCE close ChannelSidebar first
-                  setIsChannelSidebarOpen(false);
-                  // Then open hamburger menu with SpaceRail only
-                  setIsMobileNavOpen(true);
-                }}
-                className="md:hidden p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                aria-label="Open navigation"
-              >
-                <Menu size={24} />
-              </button>
-              {isHomePage && (
-                <AetherLogo className="h-8 w-auto" />
-              )}
-            </div>
-            {/* Centered GlobalSearch */}
-            <div className="flex-1 flex justify-center px-4">
-              {!isHomePage && <GlobalSearch />}
-            </div>
-            <div className="flex items-center gap-4 flex-shrink-0">
-              <NotificationBell />
-            </div>
-          </header>
-        )}
+          {/* Main Content Area */}
+          <main className="flex-1 flex flex-col min-w-0 relative">
+            {/* Only show AppShell Header if NOT in a Chat Room or Space Page */}
+            {!isChatPage && !isSpacePage && (
+              <header className="sticky top-0 z-30 h-16 bg-[#0B0D12]/80 backdrop-blur-xl border-b border-white/10 flex items-center justify-between px-4 md:px-6 shrink-0">
+                <div className="flex items-center gap-4 flex-shrink-0">
+                  {/* Mobile: Hamburger Menu */}
+                  <button
+                    onClick={() => {
+                      // FORCE close ChannelSidebar first
+                      setIsChannelSidebarOpen(false);
+                      // Then open hamburger menu with SpaceRail only
+                      setIsMobileNavOpen(true);
+                    }}
+                    className="md:hidden p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                    aria-label="Open navigation"
+                  >
+                    <Menu size={24} />
+                  </button>
+                  {isHomePage && <AetherLogo className="h-8 w-auto" />}
+                </div>
+                {/* Centered GlobalSearch */}
+                <div className="flex-1 flex justify-center px-4">
+                  {!isHomePage && <GlobalSearch />}
+                </div>
+                <div className="flex items-center gap-4 flex-shrink-0">
+                  <NotificationBell />
+                </div>
+              </header>
+            )}
 
-        {/* Content */}
-        <div className="flex-1 relative overflow-y-auto">
-          {children}
-        </div>
-      </main>
+            {/* Content */}
+            <div className="flex-1 relative overflow-y-auto">{children}</div>
+          </main>
 
-      {/* Modals */}
-      <CreateSpaceModal 
-        isOpen={isCreateSpaceOpen} 
-        onClose={() => setIsCreateSpaceOpen(false)} 
-      />
-      {currentSpaceId && (
-        <SpaceSettingsModal
-          spaceId={currentSpaceId}
-          spaceName={currentSpace?.name || 'Space'}
-          isAdmin={isAdmin}
-          isOpen={isSpaceSettingsModalOpen}
-          onClose={() => setSpaceSettingsModalOpen(false)}
-        />
-      )}
+          {/* Modals */}
+          <CreateSpaceModal
+            isOpen={isCreateSpaceOpen}
+            onClose={() => setIsCreateSpaceOpen(false)}
+          />
+          {currentSpaceId && (
+            <SpaceSettingsModal
+              spaceId={currentSpaceId}
+              spaceName={currentSpace?.name || "Space"}
+              isAdmin={isAdmin}
+              isOpen={isSpaceSettingsModalOpen}
+              onClose={() => setSpaceSettingsModalOpen(false)}
+            />
+          )}
         </div>
       </AuroraBackground>
     </ProtectedRoute>
   );
-}
+};
 
 export default AppShell;
